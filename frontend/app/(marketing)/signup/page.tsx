@@ -19,7 +19,7 @@ export default function SignupPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true); setError("");
-    const { error } = await supabase.auth.signUp({
+    const { error } = await getSupabase().auth.signUp({
       email, password,
       options: { data: { full_name: name } },
     });
@@ -28,7 +28,7 @@ export default function SignupPage() {
   };
 
   const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
+    await getSupabase().auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/dashboard` },
     });

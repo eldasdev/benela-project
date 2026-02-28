@@ -16,7 +16,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }: { data: { user: any } }) => {
+    getSupabase().auth.getUser().then(({ data }: { data: { user: any } }) => {
       const user = data.user;
       if (!user) router.push("/login");
       else setLoading(false);
