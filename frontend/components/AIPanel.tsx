@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Section } from "@/app/page";
+import { Section } from "@/types";
 import { X, Send, Sparkles, Loader2, User } from "lucide-react";
 
 interface Message {

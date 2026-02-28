@@ -1,6 +1,6 @@
 "use client";
 
-import { Section } from "@/app/page";
+import { Section } from "@/types";
 import { Sparkles, Bell, TrendingUp, TrendingDown } from "lucide-react";
 import FinancePage from "./FinancePage";
 import HRPage from "./HRPage";

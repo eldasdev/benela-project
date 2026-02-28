@@ -6,10 +6,7 @@ import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/Sidebar";
 import Dashboard from "@/components/Dashboard";
 import AIPanel from "@/components/AIPanel";
-
-export type Section =
-  | "dashboard" | "finance" | "hr" | "sales" | "support"
-  | "legal" | "marketing" | "supply_chain" | "procurement" | "insights";
+import { Section } from "@/types";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -26,7 +23,12 @@ export default function DashboardPage() {
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#080808" }}>
-      <div style={{ width: "32px", height: "32px", borderRadius: "50%", border: "2px solid #1c1c1c", borderTopColor: "#7c6aff", animation: "spin 0.8s linear infinite" }} />
+      <div style={{
+        width: "32px", height: "32px", borderRadius: "50%",
+        border: "2px solid #1c1c1c", borderTopColor: "#7c6aff",
+        animation: "spin 0.8s linear infinite"
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
