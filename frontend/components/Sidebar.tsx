@@ -1,6 +1,6 @@
 "use client";
 
-import { Section } from "@/app/page";
+import { Section } from "@/types";
 
 interface SidebarProps {
   activeSection: Section;
