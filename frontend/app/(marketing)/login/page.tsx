@@ -1,4 +1,5 @@
 "use client";
+
 export const dynamic = "force-dynamic";
 
 import { useState } from "react";
@@ -17,27 +18,29 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true); setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await getSupabase().auth.signInWithPassword({ email, password });
     if (error) { setError(error.message); setLoading(false); }
     else router.push("/dashboard");
   };
 
   const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
+    await getSupabase().auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/dashboard` },
     });
   };
 
-  const input = {
+  const input: React.CSSProperties = {
     width: "100%", padding: "11px 14px", borderRadius: "10px",
     background: "#0d0d0d", border: "1px solid #222",
     color: "#f0f0f5", fontSize: "14px", outline: "none",
     fontFamily: "inherit", transition: "border 0.15s",
+    boxSizing: "border-box",
   };
 
   return (
     <div style={{ minHeight: "100vh", background: "#080808", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Background glow */}
       <div style={{ position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
@@ -63,7 +66,8 @@ export default function LoginPage() {
         <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "20px", padding: "32px" }}>
 
           {/* Google button */}
-          <button onClick={handleGoogle} style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px", transition: "border 0.15s" }}
+          <button onClick={handleGoogle}
+            style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px", transition: "border 0.15s" }}
             onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#333"}
             onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#222"}>
             <svg width="16" height="16" viewBox="0 0 24 24">
@@ -85,7 +89,10 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
               <label style={{ fontSize: "12px", color: "#555", marginBottom: "6px", display: "block" }}>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
+              <input
+                type="email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@company.com"
                 style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "#7c6aff"}
                 onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"}
@@ -96,7 +103,10 @@ export default function LoginPage() {
                 <label style={{ fontSize: "12px", color: "#555" }}>Password</label>
                 <Link href="/forgot-password" style={{ fontSize: "12px", color: "#7c6aff", textDecoration: "none" }}>Forgot?</Link>
               </div>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+              <input
+                type="password" value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
                 style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "#7c6aff"}
                 onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"}
@@ -109,8 +119,11 @@ export default function LoginPage() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
-              {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Signing in...</> : "Sign in"}
+            <button type="submit" disabled={loading}
+              style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
+              {loading
+                ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Signing in...</>
+                : "Sign in"}
             </button>
           </form>
         </div>
