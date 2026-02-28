@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
+from api.hr import router as hr_router
 from database.connection import Base, engine
 
 # Create all tables on startup
@@ -31,6 +32,7 @@ app.add_middleware(
 # Register routes
 app.include_router(agents_router, prefix="/agents", tags=["Agents"])
 app.include_router(finance_router, tags=["Finance"])
+app.include_router(hr_router, tags=["HR"])
 
 @app.get("/")
 def root():

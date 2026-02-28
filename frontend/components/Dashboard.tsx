@@ -2,6 +2,8 @@
 
 import { Section } from "@/app/page";
 import { Sparkles, Bell, TrendingUp, TrendingDown } from "lucide-react";
+import FinancePage from "./FinancePage";
+import HRPage from "./HRPage";
 
 interface Props {
   activeSection: Section;
@@ -31,50 +33,6 @@ const MODULE_DATA: Record<string, { title: string; subtitle: string; cards: { la
         { module: "🚚 Supply Chain", status: "Critical", tasks: "6", alerts: "5", last: "30 min ago" },
         { module: "🛒 Procurement", status: "Healthy", tasks: "3", alerts: "0", last: "2 hours ago" },
         { module: "📊 Insights", status: "Healthy", tasks: "2", alerts: "0", last: "10 min ago" },
-      ],
-    },
-  },
-  finance: {
-    title: "Finance",
-    subtitle: "Transactions, P&L, invoices and cash flow",
-    cards: [
-      { label: "Revenue (MTD)", value: "$92,400", change: "+8%", up: true, color: "#34d399" },
-      { label: "Expenses (MTD)", value: "$61,200", change: "+3%", up: false, color: "#f87171" },
-      { label: "Net Profit", value: "$31,200", change: "+15%", up: true, color: "#34d399" },
-      { label: "Pending Invoices", value: "14", change: "-2", up: true, color: "#fbbf24" },
-    ],
-    table: {
-      columns: ["Date", "Description", "Category", "Amount", "Status"],
-      rows: [
-        { date: "Feb 28", desc: "AWS Infrastructure", cat: "Operations", amount: "-$4,200", status: "Paid" },
-        { date: "Feb 28", desc: "Client Payment — Acme", cat: "Revenue", amount: "+$18,500", status: "Received" },
-        { date: "Feb 27", desc: "Payroll — Feb", cat: "HR", amount: "-$42,000", status: "Paid" },
-        { date: "Feb 27", desc: "Office Supplies", cat: "Admin", amount: "-$380", status: "Paid" },
-        { date: "Feb 26", desc: "Client Payment — XYZ", cat: "Revenue", amount: "+$9,800", status: "Received" },
-        { date: "Feb 26", desc: "Software Licenses", cat: "Tech", amount: "-$1,200", status: "Pending" },
-        { date: "Feb 25", desc: "Marketing Campaign", cat: "Marketing", amount: "-$5,500", status: "Paid" },
-      ],
-    },
-  },
-  hr: {
-    title: "Human Resources",
-    subtitle: "Employees, roles, hiring and performance",
-    cards: [
-      { label: "Total Employees", value: "124", change: "+3", up: true, color: "#60a5fa" },
-      { label: "Open Positions", value: "8", change: "+2", up: false, color: "#fbbf24" },
-      { label: "On Leave", value: "6", change: "-1", up: true, color: "#a78bfa" },
-      { label: "New This Month", value: "3", change: "+3", up: true, color: "#34d399" },
-    ],
-    table: {
-      columns: ["Employee", "Department", "Role", "Status", "Start Date"],
-      rows: [
-        { name: "Sarah Chen", dept: "Engineering", role: "Sr. Engineer", status: "Active", date: "Jan 2022" },
-        { name: "Marcus Johnson", dept: "Sales", role: "Account Exec", status: "Active", date: "Mar 2023" },
-        { name: "Priya Sharma", dept: "Finance", role: "Analyst", status: "On Leave", date: "Jun 2021" },
-        { name: "Tom Williams", dept: "HR", role: "HR Manager", status: "Active", date: "Nov 2020" },
-        { name: "Lisa Park", dept: "Marketing", role: "CMO", status: "Active", date: "Aug 2019" },
-        { name: "David Kim", dept: "Engineering", role: "Lead Dev", status: "Active", date: "Feb 2022" },
-        { name: "Anna Müller", dept: "Legal", role: "Counsel", status: "Active", date: "Apr 2023" },
       ],
     },
   },
@@ -134,19 +92,31 @@ const STATUS_COLORS: Record<string, string> = {
   "At Risk": "#f87171",
 };
 
+const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string }>> = {
+  finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
+  hr:      { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
+};
+
 export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Props) {
   const data = DATA[activeSection] ?? DATA.dashboard;
+  const overrideTitle = SECTION_TITLES[activeSection];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#080808" }}>
+
+      {/* Top bar */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 24px", height: "56px", flexShrink: 0,
         background: "#0a0a0a", borderBottom: "1px solid #1c1c1c",
       }}>
         <div>
-          <h1 style={{ fontSize: "16px", fontWeight: 600, color: "#f0f0f5" }}>{data.title}</h1>
-          <p style={{ fontSize: "11px", color: "#444", marginTop: "1px" }}>{data.subtitle}</p>
+          <h1 style={{ fontSize: "16px", fontWeight: 600, color: "#f0f0f5" }}>
+            {overrideTitle?.title ?? data.title}
+          </h1>
+          <p style={{ fontSize: "11px", color: "#444", marginTop: "1px" }}>
+            {overrideTitle?.subtitle ?? data.subtitle}
+          </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <button
@@ -176,101 +146,110 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           </button>
         </div>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
-          {data.cards.map((card, i) => (
-            <div key={i} style={{
-              background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "12px",
-              padding: "18px 20px", position: "relative", overflow: "hidden",
-            }}>
-              <p style={{ fontSize: "11px", color: "#444", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
-              <p style={{ fontSize: "28px", fontWeight: 600, color: "#f0f0f5", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
-              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
-                <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
-                <span style={{ fontSize: "11px", color: "#333" }}>vs last month</span>
-              </div>
+
+      {/* Main content — route to real pages or fallback */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {activeSection === "finance" ? (
+          <FinancePage />
+        ) : activeSection === "hr" ? (
+          <HRPage />
+        ) : (
+          <div style={{ padding: "24px" }}>
+
+            {/* KPI Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
+              {data.cards.map((card, i) => (
+                <div key={i} style={{
+                  background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "12px",
+                  padding: "18px 20px", position: "relative", overflow: "hidden",
+                }}>
+                  <p style={{ fontSize: "11px", color: "#444", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
+                  <p style={{ fontSize: "28px", fontWeight: 600, color: "#f0f0f5", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
+                    <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
+                    <span style={{ fontSize: "11px", color: "#333" }}>vs last month</span>
+                  </div>
+                  <div style={{
+                    position: "absolute", bottom: 0, left: 0, right: 0, height: "1px",
+                    background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)`,
+                  }} />
+                </div>
+              ))}
+            </div>
+
+            {/* Table */}
+            <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "14px", overflow: "hidden" }}>
               <div style={{
-                position: "absolute", bottom: 0, left: 0, right: 0, height: "1px",
-                background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)`,
-              }} />
-            </div>
-          ))}
-        </div>
-        <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "14px", overflow: "hidden" }}>
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "16px 20px", borderBottom: "1px solid #1c1c1c",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#7c6aff" }} />
-              <span style={{ fontSize: "13px", fontWeight: 600, color: "#e0e0e0" }}>
-                {activeSection === "dashboard" ? "Module Overview" : "Records"}
-              </span>
-            </div>
-            <button style={{
-              fontSize: "12px", color: "#555", background: "#111",
-              border: "1px solid #1c1c1c", borderRadius: "8px",
-              padding: "5px 12px", cursor: "pointer",
-            }}>
-              + Add New
-            </button>
-          </div>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
-            padding: "10px 20px",
-            borderBottom: "1px solid #161616",
-            background: "#0a0a0a",
-          }}>
-            {data.table.columns.map((col) => (
-              <span key={col} style={{
-                fontSize: "10px", fontWeight: 600, color: "#333",
-                textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "16px 20px", borderBottom: "1px solid #1c1c1c",
               }}>
-                {col}
-              </span>
-            ))}
-          </div>
-          {data.table.rows.map((row, i) => {
-            const vals = Object.values(row) as string[];
-            return (
-              <div
-                key={i}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
-                  padding: "13px 20px",
-                  borderBottom: i < data.table.rows.length - 1 ? "1px solid #141414" : "none",
-                  transition: "background 0.1s ease",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#0f0f0f"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              >
-                {vals.map((val, j) => {
-                  const statusColor = STATUS_COLORS[val];
-                  return (
-                    <span key={j} style={{ fontSize: "13px", display: "flex", alignItems: "center" }}>
-                      {statusColor ? (
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", gap: "5px",
-                          padding: "2px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 500,
-                          background: `${statusColor}12`, color: statusColor, border: `1px solid ${statusColor}20`,
-                        }}>
-                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-                          {val}
-                        </span>
-                      ) : (
-                        <span style={{ color: j === 0 ? "#ccc" : "#555" }}>{val}</span>
-                      )}
-                    </span>
-                  );
-                })}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#7c6aff" }} />
+                  <span style={{ fontSize: "13px", fontWeight: 600, color: "#e0e0e0" }}>
+                    {activeSection === "dashboard" ? "Module Overview" : "Records"}
+                  </span>
+                </div>
+                <button style={{
+                  fontSize: "12px", color: "#555", background: "#111",
+                  border: "1px solid #1c1c1c", borderRadius: "8px",
+                  padding: "5px 12px", cursor: "pointer",
+                }}>+ Add New</button>
               </div>
-            );
-          })}
-        </div>
+
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
+                padding: "10px 20px", borderBottom: "1px solid #161616", background: "#0a0a0a",
+              }}>
+                {data.table.columns.map((col) => (
+                  <span key={col} style={{
+                    fontSize: "10px", fontWeight: 600, color: "#333",
+                    textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace",
+                  }}>{col}</span>
+                ))}
+              </div>
+
+              {data.table.rows.map((row, i) => {
+                const vals = Object.values(row) as string[];
+                return (
+                  <div key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
+                      padding: "13px 20px",
+                      borderBottom: i < data.table.rows.length - 1 ? "1px solid #141414" : "none",
+                      transition: "background 0.1s ease", cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#0f0f0f"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                  >
+                    {vals.map((val, j) => {
+                      const statusColor = STATUS_COLORS[val];
+                      return (
+                        <span key={j} style={{ fontSize: "13px", display: "flex", alignItems: "center" }}>
+                          {statusColor ? (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: "5px",
+                              padding: "2px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 500,
+                              background: `${statusColor}12`, color: statusColor, border: `1px solid ${statusColor}20`,
+                            }}>
+                              <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+                              {val}
+                            </span>
+                          ) : (
+                            <span style={{ color: j === 0 ? "#ccc" : "#555" }}>{val}</span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+
+          </div>
+        )}
       </div>
     </div>
   );
