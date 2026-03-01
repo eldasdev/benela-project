@@ -4,6 +4,7 @@ import { Section } from "@/types";
 import { Sparkles, Bell, TrendingUp, TrendingDown } from "lucide-react";
 import FinancePage from "./FinancePage";
 import HRPage from "./HRPage";
+import ProjectsPage from "./ProjectsPage";
 
 interface Props {
   activeSection: Section;
@@ -82,6 +83,8 @@ const DATA: Record<string, (typeof MODULE_DATA.dashboard)> = {
   supply_chain: GENERIC("Supply Chain", "Inventory, vendors and logistics"),
   procurement: GENERIC("Procurement", "Purchase orders, vendors and approvals"),
   insights: GENERIC("Insights & BI", "Cross-module analytics and reporting"),
+  settings: GENERIC("Settings", "Account, workspace and preferences"),
+  marketplace: GENERIC("Marketplace", "Integrations and add-ons"),
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -93,8 +96,11 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string }>> = {
-  finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
-  hr:      { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
+  finance:  { title: "Finance",  subtitle: "Transactions, P&L, invoices and cash flow" },
+  hr:       { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
+  projects: { title: "Projects", subtitle: "Kanban boards, tasks and team collaboration" },
+  settings: { title: "Settings", subtitle: "Account, workspace and preferences" },
+  marketplace: { title: "Marketplace", subtitle: "Integrations and add-ons" },
 };
 
 export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Props) {
@@ -153,6 +159,8 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           <FinancePage />
         ) : activeSection === "hr" ? (
           <HRPage />
+        ) : activeSection === "projects" ? (
+          <ProjectsPage />
         ) : (
           <div style={{ padding: "24px" }}>
 

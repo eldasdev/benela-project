@@ -1,5 +1,6 @@
 export type Section =
   | "dashboard"
+  | "projects"
   | "finance"
   | "hr"
   | "sales"
@@ -8,4 +9,6 @@ export type Section =
   | "marketing"
   | "supply_chain"
   | "procurement"
-  | "insights";
+  | "insights"
+  | "settings"
+  | "marketplace";

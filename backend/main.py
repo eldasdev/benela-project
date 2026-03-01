@@ -4,6 +4,8 @@ from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
 from api.hr import router as hr_router
+from api.projects import router as projects_router
+from api.admin import router as admin_router
 from database.connection import Base, engine
 
 # Create all tables on startup
@@ -33,6 +35,9 @@ app.add_middleware(
 app.include_router(agents_router, prefix="/agents", tags=["Agents"])
 app.include_router(finance_router, tags=["Finance"])
 app.include_router(hr_router, tags=["HR"])
+app.include_router(projects_router, tags=["Projects"])
+app.include_router(admin_router)
+
 
 @app.get("/")
 def root():
@@ -41,6 +46,7 @@ def root():
         "status": "running",
         "environment": settings.APP_ENV,
     }
+
 
 @app.get("/health")
 def health():

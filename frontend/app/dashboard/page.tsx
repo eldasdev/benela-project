@@ -60,6 +60,10 @@ export default function DashboardPage() {
       <Sidebar
         activeSection={activeSection}
         onSectionChange={setActiveSection}
+        onLogout={async () => {
+          await getSupabase().auth.signOut();
+          router.push("/login");
+        }}
       />
       <div
         style={{

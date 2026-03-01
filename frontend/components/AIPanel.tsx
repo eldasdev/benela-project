@@ -18,6 +18,7 @@ interface Props {
 
 const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: string[] }> = {
   dashboard:    { label: "Dashboard",    icon: "⊞", prompts: ["Give me a business health summary", "Which module needs attention?", "What are the top risks this week?"] },
+  projects:     { label: "Projects",     icon: "📋", prompts: ["Summarize tasks by status", "Which tasks are overdue?", "Who is assigned the most work?"] },
   finance:      { label: "Finance",      icon: "💰", prompts: ["Analyze our cash flow this month", "Flag any unusual transactions", "What's our profit margin?"] },
   hr:           { label: "HR",           icon: "👥", prompts: ["Who is on leave this week?", "Summarize open positions", "Suggest hiring priorities"] },
   sales:        { label: "Sales",        icon: "📈", prompts: ["Which deals are at risk?", "What's our pipeline coverage?", "Draft a follow-up for Acme Corp"] },
@@ -27,6 +28,8 @@ const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: s
   supply_chain: { label: "Supply Chain", icon: "🚚", prompts: ["Which products are low on stock?", "Flag any supplier risks", "Forecast demand for next month"] },
   procurement:  { label: "Procurement",  icon: "🛒", prompts: ["List pending purchase orders", "Compare vendor quotes", "Flag overdue approvals"] },
   insights:     { label: "Insights",     icon: "📊", prompts: ["Give me an executive summary", "What trends should I know about?", "Compare this quarter vs last"] },
+  settings:     { label: "Settings",     icon: "⚙️", prompts: ["How do I change my password?", "Where are notification preferences?", "Export my data"] },
+  marketplace:  { label: "Marketplace",  icon: "📦", prompts: ["What integrations are available?", "How do I install an add-on?", "List popular integrations"] },
 };
 
 export default function AIPanel({ isOpen, section, onClose }: Props) {
@@ -34,7 +37,7 @@ export default function AIPanel({ isOpen, section, onClose }: Props) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const ctx = SECTION_CONTEXT[section];
+  const ctx = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
 
   useEffect(() => { setMessages([]); }, [section]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
