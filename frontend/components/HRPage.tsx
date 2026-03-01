@@ -49,12 +49,20 @@ export default function HRPage() {
   const [posForm, setPosForm]   = useState(emptyPos);
 
   const load = async () => {
-    const [s, e, p] = await Promise.all([
-      fetch(`${API}/hr/summary`).then(r => r.json()),
-      fetch(`${API}/hr/employees`).then(r => r.json()),
-      fetch(`${API}/hr/positions`).then(r => r.json()),
-    ]);
-    setSummary(s); setEmps(e); setPos(p);
+    try {
+      const [sRes, eRes, pRes] = await Promise.all([
+        fetch(`${API}/hr/summary`),
+        fetch(`${API}/hr/employees`),
+        fetch(`${API}/hr/positions`),
+      ]);
+      const s = sRes.ok ? await sRes.json() : null;
+      const e = eRes.ok ? await eRes.json() : [];
+      const p = pRes.ok ? await pRes.json() : [];
+      setSummary(s); setEmps(e); setPos(p);
+    } catch (err) {
+      console.error("Failed to load HR data:", err);
+      setSummary(null); setEmps([]); setPos([]);
+    }
   };
 
   useEffect(() => { load(); }, []);

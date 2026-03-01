@@ -50,12 +50,20 @@ export default function FinancePage() {
   const [invForm, setInvForm] = useState({ invoice_number: "", client_name: "", client_email: "", amount: "", tax: "0", status: "draft", notes: "" });
 
   const load = async () => {
-    const [s, t, i] = await Promise.all([
-      fetch(`${API}/finance/summary`).then(r => r.json()),
-      fetch(`${API}/finance/transactions`).then(r => r.json()),
-      fetch(`${API}/finance/invoices`).then(r => r.json()),
-    ]);
-    setSummary(s); setTx(t); setInv(i);
+    try {
+      const [sRes, tRes, iRes] = await Promise.all([
+        fetch(`${API}/finance/summary`),
+        fetch(`${API}/finance/transactions`),
+        fetch(`${API}/finance/invoices`),
+      ]);
+      const s = sRes.ok ? await sRes.json() : null;
+      const t = tRes.ok ? await tRes.json() : [];
+      const i = iRes.ok ? await iRes.json() : [];
+      setSummary(s); setTx(t); setInv(i);
+    } catch (err) {
+      console.error("Failed to load Finance data:", err);
+      setSummary(null); setTx([]); setInv([]);
+    }
   };
 
   useEffect(() => { load(); }, []);

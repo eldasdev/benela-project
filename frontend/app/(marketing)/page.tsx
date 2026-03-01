@@ -115,47 +115,9 @@ export default function LandingPage() {
 
         <p style={{ fontSize: "12px", color: "#333", marginTop: "20px" }}>No credit card required · 14-day free trial</p>
 
-        {/* Dashboard preview */}
-        <div style={{ maxWidth: "1000px", margin: "64px auto 0", borderRadius: "20px", overflow: "hidden", border: "1px solid #1c1c1c", boxShadow: "0 40px 80px rgba(0,0,0,0.6)", position: "relative" }}>
-          <div style={{ background: "#0a0a0a", padding: "12px 16px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid #1c1c1c" }}>
-            <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#f87171", opacity: 0.7 }} />
-            <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#fbbf24", opacity: 0.7 }} />
-            <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#34d399", opacity: 0.7 }} />
-            <div style={{ flex: 1, height: "22px", borderRadius: "6px", background: "#111", maxWidth: "300px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ fontSize: "11px", color: "#333" }}>benela.dev/dashboard</span>
-            </div>
-          </div>
-          <div style={{ background: "#080808", padding: "32px", display: "grid", gridTemplateColumns: "200px 1fr", gap: "20px", minHeight: "320px" }}>
-            {/* Fake sidebar */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              {["Dashboard", "Finance", "HR", "Sales", "Support", "Legal"].map((item, i) => (
-                <div key={item} style={{ padding: "8px 12px", borderRadius: "8px", background: i === 0 ? "#141414" : "transparent", fontSize: "13px", color: i === 0 ? "#e0e0e0" : "#333", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: i === 0 ? "#7c6aff" : "#222" }} />
-                  {item}
-                </div>
-              ))}
-            </div>
-            {/* Fake content */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "10px" }}>
-                {["$284,500", "124", "38", "17"].map((v, i) => (
-                  <div key={i} style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "10px", padding: "14px", }}>
-                    <div style={{ fontSize: "10px", color: "#333", marginBottom: "6px" }}>Metric {i+1}</div>
-                    <div style={{ fontSize: "20px", fontWeight: 600, color: "#f0f0f5" }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "10px", padding: "16px", flex: 1 }}>
-                <div style={{ fontSize: "11px", color: "#333", marginBottom: "10px" }}>MODULE OVERVIEW</div>
-                {["Finance", "HR", "Sales"].map((m, i) => (
-                  <div key={m} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: i < 2 ? "1px solid #141414" : "none" }}>
-                    <span style={{ fontSize: "13px", color: "#444" }}>{m}</span>
-                    <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: "rgba(52,211,153,0.1)", color: "#34d399" }}>Healthy</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        {/* Dashboard screenshot */}
+        <div style={{ maxWidth: "1200px", margin: "80px auto 0", borderRadius: "20px", overflow: "hidden", boxShadow: "0 40px 100px rgba(124,106,255,0.15), 0 20px 60px rgba(0,0,0,0.5)", border: "1px solid rgba(124,106,255,0.2)" }}>
+          <img src="/dashboard-screenshot.png" alt="Benela AI Dashboard" style={{ width: "100%", height: "auto", display: "block" }} />
         </div>
       </section>
 
