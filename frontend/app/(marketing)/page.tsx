@@ -253,7 +253,7 @@ export default function LandingPage() {
             <a key={link} href="#" style={{ fontSize: "13px", color: "#333", textDecoration: "none" }}>{link}</a>
           ))}
         </div>
-        <span style={{ fontSize: "12px", color: "#2a2a2a" }}>© 2025 Benela AI. All rights reserved.</span>
+        <span style={{ fontSize: "12px", color: "#2a2a2a" }}>© 2026 Benela AI. All rights reserved.</span>
       </footer>
     </div>
   );

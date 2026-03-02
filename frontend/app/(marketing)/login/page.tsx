@@ -17,8 +17,10 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError("");
-    const { error } = await getSupabase().auth.signInWithPassword({ email, password });
+    setLoading(true);
+    setError("");
+    const sb = getSupabase();
+    const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) { setError(error.message); setLoading(false); }
     else router.push("/dashboard");
   };
@@ -34,20 +36,14 @@ export default function LoginPage() {
     width: "100%", padding: "11px 14px", borderRadius: "10px",
     background: "#0d0d0d", border: "1px solid #222",
     color: "#f0f0f5", fontSize: "14px", outline: "none",
-    fontFamily: "inherit", transition: "border 0.15s",
-    boxSizing: "border-box",
+    fontFamily: "inherit", boxSizing: "border-box",
   };
 
   return (
     <div style={{ minHeight: "100vh", background: "#080808", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-      {/* Background glow */}
       <div style={{ position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
-
       <div style={{ width: "100%", maxWidth: "400px", position: "relative" }}>
-
-        {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: "40px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
             <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px rgba(124,106,255,0.3)" }}>
@@ -61,15 +57,9 @@ export default function LoginPage() {
           </div>
           <p style={{ fontSize: "13px", color: "#444" }}>Sign in to your workspace</p>
         </div>
-
-        {/* Card */}
         <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "20px", padding: "32px" }}>
-
-          {/* Google button */}
           <button onClick={handleGoogle}
-            style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px", transition: "border 0.15s" }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#333"}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#222"}>
+            style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -78,56 +68,38 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </button>
-
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
             <div style={{ flex: 1, height: "1px", background: "#1c1c1c" }} />
             <span style={{ fontSize: "12px", color: "#333" }}>or</span>
             <div style={{ flex: 1, height: "1px", background: "#1c1c1c" }} />
           </div>
-
-          {/* Email form */}
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
               <label style={{ fontSize: "12px", color: "#555", marginBottom: "6px", display: "block" }}>Email</label>
-              <input
-                type="email" value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                style={input}
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "#7c6aff"}
-                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"}
-                required />
+                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"} required />
             </div>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
                 <label style={{ fontSize: "12px", color: "#555" }}>Password</label>
                 <Link href="/forgot-password" style={{ fontSize: "12px", color: "#7c6aff", textDecoration: "none" }}>Forgot?</Link>
               </div>
-              <input
-                type="password" value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                style={input}
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "#7c6aff"}
-                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"}
-                required />
+                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"} required />
             </div>
-
             {error && (
               <div style={{ padding: "10px 14px", borderRadius: "9px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", fontSize: "13px", color: "#f87171" }}>
                 {error}
               </div>
             )}
-
             <button type="submit" disabled={loading}
               style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
-              {loading
-                ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Signing in...</>
-                : "Sign in"}
+              {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Signing in...</> : "Sign in"}
             </button>
           </form>
         </div>
-
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "#444" }}>
           Don't have an account?{" "}
           <Link href="/signup" style={{ color: "#7c6aff", textDecoration: "none", fontWeight: 500 }}>Sign up</Link>

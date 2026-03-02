@@ -1,14 +1,13 @@
 "use client";
+
 export const dynamic = "force-dynamic";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase";
 import { Loader2, CheckCircle } from "lucide-react";
 
 export default function SignupPage() {
-  const router = useRouter();
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [name, setName]         = useState("");
@@ -18,8 +17,10 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError("");
-    const { error } = await getSupabase().auth.signUp({
+    setLoading(true);
+    setError("");
+    const sb = getSupabase();
+    const { error } = await sb.auth.signUp({
       email, password,
       options: { data: { full_name: name } },
     });
@@ -34,11 +35,11 @@ export default function SignupPage() {
     });
   };
 
-  const input = {
+  const input: React.CSSProperties = {
     width: "100%", padding: "11px 14px", borderRadius: "10px",
     background: "#0d0d0d", border: "1px solid #222",
     color: "#f0f0f5", fontSize: "14px", outline: "none",
-    fontFamily: "inherit",
+    fontFamily: "inherit", boxSizing: "border-box",
   };
 
   if (done) return (
@@ -60,8 +61,8 @@ export default function SignupPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#080808", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div style={{ position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
-
       <div style={{ width: "100%", maxWidth: "400px", position: "relative" }}>
         <div style={{ textAlign: "center", marginBottom: "40px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
@@ -76,9 +77,9 @@ export default function SignupPage() {
           </div>
           <p style={{ fontSize: "13px", color: "#444" }}>Create your workspace</p>
         </div>
-
         <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "20px", padding: "32px" }}>
-          <button onClick={handleGoogle} style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px" }}>
+          <button onClick={handleGoogle}
+            style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "#111", border: "1px solid #222", color: "#ccc", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -87,13 +88,11 @@ export default function SignupPage() {
             </svg>
             Continue with Google
           </button>
-
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
             <div style={{ flex: 1, height: "1px", background: "#1c1c1c" }} />
             <span style={{ fontSize: "12px", color: "#333" }}>or</span>
             <div style={{ flex: 1, height: "1px", background: "#1c1c1c" }} />
           </div>
-
           <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
               <label style={{ fontSize: "12px", color: "#555", marginBottom: "6px", display: "block" }}>Full Name</label>
@@ -113,19 +112,17 @@ export default function SignupPage() {
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "#7c6aff"}
                 onBlur={e => (e.target as HTMLInputElement).style.borderColor = "#222"} minLength={8} required />
             </div>
-
             {error && (
               <div style={{ padding: "10px 14px", borderRadius: "9px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", fontSize: "13px", color: "#f87171" }}>
                 {error}
               </div>
             )}
-
-            <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
+            <button type="submit" disabled={loading}
+              style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, #7c6aff, #4f3de8)", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
               {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Creating account...</> : "Create account"}
             </button>
           </form>
         </div>
-
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "#444" }}>
           Already have an account?{" "}
           <Link href="/login" style={{ color: "#7c6aff", textDecoration: "none", fontWeight: 500 }}>Sign in</Link>

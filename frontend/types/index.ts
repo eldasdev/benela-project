@@ -9,6 +9,4 @@ export type Section =
   | "marketing"
   | "supply_chain"
   | "procurement"
-  | "insights"
-  | "settings"
-  | "marketplace";
+  | "insights";
