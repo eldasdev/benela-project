@@ -11,9 +11,9 @@ const input: React.CSSProperties = {
   width: "100%",
   padding: "11px 14px",
   borderRadius: "10px",
-  background: "#0e0e14",
+  background: "var(--bg-surface)",
   border: "1px solid #1e1e2a",
-  color: "#f0f0f5",
+  color: "var(--text-primary)",
   fontSize: "14px",
   outline: "none",
   fontFamily: "inherit",
@@ -53,7 +53,7 @@ export default function AdminLoginPage() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#060608",
+        background: "var(--bg-canvas)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -114,16 +114,16 @@ export default function AdminLoginPage() {
             >
               <Lock size={20} color="white" />
             </div>
-            <span style={{ fontSize: "22px", fontWeight: 700, color: "#f0f0f5", letterSpacing: "0.5px" }}>
+            <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "0.5px" }}>
               Admin Access
             </span>
           </div>
-          <p style={{ fontSize: "13px", color: "#555" }}>Owner and super-admin only</p>
+          <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>Owner and super-admin only</p>
         </div>
 
         <div
           style={{
-            background: "#0e0e14",
+            background: "var(--bg-surface)",
             border: "1px solid #1e1e2a",
             borderRadius: "16px",
             padding: "28px",
@@ -131,7 +131,7 @@ export default function AdminLoginPage() {
         >
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <div>
-              <label style={{ fontSize: "12px", color: "#555", marginBottom: "6px", display: "block" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>
                 Email
               </label>
               <input
@@ -146,7 +146,7 @@ export default function AdminLoginPage() {
               />
             </div>
             <div>
-              <label style={{ fontSize: "12px", color: "#555", marginBottom: "6px", display: "block" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>
                 Password
               </label>
               <input
@@ -209,9 +209,9 @@ export default function AdminLoginPage() {
           </form>
         </div>
 
-        <p style={{ textAlign: "center", marginTop: "20px", fontSize: "12px", color: "#444" }}>
+        <p style={{ textAlign: "center", marginTop: "20px", fontSize: "12px", color: "var(--text-subtle)" }}>
           Not an admin?{" "}
-          <a href="/login" style={{ color: "#7c6aff", textDecoration: "none" }}>
+          <a href="/login" style={{ color: "var(--accent)", textDecoration: "none" }}>
             Back to platform login
           </a>
         </p>

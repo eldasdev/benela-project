@@ -6,11 +6,11 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const inputStyle = {
   width: "100%", padding: "9px 12px", borderRadius: "9px",
-  background: "#111", border: "1px solid #2a2a2a",
-  color: "#f0f0f5", fontSize: "13px", outline: "none",
+  background: "var(--bg-elevated)", border: "1px solid var(--border-soft)",
+  color: "var(--text-primary)", fontSize: "13px", outline: "none",
   fontFamily: "inherit",
 };
-const labelStyle = { fontSize: "11px", color: "#555", marginBottom: "6px", display: "block" };
+const labelStyle = { fontSize: "11px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" };
 
 type Employee = {
   id: number; full_name: string; email: string; phone?: string;
@@ -127,14 +127,14 @@ export default function HRPage() {
           ].map(card => {
             const Icon = card.icon;
             return (
-              <div key={card.label} style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "12px", padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+              <div key={card.label} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "12px", padding: "18px 20px", position: "relative", overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-                  <p style={{ fontSize: "11px", color: "#444" }}>{card.label}</p>
+                  <p style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{card.label}</p>
                   <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: `${card.color}12`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Icon size={14} color={card.color} />
                   </div>
                 </div>
-                <p style={{ fontSize: "28px", fontWeight: 600, color: "#f0f0f5", lineHeight: 1 }}>{card.value}</p>
+                <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1 }}>{card.value}</p>
                 <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "1px", background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)` }} />
               </div>
             );
@@ -143,21 +143,21 @@ export default function HRPage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "10px", padding: "4px", width: "fit-content" }}>
+      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px", padding: "4px", width: "fit-content" }}>
         {(["employees", "positions"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            style={{ padding: "7px 18px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === t ? "#1a1a1a" : "transparent", color: tab === t ? "#f0f0f5" : "#555", transition: "all 0.15s" }}>
+            style={{ padding: "7px 18px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === t ? "var(--bg-elevated)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-subtle)", transition: "all 0.15s" }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
       {/* Table */}
-      <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "14px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1c1c1c" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#60a5fa" }} />
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#e0e0e0" }}>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
               {tab === "employees" ? "Employees" : "Open Positions"}
             </span>
           </div>
@@ -171,27 +171,27 @@ export default function HRPage() {
         {/* Employees */}
         {tab === "employees" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 0.8fr 80px", padding: "10px 20px", background: "#0a0a0a", borderBottom: "1px solid #161616" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
               {["Name", "Email", "Department", "Role", "Status", ""].map(h => (
-                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "#333", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
               ))}
             </div>
             {employees.map((emp, i) => (
               <div key={emp.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < employees.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#0f0f0f"}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                <span style={{ fontSize: "13px", color: "#ccc", fontWeight: 500 }}>{emp.full_name}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>{emp.email}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>{emp.department}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>{emp.role}</span>
-                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[emp.status] || "#888"}12`, color: STATUS_COLOR[emp.status] || "#888", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{emp.full_name}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{emp.email}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{emp.department}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{emp.role}</span>
+                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[emp.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[emp.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                   <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[emp.status], flexShrink: 0 }} />{emp.status.replace("_", " ")}
                 </span>
                 <div style={{ display: "flex", gap: "6px" }}>
-                  <button onClick={() => openEditEmp(emp)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Pencil size={11} color="#777" />
+                  <button onClick={() => openEditEmp(emp)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Pencil size={11} color="var(--text-muted)" />
                   </button>
-                  <button onClick={() => deleteEmp(emp.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => deleteEmp(emp.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Trash2 size={11} color="#f87171" />
                   </button>
                 </div>
@@ -203,27 +203,27 @@ export default function HRPage() {
         {/* Positions */}
         {tab === "positions" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 0.8fr 80px", padding: "10px 20px", background: "#0a0a0a", borderBottom: "1px solid #161616" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
               {["Title", "Department", "Salary Min", "Salary Max", "Status", ""].map(h => (
-                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "#333", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
               ))}
             </div>
             {positions.map((pos, i) => (
               <div key={pos.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < positions.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#0f0f0f"}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                <span style={{ fontSize: "13px", color: "#ccc", fontWeight: 500 }}>{pos.title}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>{pos.department}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{pos.title}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{pos.department}</span>
                 <span style={{ fontSize: "13px", color: "#34d399" }}>{pos.salary_min ? `$${pos.salary_min.toLocaleString()}` : "—"}</span>
                 <span style={{ fontSize: "13px", color: "#34d399" }}>{pos.salary_max ? `$${pos.salary_max.toLocaleString()}` : "—"}</span>
-                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[pos.status] || "#888"}12`, color: STATUS_COLOR[pos.status] || "#888", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[pos.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[pos.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                   <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[pos.status], flexShrink: 0 }} />{pos.status.replace("_", " ")}
                 </span>
                 <div style={{ display: "flex", gap: "6px" }}>
-                  <button onClick={() => openEditPos(pos)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Pencil size={11} color="#777" />
+                  <button onClick={() => openEditPos(pos)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Pencil size={11} color="var(--text-muted)" />
                   </button>
-                  <button onClick={() => deletePos(pos.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => deletePos(pos.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Trash2 size={11} color="#f87171" />
                   </button>
                 </div>
@@ -236,13 +236,13 @@ export default function HRPage() {
       {/* Modals */}
       {modal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
-          <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: "16px", padding: "28px", width: "480px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px", width: "480px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#f0f0f5" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
                 {modal === "add_emp" ? "Add Employee" : modal === "edit_emp" ? "Edit Employee" : modal === "add_pos" ? "Add Position" : "Edit Position"}
               </h2>
-              <button onClick={() => setModal(null)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <X size={13} color="#777" />
+              <button onClick={() => setModal(null)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <X size={13} color="var(--text-muted)" />
               </button>
             </div>
 
@@ -329,7 +329,7 @@ export default function HRPage() {
             )}
 
             <div style={{ display: "flex", gap: "10px", marginTop: "24px", justifyContent: "flex-end" }}>
-              <button onClick={() => setModal(null)} style={{ padding: "9px 18px", borderRadius: "9px", background: "#1a1a1a", border: "1px solid #222", color: "#777", fontSize: "13px", cursor: "pointer" }}>
+              <button onClick={() => setModal(null)} style={{ padding: "9px 18px", borderRadius: "9px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "13px", cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={modal?.includes("emp") ? saveEmp : savePos} disabled={loading}

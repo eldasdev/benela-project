@@ -10,6 +10,7 @@ import {
   DollarSign,
   Bell,
   TrendingUp,
+  Store,
   Settings,
   LogOut,
   ArrowLeft,
@@ -24,6 +25,7 @@ const NAV = [
   { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
   { href: "/admin/payments", label: "Payments", icon: DollarSign },
   { href: "/admin/notifications", label: "Notifications", icon: Bell },
+  { href: "/admin/marketplace", label: "Marketplace", icon: Store },
   { href: "/admin/analytics", label: "Analytics", icon: TrendingUp },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -54,7 +56,7 @@ export default function AdminSidebar() {
         width: "240px",
         minWidth: "240px",
         height: "100vh",
-        background: "#0a0a0f",
+        background: "var(--bg-panel)",
         borderRight: "1px solid #1e1e2a",
         display: "flex",
         flexDirection: "column",
@@ -77,7 +79,7 @@ export default function AdminSidebar() {
             <LayoutDashboard size={16} color="white" />
           </div>
           <div>
-            <div style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f5" }}>BENELA ADMIN</div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>BENELA ADMIN</div>
             <div
               style={{
                 fontSize: "9px",
@@ -106,7 +108,7 @@ export default function AdminSidebar() {
         </div>
         {NAV.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}
@@ -142,12 +144,12 @@ export default function AdminSidebar() {
                   }}
                 />
               )}
-              <Icon size={14} color={isActive ? "#ef4444" : "#555"} />
+              <Icon size={14} color={isActive ? "#ef4444" : "var(--text-subtle)"} />
               <span
                 style={{
                   fontSize: "12px",
                   fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "#e0e0e0" : "#6a6a7a",
+                  color: isActive ? "var(--text-primary)" : "#6a6a7a",
                 }}
               >
                 {item.label}
@@ -170,11 +172,11 @@ export default function AdminSidebar() {
         <div
           style={{
             padding: "10px 12px",
-            background: "#0e0e14",
+            background: "var(--bg-surface)",
             border: "1px solid #1e1e2a",
             borderRadius: "8px",
             fontSize: "11px",
-            color: "#666",
+            color: "var(--text-muted)",
           }}
         >
           <div style={{ marginBottom: "6px" }}>
@@ -208,7 +210,7 @@ export default function AdminSidebar() {
             padding: "8px 12px",
             borderRadius: "8px",
             fontSize: "12px",
-            color: "#666",
+            color: "var(--text-muted)",
             textDecoration: "none",
             marginBottom: "6px",
             transition: "background 0.15s",

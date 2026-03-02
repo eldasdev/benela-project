@@ -6,13 +6,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const inputStyle = {
   width: "100%", padding: "9px 12px", borderRadius: "9px",
-  background: "#111", border: "1px solid #2a2a2a",
-  color: "#f0f0f5", fontSize: "13px", outline: "none",
+  background: "var(--bg-elevated)", border: "1px solid var(--border-soft)",
+  color: "var(--text-primary)", fontSize: "13px", outline: "none",
   fontFamily: "inherit",
 };
 
 const labelStyle = {
-  fontSize: "11px", color: "#555", marginBottom: "6px", display: "block",
+  fontSize: "11px", color: "var(--text-subtle)", marginBottom: "6px", display: "block",
 };
 
 type Transaction = {
@@ -34,7 +34,7 @@ type Summary = {
 
 const STATUS_COLOR: Record<string, string> = {
   paid: "#34d399", received: "#34d399", pending: "#fbbf24",
-  overdue: "#f87171", draft: "#888", income: "#34d399", expense: "#f87171",
+  overdue: "#f87171", draft: "var(--text-muted)", income: "#34d399", expense: "#f87171",
 };
 
 export default function FinancePage() {
@@ -128,9 +128,9 @@ export default function FinancePage() {
             { label: "Net Profit",        value: fmt(summary.net_profit),      color: summary.net_profit >= 0 ? "#34d399" : "#f87171", up: summary.net_profit >= 0 },
             { label: "Pending Invoices",  value: String(summary.pending_invoices), color: "#fbbf24", up: false },
           ].map(card => (
-            <div key={card.label} style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "12px", padding: "18px 20px", position: "relative", overflow: "hidden" }}>
-              <p style={{ fontSize: "11px", color: "#444", marginBottom: "10px" }}>{card.label}</p>
-              <p style={{ fontSize: "28px", fontWeight: 600, color: "#f0f0f5", lineHeight: 1, marginBottom: "6px" }}>{card.value}</p>
+            <div key={card.label} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "12px", padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+              <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px" }}>{card.label}</p>
+              <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "6px" }}>{card.value}</p>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
               </div>
@@ -141,27 +141,27 @@ export default function FinancePage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "10px", padding: "4px", width: "fit-content" }}>
+      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px", padding: "4px", width: "fit-content" }}>
         {(["transactions", "invoices"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            style={{ padding: "7px 18px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === t ? "#1a1a1a" : "transparent", color: tab === t ? "#f0f0f5" : "#555", transition: "all 0.15s" }}>
+            style={{ padding: "7px 18px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === t ? "var(--bg-elevated)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-subtle)", transition: "all 0.15s" }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
       {/* Table card */}
-      <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "14px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1c1c1c" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#7c6aff" }} />
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#e0e0e0" }}>
+            <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "var(--accent)" }} />
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
               {tab === "transactions" ? "Transactions" : "Invoices"}
             </span>
           </div>
           <button
             onClick={() => { setModal(tab === "transactions" ? "add_tx" : "add_inv"); setTxForm({ description: "", category: "", amount: "", type: "income", status: "pending", notes: "" }); setInvForm({ invoice_number: "", client_name: "", client_email: "", amount: "", tax: "0", status: "draft", notes: "" }); }}
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px", background: "#7c6aff", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}>
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}>
             <Plus size={14} /> Add {tab === "transactions" ? "Transaction" : "Invoice"}
           </button>
         </div>
@@ -169,31 +169,31 @@ export default function FinancePage() {
         {/* Transactions table */}
         {tab === "transactions" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "#0a0a0a", borderBottom: "1px solid #161616" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
               {["Description", "Category", "Amount", "Type", "Status", ""].map(h => (
-                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "#333", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
               ))}
             </div>
             {transactions.map((tx, i) => (
               <div key={tx.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < transactions.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#0f0f0f"}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                <span style={{ fontSize: "13px", color: "#ccc" }}>{tx.description}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>{tx.category}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{tx.description}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{tx.category}</span>
                 <span style={{ fontSize: "13px", color: tx.type === "income" ? "#34d399" : "#f87171", fontWeight: 500 }}>
                   {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString()}
                 </span>
-                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.type] || "#7c6aff"}12`, color: STATUS_COLOR[tx.type] || "#7c6aff", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.type] || "var(--accent)"}12`, color: STATUS_COLOR[tx.type] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                   <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.type], flexShrink: 0 }} />{tx.type}
                 </span>
-                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.status] || "#7c6aff"}12`, color: STATUS_COLOR[tx.status] || "#7c6aff", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.status] || "var(--accent)"}12`, color: STATUS_COLOR[tx.status] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                   <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.status], flexShrink: 0 }} />{tx.status}
                 </span>
                 <div style={{ display: "flex", gap: "6px" }}>
-                  <button onClick={() => openEditTx(tx)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Pencil size={11} color="#777" />
+                  <button onClick={() => openEditTx(tx)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Pencil size={11} color="var(--text-muted)" />
                   </button>
-                  <button onClick={() => deleteTx(tx.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => deleteTx(tx.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Trash2 size={11} color="#f87171" />
                   </button>
                 </div>
@@ -205,27 +205,27 @@ export default function FinancePage() {
         {/* Invoices table */}
         {tab === "invoices" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "#0a0a0a", borderBottom: "1px solid #161616" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
               {["Invoice #", "Client", "Amount", "Tax", "Status", ""].map(h => (
-                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "#333", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
               ))}
             </div>
             {invoices.map((inv, i) => (
               <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < invoices.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#0f0f0f"}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                <span style={{ fontSize: "13px", color: "#7c6aff", fontFamily: "monospace" }}>{inv.invoice_number}</span>
-                <span style={{ fontSize: "13px", color: "#ccc" }}>{inv.client_name}</span>
+                <span style={{ fontSize: "13px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
+                <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{inv.client_name}</span>
                 <span style={{ fontSize: "13px", color: "#34d399", fontWeight: 500 }}>${inv.amount.toLocaleString()}</span>
-                <span style={{ fontSize: "13px", color: "#555" }}>${inv.tax}</span>
-                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[inv.status] || "#888"}12`, color: STATUS_COLOR[inv.status] || "#888", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
-                  <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[inv.status] || "#888", flexShrink: 0 }} />{inv.status}
+                <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>${inv.tax}</span>
+                <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[inv.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[inv.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                  <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[inv.status] || "var(--text-muted)", flexShrink: 0 }} />{inv.status}
                 </span>
                 <div style={{ display: "flex", gap: "6px" }}>
-                  <button onClick={() => openEditInv(inv)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Pencil size={11} color="#777" />
+                  <button onClick={() => openEditInv(inv)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Pencil size={11} color="var(--text-muted)" />
                   </button>
-                  <button onClick={() => deleteInv(inv.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => deleteInv(inv.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Trash2 size={11} color="#f87171" />
                   </button>
                 </div>
@@ -238,15 +238,15 @@ export default function FinancePage() {
       {/* Modals */}
       {modal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
-          <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: "16px", padding: "28px", width: "460px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px", width: "460px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
 
             {/* Modal header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#f0f0f5" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
                 {modal === "add_tx" ? "Add Transaction" : modal === "edit_tx" ? "Edit Transaction" : modal === "add_inv" ? "Add Invoice" : "Edit Invoice"}
               </h2>
-              <button onClick={() => setModal(null)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#1a1a1a", border: "1px solid #222", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <X size={13} color="#777" />
+              <button onClick={() => setModal(null)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <X size={13} color="var(--text-muted)" />
               </button>
             </div>
 
@@ -333,11 +333,11 @@ export default function FinancePage() {
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "10px", marginTop: "24px", justifyContent: "flex-end" }}>
-              <button onClick={() => setModal(null)} style={{ padding: "9px 18px", borderRadius: "9px", background: "#1a1a1a", border: "1px solid #222", color: "#777", fontSize: "13px", cursor: "pointer" }}>
+              <button onClick={() => setModal(null)} style={{ padding: "9px 18px", borderRadius: "9px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "13px", cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={modal?.includes("tx") ? saveTx : saveInv} disabled={loading}
-                style={{ padding: "9px 20px", borderRadius: "9px", background: "#7c6aff", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
+                style={{ padding: "9px 20px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
                 {loading ? "Saving..." : modal?.startsWith("add") ? "Add" : "Save Changes"}
               </button>
             </div>

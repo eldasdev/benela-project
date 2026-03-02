@@ -172,6 +172,14 @@ class PaymentStatus(str, enum.Enum):
     refunded = "refunded"
 
 
+class PaymentMethodType(str, enum.Enum):
+    card = "card"
+    bank = "bank"
+    wallet = "wallet"
+    manual = "manual"
+    other = "other"
+
+
 class NotificationType(str, enum.Enum):
     info = "info"
     warning = "warning"
@@ -239,6 +247,22 @@ class Payment(Base):
     created_at      = Column(DateTime, default=func.now())
 
 
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+    id               = Column(Integer, primary_key=True, index=True)
+    name             = Column(String(100), nullable=False)
+    provider         = Column(String(100), nullable=False)
+    method_type      = Column(Enum(PaymentMethodType), default=PaymentMethodType.other, nullable=False)
+    details          = Column(String(255), nullable=True)
+    fee_percent      = Column(Float, default=0, nullable=False)
+    fee_fixed        = Column(Float, default=0, nullable=False)
+    supports_refunds = Column(Boolean, default=True, nullable=False)
+    is_active        = Column(Boolean, default=True, nullable=False)
+    is_default       = Column(Boolean, default=False, nullable=False)
+    created_at       = Column(DateTime, default=func.now())
+    updated_at       = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
 class AdminNotification(Base):
     __tablename__ = "admin_notifications"
     id              = Column(Integer, primary_key=True, index=True)
@@ -261,3 +285,117 @@ class ClientActivity(Base):
     actor     = Column(String(100), nullable=True)
     extra_data  = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
+
+
+# ── Platform Settings ─────────────────────────────────
+class PlatformSettings(Base):
+    __tablename__ = "platform_settings"
+    id                        = Column(Integer, primary_key=True, index=True)
+    platform_name             = Column(String(255), default="Benela AI", nullable=False)
+    support_email             = Column(String(255), nullable=True)
+    status_page_url           = Column(String(500), nullable=True)
+    default_currency          = Column(String(10), default="USD", nullable=False)
+    default_trial_days        = Column(Integer, default=14, nullable=False)
+    default_tax_rate          = Column(Float, default=0, nullable=False)
+    invoice_prefix            = Column(String(20), default="BNL", nullable=False)
+    maintenance_mode          = Column(Boolean, default=False)
+    allow_new_signups         = Column(Boolean, default=True)
+    enforce_admin_mfa         = Column(Boolean, default=False)
+    session_timeout_minutes   = Column(Integer, default=60, nullable=False)
+    trusted_ip_ranges         = Column(Text, nullable=True)
+    allow_marketplace         = Column(Boolean, default=True)
+    allow_plugin_purchases    = Column(Boolean, default=True)
+    webhook_signing_secret    = Column(String(255), nullable=True)
+    platform_api_key          = Column(String(255), nullable=True)
+    created_at                = Column(DateTime, default=func.now())
+    updated_at                = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Chat Models ───────────────────────────────────────
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(100), nullable=False, index=True)
+    # format: "{user_identifier}_{section}" e.g. "user123_finance"
+    section = Column(String(50), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+
+# ── Marketplace Models ────────────────────────────────
+class PluginCategory(str, enum.Enum):
+    finance = "finance"
+    hr = "hr"
+    operations = "operations"
+    analytics = "analytics"
+    communication = "communication"
+    security = "security"
+    other = "other"
+
+
+class BillingCycle(str, enum.Enum):
+    monthly = "monthly"
+    yearly = "yearly"
+    one_time = "one_time"
+
+
+class PurchaseStatus(str, enum.Enum):
+    pending = "pending"
+    active = "active"
+    cancelled = "cancelled"
+    refunded = "refunded"
+
+
+class InstallStatus(str, enum.Enum):
+    pending = "pending"
+    installed = "installed"
+    failed = "failed"
+    uninstalled = "uninstalled"
+
+
+class MarketplacePlugin(Base):
+    __tablename__ = "marketplace_plugins"
+    id            = Column(Integer, primary_key=True, index=True)
+    slug          = Column(String(100), unique=True, nullable=False, index=True)
+    name          = Column(String(255), nullable=False)
+    description   = Column(Text, nullable=True)
+    vendor        = Column(String(255), nullable=False, default="Benela")
+    category      = Column(Enum(PluginCategory), default=PluginCategory.other, nullable=False)
+    icon          = Column(String(20), nullable=True)
+    tags          = Column(String(500), nullable=True)
+    price_monthly = Column(Float, nullable=False, default=0)
+    price_yearly  = Column(Float, nullable=True)
+    is_active     = Column(Boolean, default=True)
+    is_featured   = Column(Boolean, default=False)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class PluginPurchase(Base):
+    __tablename__ = "plugin_purchases"
+    id            = Column(Integer, primary_key=True, index=True)
+    workspace_id  = Column(String(120), nullable=False, index=True)
+    plugin_id     = Column(Integer, ForeignKey("marketplace_plugins.id", ondelete="CASCADE"), nullable=False)
+    billing_cycle = Column(Enum(BillingCycle), default=BillingCycle.monthly, nullable=False)
+    status        = Column(Enum(PurchaseStatus), default=PurchaseStatus.pending, nullable=False)
+    amount        = Column(Float, nullable=False, default=0)
+    currency      = Column(String(10), nullable=False, default="USD")
+    started_at    = Column(DateTime, nullable=True)
+    ended_at      = Column(DateTime, nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class PluginInstall(Base):
+    __tablename__ = "plugin_installs"
+    id           = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(String(120), nullable=False, index=True)
+    plugin_id    = Column(Integer, ForeignKey("marketplace_plugins.id", ondelete="CASCADE"), nullable=False)
+    purchase_id  = Column(Integer, ForeignKey("plugin_purchases.id", ondelete="SET NULL"), nullable=True)
+    status       = Column(Enum(InstallStatus), default=InstallStatus.pending, nullable=False)
+    is_enabled   = Column(Boolean, default=False)
+    installed_at = Column(DateTime, nullable=True)
+    created_at   = Column(DateTime, default=func.now())
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())

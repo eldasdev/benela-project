@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -116,6 +116,11 @@ def cancel_subscription(id: int, body: Optional[admin_schemas.CancelSubscription
 
 
 # ── Payments ──────────────────────────────────────────
+@router.get("/payments/summary", response_model=admin_schemas.PaymentSummaryOut)
+def payments_summary(db: Session = Depends(get_db)):
+    return crud.get_payment_summary(db)
+
+
 @router.get("/payments", response_model=List[admin_schemas.PaymentOut])
 def list_payments(
     skip: int = 0,
@@ -147,6 +152,56 @@ def update_payment_status(
     if not p:
         raise HTTPException(status_code=404, detail="Payment not found")
     return p
+
+
+@router.get("/payment-methods", response_model=List[admin_schemas.PaymentMethodOut])
+def list_payment_methods(
+    active_only: Optional[bool] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    return crud.get_payment_methods(db, active_only=active_only)
+
+
+@router.post("/payment-methods", response_model=admin_schemas.PaymentMethodOut)
+def create_payment_method(data: admin_schemas.PaymentMethodCreate, db: Session = Depends(get_db)):
+    try:
+        return crud.create_payment_method(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/payment-methods/{id}", response_model=admin_schemas.PaymentMethodOut)
+def update_payment_method(id: int, data: admin_schemas.PaymentMethodUpdate, db: Session = Depends(get_db)):
+    try:
+        method = crud.update_payment_method(db, id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not method:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return method
+
+
+@router.patch("/payment-methods/{id}/default", response_model=admin_schemas.PaymentMethodOut)
+def set_default_payment_method(id: int, db: Session = Depends(get_db)):
+    try:
+        method = crud.set_default_payment_method(db, id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not method:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return method
+
+
+@router.patch("/payment-methods/{id}/status", response_model=admin_schemas.PaymentMethodOut)
+def set_payment_method_status(
+    id: int,
+    body: admin_schemas.PaymentMethodStatusBody,
+    db: Session = Depends(get_db),
+):
+    method = crud.set_payment_method_status(db, id, body.is_active)
+    if not method:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return method
 
 
 # ── Notifications ─────────────────────────────────────
@@ -200,3 +255,37 @@ def analytics_growth(months: int = 12, db: Session = Depends(get_db)):
 @router.get("/analytics/churn")
 def analytics_churn(months: int = 12, db: Session = Depends(get_db)):
     return crud.get_analytics_churn(db, months)
+
+
+# ── Platform Settings ─────────────────────────────────
+@router.get("/settings", response_model=admin_schemas.PlatformSettingsOut)
+def get_settings(db: Session = Depends(get_db)):
+    return crud.get_platform_settings(db)
+
+
+@router.put("/settings", response_model=admin_schemas.PlatformSettingsOut)
+def update_settings(data: admin_schemas.PlatformSettingsUpdate, db: Session = Depends(get_db)):
+    try:
+        return crud.update_platform_settings(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/settings/maintenance", response_model=admin_schemas.PlatformSettingsOut)
+def set_maintenance_mode(body: admin_schemas.MaintenanceModeBody, db: Session = Depends(get_db)):
+    return crud.set_maintenance_mode(db, body.enabled)
+
+
+@router.post("/settings/emergency-lockdown", response_model=admin_schemas.PlatformSettingsOut)
+def emergency_lockdown(db: Session = Depends(get_db)):
+    return crud.emergency_lockdown(db)
+
+
+@router.post("/settings/rotate-api-key")
+def rotate_api_key(db: Session = Depends(get_db)):
+    return {"platform_api_key": crud.rotate_platform_api_key(db)}
+
+
+@router.post("/settings/rotate-webhook-secret")
+def rotate_webhook_secret(db: Session = Depends(get_db)):
+    return {"webhook_signing_secret": crud.rotate_webhook_signing_secret(db)}

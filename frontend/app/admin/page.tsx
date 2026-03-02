@@ -17,7 +17,7 @@ export default function AdminPage() {
         alignItems: "center",
         justifyContent: "center",
         height: "100vh",
-        background: "#060608",
+        background: "var(--bg-canvas)",
       }}
     >
       <div

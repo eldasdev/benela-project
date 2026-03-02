@@ -8,6 +8,10 @@ from database.models import (
     PositionStatus,
     ProjectStatus,
     TaskPriority,
+    PluginCategory,
+    BillingCycle,
+    PurchaseStatus,
+    InstallStatus,
 )
 
 
@@ -250,6 +254,129 @@ class TaskOut(BaseModel):
     assignee: Optional[str]
     tags: Optional[str]
     position: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Marketplace Schemas ───────────────────────────────
+class MarketplacePluginCreate(BaseModel):
+    slug: str
+    name: str
+    description: Optional[str] = None
+    vendor: str = "Benela"
+    category: PluginCategory = PluginCategory.other
+    icon: Optional[str] = None
+    tags: Optional[str] = None
+    price_monthly: float = 0
+    price_yearly: Optional[float] = None
+    is_active: bool = True
+    is_featured: bool = False
+
+
+class MarketplacePluginUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    vendor: Optional[str] = None
+    category: Optional[PluginCategory] = None
+    icon: Optional[str] = None
+    tags: Optional[str] = None
+    price_monthly: Optional[float] = None
+    price_yearly: Optional[float] = None
+    is_active: Optional[bool] = None
+    is_featured: Optional[bool] = None
+
+
+class MarketplacePluginOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    description: Optional[str]
+    vendor: str
+    category: PluginCategory
+    icon: Optional[str]
+    tags: Optional[str]
+    price_monthly: float
+    price_yearly: Optional[float]
+    is_active: bool
+    is_featured: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PluginPurchaseCreate(BaseModel):
+    workspace_id: str
+    plugin_id: int
+    billing_cycle: BillingCycle = BillingCycle.monthly
+    currency: str = "USD"
+
+
+class PluginPurchaseOut(BaseModel):
+    id: int
+    workspace_id: str
+    plugin_id: int
+    billing_cycle: BillingCycle
+    status: PurchaseStatus
+    amount: float
+    currency: str
+    started_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PluginInstallToggle(BaseModel):
+    workspace_id: str
+    is_enabled: bool
+
+
+class PluginInstallOut(BaseModel):
+    id: int
+    workspace_id: str
+    plugin_id: int
+    purchase_id: Optional[int]
+    status: InstallStatus
+    is_enabled: bool
+    installed_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Chat Schemas ──────────────────────────────────────
+class ChatMessageCreate(BaseModel):
+    session_id: str
+    section: str
+    role: str
+    content: str
+
+
+class ChatMessageOut(BaseModel):
+    id: int
+    session_id: str
+    section: str
+    role: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Client Notification Feed ──────────────────────────
+class ClientNotificationOut(BaseModel):
+    id: int
+    title: str
+    message: str
+    type: str
+    target: str
+    target_value: Optional[str]
+    sent_at: Optional[datetime]
     created_at: datetime
 
     class Config:

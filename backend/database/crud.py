@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from database.models import (
     Transaction,
     Invoice,
@@ -10,8 +12,319 @@ from database.models import (
     Project,
     KanbanColumn,
     KanbanTask,
+    MarketplacePlugin,
+    PluginPurchase,
+    PluginInstall,
+    PluginCategory,
+    BillingCycle,
+    PurchaseStatus,
+    InstallStatus,
+    ChatMessage,
 )
 from database import schemas
+
+
+def _month_bounds(now: datetime):
+    month_start = datetime(now.year, now.month, 1)
+    if now.month == 12:
+        next_month_start = datetime(now.year + 1, 1, 1)
+    else:
+        next_month_start = datetime(now.year, now.month + 1, 1)
+
+    prev_month_end = month_start
+    if month_start.month == 1:
+        prev_month_start = datetime(month_start.year - 1, 12, 1)
+    else:
+        prev_month_start = datetime(month_start.year, month_start.month - 1, 1)
+    return month_start, next_month_start, prev_month_start, prev_month_end
+
+
+def _change_percent(current: float, previous: float):
+    if previous == 0:
+        if current == 0:
+            return "0%", True
+        return "+100%", True
+    pct = ((current - previous) / abs(previous)) * 100
+    return f"{pct:+.0f}%", pct >= 0
+
+
+def _change_number(current: int, previous: int):
+    diff = current - previous
+    if diff == 0:
+        return "0", True
+    return f"{diff:+d}", diff >= 0
+
+
+def _time_ago(value: datetime | None):
+    if not value:
+        return "—"
+    ref = value.replace(tzinfo=None) if value.tzinfo else value
+    delta = datetime.utcnow() - ref
+    seconds = max(int(delta.total_seconds()), 0)
+    if seconds < 60:
+        return "Just now"
+    if seconds < 3600:
+        mins = seconds // 60
+        return f"{mins} min ago"
+    if seconds < 86400:
+        hours = seconds // 3600
+        return f"{hours} hour ago" if hours == 1 else f"{hours} hours ago"
+    days = seconds // 86400
+    return f"{days} day ago" if days == 1 else f"{days} days ago"
+
+
+def _status_from_alerts(alerts: int):
+    if alerts >= 5:
+        return "Critical"
+    if alerts > 0:
+        return "Warning"
+    return "Healthy"
+
+
+def _max_dt(*values: datetime | None):
+    filtered = [v for v in values if v is not None]
+    if not filtered:
+        return None
+    return max(filtered)
+
+
+# ── Dashboard ─────────────────────────────────────────
+def get_dashboard_overview(db: Session, workspace_id: str = "default-workspace"):
+    _seed_marketplace_if_empty(db)
+
+    now = datetime.utcnow()
+    month_start, next_month_start, prev_month_start, prev_month_end = _month_bounds(now)
+    today_start = datetime(now.year, now.month, now.day)
+
+    income_total = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.income)
+        .scalar()
+        or 0
+    )
+    expense_total = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.expense)
+        .scalar()
+        or 0
+    )
+    income_this_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.income,
+            Transaction.date >= month_start,
+            Transaction.date < next_month_start,
+        )
+        .scalar()
+        or 0
+    )
+    income_prev_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.income,
+            Transaction.date >= prev_month_start,
+            Transaction.date < prev_month_end,
+        )
+        .scalar()
+        or 0
+    )
+    expense_this_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.expense,
+            Transaction.date >= month_start,
+            Transaction.date < next_month_start,
+        )
+        .scalar()
+        or 0
+    )
+    expense_prev_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.expense,
+            Transaction.date >= prev_month_start,
+            Transaction.date < prev_month_end,
+        )
+        .scalar()
+        or 0
+    )
+
+    active_employees = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.status == "active")
+        .scalar()
+        or 0
+    )
+    hires_this_month = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.created_at >= month_start, Employee.created_at < next_month_start)
+        .scalar()
+        or 0
+    )
+    hires_prev_month = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.created_at >= prev_month_start, Employee.created_at < prev_month_end)
+        .scalar()
+        or 0
+    )
+
+    active_projects = (
+        db.query(func.count(Project.id))
+        .filter(Project.status == "active")
+        .scalar()
+        or 0
+    )
+    projects_this_month = (
+        db.query(func.count(Project.id))
+        .filter(Project.created_at >= month_start, Project.created_at < next_month_start)
+        .scalar()
+        or 0
+    )
+    projects_prev_month = (
+        db.query(func.count(Project.id))
+        .filter(Project.created_at >= prev_month_start, Project.created_at < prev_month_end)
+        .scalar()
+        or 0
+    )
+
+    net_total = income_total - expense_total
+    net_this_month = income_this_month - expense_this_month
+    net_prev_month = income_prev_month - expense_prev_month
+
+    revenue_change, revenue_up = _change_percent(float(income_this_month), float(income_prev_month))
+    net_change, net_up = _change_percent(float(net_this_month), float(net_prev_month))
+    employees_change, employees_up = _change_number(active_employees, active_employees - hires_this_month + hires_prev_month)
+    projects_change, projects_up = _change_number(active_projects, active_projects - projects_this_month + projects_prev_month)
+
+    finance_tasks_today = (
+        db.query(func.count(Transaction.id))
+        .filter(Transaction.date >= today_start)
+        .scalar()
+        or 0
+    )
+    finance_alerts = (
+        db.query(func.count(Invoice.id))
+        .filter(Invoice.status.in_(["pending", "overdue"]))
+        .scalar()
+        or 0
+    )
+    finance_last = _max_dt(
+        db.query(func.max(Transaction.created_at)).scalar(),
+        db.query(func.max(Invoice.created_at)).scalar(),
+    )
+
+    hr_tasks_today = (
+        (db.query(func.count(Employee.id)).filter(Employee.created_at >= today_start).scalar() or 0)
+        + (db.query(func.count(Position.id)).filter(Position.created_at >= today_start).scalar() or 0)
+    )
+    hr_alerts = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.status == "on_leave")
+        .scalar()
+        or 0
+    )
+    hr_last = _max_dt(
+        db.query(func.max(Employee.updated_at)).scalar(),
+        db.query(func.max(Position.created_at)).scalar(),
+    )
+
+    project_tasks_today = (
+        db.query(func.count(KanbanTask.id))
+        .filter(KanbanTask.created_at >= today_start)
+        .scalar()
+        or 0
+    )
+    project_alerts = (
+        db.query(func.count(KanbanTask.id))
+        .filter(KanbanTask.due_date.isnot(None), KanbanTask.due_date < now)
+        .scalar()
+        or 0
+    )
+    project_last = _max_dt(
+        db.query(func.max(KanbanTask.updated_at)).scalar(),
+        db.query(func.max(Project.updated_at)).scalar(),
+    )
+
+    marketplace_tasks_today = (
+        db.query(func.count(PluginPurchase.id))
+        .filter(PluginPurchase.workspace_id == workspace_id, PluginPurchase.created_at >= today_start)
+        .scalar()
+        or 0
+    )
+    marketplace_alerts = (
+        db.query(func.count(PluginPurchase.id))
+        .filter(PluginPurchase.workspace_id == workspace_id, PluginPurchase.status == PurchaseStatus.pending)
+        .scalar()
+        or 0
+    )
+    marketplace_last = _max_dt(
+        db.query(func.max(PluginPurchase.updated_at)).filter(PluginPurchase.workspace_id == workspace_id).scalar(),
+        db.query(func.max(PluginInstall.updated_at)).filter(PluginInstall.workspace_id == workspace_id).scalar(),
+    )
+
+    return {
+        "cards": [
+            {
+                "label": "Total Revenue",
+                "value": f"${float(income_total):,.0f}",
+                "change": revenue_change,
+                "up": revenue_up,
+                "color": "#34d399",
+            },
+            {
+                "label": "Net Profit",
+                "value": f"${float(net_total):,.0f}",
+                "change": net_change,
+                "up": net_up,
+                "color": "#60a5fa",
+            },
+            {
+                "label": "Active Employees",
+                "value": str(active_employees),
+                "change": employees_change,
+                "up": employees_up,
+                "color": "#a78bfa",
+            },
+            {
+                "label": "Active Projects",
+                "value": str(active_projects),
+                "change": projects_change,
+                "up": projects_up,
+                "color": "#fbbf24",
+            },
+        ],
+        "modules": [
+            {
+                "module": "💰 Finance",
+                "status": _status_from_alerts(finance_alerts),
+                "tasks_today": str(finance_tasks_today),
+                "alerts": str(finance_alerts),
+                "last_activity": _time_ago(finance_last),
+            },
+            {
+                "module": "👥 HR",
+                "status": _status_from_alerts(hr_alerts),
+                "tasks_today": str(hr_tasks_today),
+                "alerts": str(hr_alerts),
+                "last_activity": _time_ago(hr_last),
+            },
+            {
+                "module": "📋 Projects",
+                "status": _status_from_alerts(project_alerts),
+                "tasks_today": str(project_tasks_today),
+                "alerts": str(project_alerts),
+                "last_activity": _time_ago(project_last),
+            },
+            {
+                "module": "📦 Marketplace",
+                "status": _status_from_alerts(marketplace_alerts),
+                "tasks_today": str(marketplace_tasks_today),
+                "alerts": str(marketplace_alerts),
+                "last_activity": _time_ago(marketplace_last),
+            },
+        ],
+        "generated_at": now.isoformat() + "Z",
+    }
 
 
 # ── Finance ───────────────────────────────────────────
@@ -352,3 +665,419 @@ def move_task(db: Session, task_id: int, new_column_id: int, new_position: int):
     db.commit()
     db.refresh(task)
     return task
+
+
+# ── Marketplace ───────────────────────────────────────
+ESSENTIAL_PLUGINS = [
+    {
+        "slug": "stripe-billing",
+        "name": "Stripe Billing",
+        "description": "Sync subscriptions, invoices, and payment statuses from Stripe.",
+        "vendor": "Benela",
+        "category": PluginCategory.finance,
+        "icon": "💳",
+        "tags": "payments,billing,finance",
+        "price_monthly": 49,
+        "price_yearly": 490,
+        "is_featured": True,
+    },
+    {
+        "slug": "quickbooks-online",
+        "name": "QuickBooks Online",
+        "description": "Bi-directional sync for accounts, ledgers, invoices, and expenses.",
+        "vendor": "Benela",
+        "category": PluginCategory.finance,
+        "icon": "📒",
+        "tags": "accounting,bookkeeping,finance",
+        "price_monthly": 39,
+        "price_yearly": 390,
+        "is_featured": True,
+    },
+    {
+        "slug": "slack-notify",
+        "name": "Slack Notifications",
+        "description": "Send workflow alerts and approvals into Slack channels in real time.",
+        "vendor": "Benela",
+        "category": PluginCategory.communication,
+        "icon": "💬",
+        "tags": "alerts,chat,automation",
+        "price_monthly": 19,
+        "price_yearly": 190,
+        "is_featured": False,
+    },
+    {
+        "slug": "docu-sign",
+        "name": "DocuSign Contracts",
+        "description": "Create and manage legally binding e-signature contract workflows.",
+        "vendor": "Benela",
+        "category": PluginCategory.operations,
+        "icon": "✍️",
+        "tags": "contracts,legal,operations",
+        "price_monthly": 29,
+        "price_yearly": 290,
+        "is_featured": False,
+    },
+    {
+        "slug": "power-bi-export",
+        "name": "Power BI Export",
+        "description": "Push curated ERP data marts into Power BI dashboards.",
+        "vendor": "Benela",
+        "category": PluginCategory.analytics,
+        "icon": "📊",
+        "tags": "analytics,bi,reporting",
+        "price_monthly": 59,
+        "price_yearly": 590,
+        "is_featured": True,
+    },
+]
+
+_MARKETPLACE_SEEDED = False
+
+
+def _seed_marketplace_if_empty(db: Session):
+    global _MARKETPLACE_SEEDED
+    if _MARKETPLACE_SEEDED:
+        return
+    count = db.query(func.count(MarketplacePlugin.id)).scalar() or 0
+    if count > 0:
+        _MARKETPLACE_SEEDED = True
+        return
+    for plugin_data in ESSENTIAL_PLUGINS:
+        db.add(MarketplacePlugin(**plugin_data))
+    db.commit()
+    _MARKETPLACE_SEEDED = True
+
+
+def get_marketplace_summary(db: Session, workspace_id: str):
+    _seed_marketplace_if_empty(db)
+    total_items = (
+        db.query(func.count(MarketplacePlugin.id))
+        .filter(MarketplacePlugin.is_active == True)
+        .scalar()
+        or 0
+    )
+    active = (
+        db.query(func.count(PluginInstall.id))
+        .filter(
+            PluginInstall.workspace_id == workspace_id,
+            PluginInstall.status == InstallStatus.installed,
+            PluginInstall.is_enabled == True,
+        )
+        .scalar()
+        or 0
+    )
+    pending = (
+        db.query(func.count(PluginPurchase.id))
+        .filter(
+            PluginPurchase.workspace_id == workspace_id,
+            PluginPurchase.status == PurchaseStatus.pending,
+        )
+        .scalar()
+        or 0
+    )
+    completed = (
+        db.query(func.count(PluginPurchase.id))
+        .filter(
+            PluginPurchase.workspace_id == workspace_id,
+            PluginPurchase.status == PurchaseStatus.active,
+        )
+        .scalar()
+        or 0
+    )
+    monthly_spend = (
+        db.query(func.sum(PluginPurchase.amount))
+        .filter(
+            PluginPurchase.workspace_id == workspace_id,
+            PluginPurchase.status == PurchaseStatus.active,
+            PluginPurchase.billing_cycle == BillingCycle.monthly,
+        )
+        .scalar()
+        or 0
+    )
+    return {
+        "total_items": total_items,
+        "active": active,
+        "pending": pending,
+        "completed": completed,
+        "monthly_spend": round(float(monthly_spend), 2),
+    }
+
+
+def get_marketplace_admin_summary(db: Session):
+    _seed_marketplace_if_empty(db)
+    total_plugins = db.query(func.count(MarketplacePlugin.id)).scalar() or 0
+    active_plugins = (
+        db.query(func.count(MarketplacePlugin.id))
+        .filter(MarketplacePlugin.is_active == True)
+        .scalar()
+        or 0
+    )
+    featured_plugins = (
+        db.query(func.count(MarketplacePlugin.id))
+        .filter(MarketplacePlugin.is_featured == True)
+        .scalar()
+        or 0
+    )
+    total_purchases = db.query(func.count(PluginPurchase.id)).scalar() or 0
+    active_installs = (
+        db.query(func.count(PluginInstall.id))
+        .filter(PluginInstall.status == InstallStatus.installed, PluginInstall.is_enabled == True)
+        .scalar()
+        or 0
+    )
+    unique_workspaces = db.query(func.count(func.distinct(PluginPurchase.workspace_id))).scalar() or 0
+    monthly_revenue = (
+        db.query(func.sum(PluginPurchase.amount))
+        .filter(
+            PluginPurchase.status == PurchaseStatus.active,
+            PluginPurchase.billing_cycle == BillingCycle.monthly,
+        )
+        .scalar()
+        or 0
+    )
+    return {
+        "total_plugins": total_plugins,
+        "active_plugins": active_plugins,
+        "featured_plugins": featured_plugins,
+        "total_purchases": total_purchases,
+        "active_installs": active_installs,
+        "unique_workspaces": unique_workspaces,
+        "monthly_revenue": round(float(monthly_revenue), 2),
+    }
+
+
+def get_marketplace_plugins(
+    db: Session,
+    category: PluginCategory | None = None,
+    q: str | None = None,
+):
+    _seed_marketplace_if_empty(db)
+    query = db.query(MarketplacePlugin).filter(MarketplacePlugin.is_active == True)
+    if category:
+        query = query.filter(MarketplacePlugin.category == category)
+    if q:
+        needle = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                MarketplacePlugin.name.ilike(needle),
+                MarketplacePlugin.description.ilike(needle),
+                MarketplacePlugin.tags.ilike(needle),
+            )
+        )
+    return (
+        query.order_by(
+            MarketplacePlugin.is_featured.desc(),
+            MarketplacePlugin.created_at.desc(),
+        ).all()
+    )
+
+
+def get_marketplace_plugins_admin(db: Session, q: str | None = None):
+    _seed_marketplace_if_empty(db)
+    query = db.query(MarketplacePlugin)
+    if q:
+        needle = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                MarketplacePlugin.name.ilike(needle),
+                MarketplacePlugin.description.ilike(needle),
+                MarketplacePlugin.tags.ilike(needle),
+                MarketplacePlugin.slug.ilike(needle),
+            )
+        )
+    return query.order_by(MarketplacePlugin.created_at.desc()).all()
+
+
+def create_marketplace_plugin(db: Session, data: schemas.MarketplacePluginCreate):
+    plugin = MarketplacePlugin(**data.model_dump())
+    db.add(plugin)
+    db.commit()
+    db.refresh(plugin)
+    return plugin
+
+
+def update_marketplace_plugin(db: Session, plugin_id: int, data: schemas.MarketplacePluginUpdate):
+    plugin = db.query(MarketplacePlugin).filter(MarketplacePlugin.id == plugin_id).first()
+    if not plugin:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(plugin, key, value)
+    db.commit()
+    db.refresh(plugin)
+    return plugin
+
+
+def get_marketplace_plugin(db: Session, plugin_id: int):
+    return db.query(MarketplacePlugin).filter(MarketplacePlugin.id == plugin_id).first()
+
+
+def get_workspace_purchases(db: Session, workspace_id: str):
+    return (
+        db.query(PluginPurchase)
+        .filter(PluginPurchase.workspace_id == workspace_id)
+        .order_by(PluginPurchase.created_at.desc())
+        .all()
+    )
+
+
+def get_marketplace_purchases_admin(db: Session, workspace_id: str | None = None):
+    query = db.query(PluginPurchase)
+    if workspace_id:
+        query = query.filter(PluginPurchase.workspace_id == workspace_id)
+    return query.order_by(PluginPurchase.created_at.desc()).all()
+
+
+def get_workspace_installs(db: Session, workspace_id: str):
+    return (
+        db.query(PluginInstall)
+        .filter(PluginInstall.workspace_id == workspace_id)
+        .order_by(PluginInstall.updated_at.desc())
+        .all()
+    )
+
+
+def get_marketplace_installs_admin(db: Session, workspace_id: str | None = None):
+    query = db.query(PluginInstall)
+    if workspace_id:
+        query = query.filter(PluginInstall.workspace_id == workspace_id)
+    return query.order_by(PluginInstall.updated_at.desc()).all()
+
+
+def purchase_plugin(db: Session, data: schemas.PluginPurchaseCreate):
+    plugin = get_marketplace_plugin(db, data.plugin_id)
+    if not plugin or not plugin.is_active:
+        return None
+
+    existing = (
+        db.query(PluginPurchase)
+        .filter(
+            PluginPurchase.workspace_id == data.workspace_id,
+            PluginPurchase.plugin_id == data.plugin_id,
+            PluginPurchase.status == PurchaseStatus.active,
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    amount = plugin.price_yearly if data.billing_cycle == BillingCycle.yearly else plugin.price_monthly
+    if amount is None:
+        amount = plugin.price_monthly
+
+    purchase = PluginPurchase(
+        workspace_id=data.workspace_id,
+        plugin_id=data.plugin_id,
+        billing_cycle=data.billing_cycle,
+        amount=amount,
+        currency=data.currency,
+        status=PurchaseStatus.active,
+        started_at=func.now(),
+    )
+    db.add(purchase)
+    db.commit()
+    db.refresh(purchase)
+
+    install = (
+        db.query(PluginInstall)
+        .filter(
+            PluginInstall.workspace_id == data.workspace_id,
+            PluginInstall.plugin_id == data.plugin_id,
+        )
+        .first()
+    )
+    if install:
+        install.purchase_id = purchase.id
+        install.status = InstallStatus.installed
+        install.is_enabled = True
+        install.installed_at = func.now()
+    else:
+        install = PluginInstall(
+            workspace_id=data.workspace_id,
+            plugin_id=data.plugin_id,
+            purchase_id=purchase.id,
+            status=InstallStatus.installed,
+            is_enabled=True,
+            installed_at=func.now(),
+        )
+        db.add(install)
+    db.commit()
+    return purchase
+
+
+def set_plugin_enabled(
+    db: Session,
+    workspace_id: str,
+    plugin_id: int,
+    is_enabled: bool,
+):
+    install = (
+        db.query(PluginInstall)
+        .filter(
+            PluginInstall.workspace_id == workspace_id,
+            PluginInstall.plugin_id == plugin_id,
+        )
+        .first()
+    )
+    if not install:
+        return None
+    install.is_enabled = is_enabled
+    install.status = InstallStatus.installed if is_enabled else InstallStatus.uninstalled
+    db.commit()
+    db.refresh(install)
+    return install
+
+
+# ── Chat ──────────────────────────────────────────────
+def get_chat_messages(db: Session, session_id: str, limit: int = 50):
+    """Get last N messages for a session, ordered oldest first."""
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return list(reversed(rows))
+
+
+def save_chat_message(db: Session, session_id: str, section: str, role: str, content: str):
+    """Save a single message."""
+    msg = ChatMessage(
+        session_id=session_id,
+        section=section,
+        role=role,
+        content=content,
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return msg
+
+
+def save_chat_exchange(
+    db: Session,
+    session_id: str,
+    section: str,
+    user_msg: str,
+    assistant_msg: str,
+):
+    """Save both user and assistant messages in one call."""
+    save_chat_message(db, session_id, section, "user", user_msg)
+    save_chat_message(db, session_id, section, "assistant", assistant_msg)
+
+
+def clear_chat_history(db: Session, session_id: str):
+    """Delete all messages for a session."""
+    db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
+    db.commit()
+
+
+def get_all_sections_summary(db: Session, session_id: str):
+    """Return message count per section for this session."""
+    results = (
+        db.query(ChatMessage.section, func.count(ChatMessage.id).label("count"))
+        .filter(ChatMessage.session_id == session_id)
+        .group_by(ChatMessage.section)
+        .all()
+    )
+    return {row.section: row.count for row in results}

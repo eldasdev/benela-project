@@ -7,6 +7,7 @@ from database.models import (
     PlanTier,
     PlanStatus,
     PaymentStatus,
+    PaymentMethodType,
     NotificationType,
     NotificationTarget,
 )
@@ -142,6 +143,62 @@ class PaymentOut(BaseModel):
         from_attributes = True
 
 
+class PaymentSummaryOut(BaseModel):
+    total_payments: int
+    paid_count: int
+    pending_count: int
+    failed_count: int
+    refunded_count: int
+    paid_volume: float
+    pending_volume: float
+
+
+class PaymentMethodCreate(BaseModel):
+    name: str
+    provider: str
+    method_type: PaymentMethodType = PaymentMethodType.other
+    details: Optional[str] = None
+    fee_percent: float = 0
+    fee_fixed: float = 0
+    supports_refunds: bool = True
+    is_active: bool = True
+    is_default: bool = False
+
+
+class PaymentMethodUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    method_type: Optional[PaymentMethodType] = None
+    details: Optional[str] = None
+    fee_percent: Optional[float] = None
+    fee_fixed: Optional[float] = None
+    supports_refunds: Optional[bool] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+
+
+class PaymentMethodOut(BaseModel):
+    id: int
+    name: str
+    provider: str
+    method_type: PaymentMethodType
+    details: Optional[str]
+    fee_percent: float
+    fee_fixed: float
+    supports_refunds: bool
+    is_active: bool
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaymentMethodStatusBody(BaseModel):
+    is_active: bool
+
+
 # ── Notification ─────────────────────────────────────
 class NotificationCreate(BaseModel):
     title: str
@@ -172,8 +229,8 @@ class ActivityOut(BaseModel):
     id: int
     client_id: int
     action: str
-    actor: Optional[str]
-    metadata: Optional[str]
+    actor: Optional[str] = None
+    extra_data: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -182,3 +239,49 @@ class ActivityOut(BaseModel):
 
 class CancelSubscriptionBody(BaseModel):
     reason: Optional[str] = None
+
+
+# ── Platform Settings ─────────────────────────────────
+class PlatformSettingsUpdate(BaseModel):
+    platform_name: Optional[str] = None
+    support_email: Optional[str] = None
+    status_page_url: Optional[str] = None
+    default_currency: Optional[str] = None
+    default_trial_days: Optional[int] = None
+    default_tax_rate: Optional[float] = None
+    invoice_prefix: Optional[str] = None
+    maintenance_mode: Optional[bool] = None
+    allow_new_signups: Optional[bool] = None
+    enforce_admin_mfa: Optional[bool] = None
+    session_timeout_minutes: Optional[int] = None
+    trusted_ip_ranges: Optional[str] = None
+    allow_marketplace: Optional[bool] = None
+    allow_plugin_purchases: Optional[bool] = None
+
+
+class PlatformSettingsOut(BaseModel):
+    id: int
+    platform_name: str
+    support_email: Optional[str]
+    status_page_url: Optional[str]
+    default_currency: str
+    default_trial_days: int
+    default_tax_rate: float
+    invoice_prefix: str
+    maintenance_mode: bool
+    allow_new_signups: bool
+    enforce_admin_mfa: bool
+    session_timeout_minutes: int
+    trusted_ip_ranges: Optional[str]
+    allow_marketplace: bool
+    allow_plugin_purchases: bool
+    webhook_signing_secret: Optional[str]
+    platform_api_key: Optional[str]
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MaintenanceModeBody(BaseModel):
+    enabled: bool

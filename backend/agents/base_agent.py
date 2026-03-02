@@ -9,27 +9,35 @@ from core.config import settings
 class BaseAgent:
     """
     Every Benela AI agent inherits from this.
-    Calls Anthropic Claude API directly — no heavy dependencies needed.
+    Calls Anthropic Claude API with real database context injected.
     """
 
     def __init__(self, name: str, system_prompt: str):
-        self.name = name
+        self.name          = name
         self.system_prompt = system_prompt
-        self.api_key = settings.ANTHROPIC_API_KEY
-        self.api_url = "https://api.anthropic.com/v1/messages"
+        self.api_key       = settings.ANTHROPIC_API_KEY
+        self.api_url       = "https://api.anthropic.com/v1/messages"
 
-    def run(self, user_message: str) -> str:
-        """Send a message to Claude and get a response."""
+    def run(self, user_message: str, context: str = "") -> str:
+        """Send a message to Claude with optional real data context."""
+
+        if context:
+            full_system = (
+                f"{self.system_prompt}\n\n"
+                f"You have access to the following REAL, LIVE data from the "
+                f"Benela AI database. Use this data to answer the user's question "
+                f"accurately and specifically. Never say you lack real-time access.\n\n"
+                f"{context}"
+            )
+        else:
+            full_system = self.system_prompt
 
         payload = {
-            "model": "claude-haiku-4-5-20251001",
+            "model":      "claude-haiku-4-5-20251001",
             "max_tokens": 1024,
-            "system": self.system_prompt,
+            "system":     full_system,
             "messages": [
-                {
-                    "role": "user",
-                    "content": user_message
-                }
+                {"role": "user", "content": user_message}
             ]
         }
 
@@ -39,8 +47,8 @@ class BaseAgent:
             self.api_url,
             data=data,
             headers={
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
+                "Content-Type":      "application/json",
+                "x-api-key":         self.api_key,
                 "anthropic-version": "2023-06-01"
             },
             method="POST"

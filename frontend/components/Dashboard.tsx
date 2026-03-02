@@ -1,10 +1,17 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Section } from "@/types";
-import { Sparkles, Bell, TrendingUp, TrendingDown } from "lucide-react";
+import { Sparkles, Bell, TrendingUp, TrendingDown, RefreshCcw } from "lucide-react";
 import FinancePage from "./FinancePage";
 import HRPage from "./HRPage";
 import ProjectsPage from "./ProjectsPage";
+import MarketplacePage from "./MarketplacePage";
+import { getClientWorkspaceId } from "@/lib/client-settings";
+import { getUnreadNotificationCount } from "@/lib/notifications";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface Props {
   activeSection: Section;
@@ -12,59 +19,44 @@ interface Props {
   onToggleAI: () => void;
 }
 
-const MODULE_DATA: Record<string, { title: string; subtitle: string; cards: { label: string; value: string; change: string; up: boolean; color: string }[]; table: { columns: string[]; rows: Record<string, string>[] } }> = {
-  dashboard: {
-    title: "Dashboard",
-    subtitle: "Business overview across all modules",
-    cards: [
-      { label: "Total Revenue", value: "$284,500", change: "+12%", up: true, color: "#34d399" },
-      { label: "Active Employees", value: "124", change: "+3", up: true, color: "#60a5fa" },
-      { label: "Open Deals", value: "38", change: "-5", up: false, color: "#a78bfa" },
-      { label: "Support Tickets", value: "17", change: "-8", up: true, color: "#fbbf24" },
-    ],
-    table: {
-      columns: ["Module", "Status", "Tasks Today", "Alerts", "Last Activity"],
-      rows: [
-        { module: "💰 Finance", status: "Healthy", tasks: "12", alerts: "1", last: "2 min ago" },
-        { module: "👥 HR", status: "Healthy", tasks: "8", alerts: "0", last: "5 min ago" },
-        { module: "📈 Sales", status: "Warning", tasks: "15", alerts: "3", last: "1 min ago" },
-        { module: "🎧 Support", status: "Healthy", tasks: "24", alerts: "0", last: "Just now" },
-        { module: "⚖️ Legal", status: "Healthy", tasks: "4", alerts: "1", last: "1 hour ago" },
-        { module: "📣 Marketing", status: "Healthy", tasks: "7", alerts: "0", last: "3 min ago" },
-        { module: "🚚 Supply Chain", status: "Critical", tasks: "6", alerts: "5", last: "30 min ago" },
-        { module: "🛒 Procurement", status: "Healthy", tasks: "3", alerts: "0", last: "2 hours ago" },
-        { module: "📊 Insights", status: "Healthy", tasks: "2", alerts: "0", last: "10 min ago" },
-      ],
-    },
-  },
-  sales: {
-    title: "Sales & CRM",
-    subtitle: "Pipeline, deals, and revenue forecasting",
-    cards: [
-      { label: "Pipeline Value", value: "$1.2M", change: "+18%", up: true, color: "#a78bfa" },
-      { label: "Deals Closing", value: "12", change: "+4", up: true, color: "#34d399" },
-      { label: "At Risk", value: "3", change: "+3", up: false, color: "#f87171" },
-      { label: "Won This Month", value: "7", change: "+2", up: true, color: "#fbbf24" },
-    ],
-    table: {
-      columns: ["Company", "Contact", "Value", "Stage", "Close Date"],
-      rows: [
-        { company: "Acme Corp", contact: "John Doe", value: "$120,000", stage: "Negotiation", close: "Mar 15" },
-        { company: "TechStart", contact: "Jane Smith", value: "$85,000", stage: "Proposal", close: "Mar 22" },
-        { company: "GlobalCo", contact: "Mike Brown", value: "$340,000", stage: "Discovery", close: "Apr 5" },
-        { company: "FastGrow", contact: "Amy Lee", value: "$62,000", stage: "Closed Won", close: "Feb 20" },
-        { company: "MegaCorp", contact: "Bob Wilson", value: "$210,000", stage: "At Risk", close: "Mar 10" },
-        { company: "Innovate Ltd", contact: "Sara Jones", value: "$95,000", stage: "Proposal", close: "Mar 30" },
-      ],
-    },
-  },
+type DashboardCard = {
+  label: string;
+  value: string;
+  change: string;
+  up: boolean;
+  color: string;
 };
 
-const GENERIC = (title: string, subtitle: string) => ({
+type DashboardRow = {
+  module: string;
+  status: string;
+  tasks_today: string;
+  alerts: string;
+  last_activity: string;
+};
+
+type DashboardOverview = {
+  cards: DashboardCard[];
+  modules: DashboardRow[];
+  generated_at: string;
+};
+
+type NotificationFeedItem = {
+  id: number;
+};
+
+type DataShape = {
+  title: string;
+  subtitle: string;
+  cards: DashboardCard[];
+  table: { columns: string[]; rows: Record<string, string>[] };
+};
+
+const GENERIC = (title: string, subtitle: string): DataShape => ({
   title,
   subtitle,
   cards: [
-    { label: "Total Items", value: "—", change: "—", up: true, color: "#7c6aff" },
+    { label: "Total Items", value: "—", change: "—", up: true, color: "var(--accent)" },
     { label: "Active", value: "—", change: "—", up: true, color: "#34d399" },
     { label: "Pending", value: "—", change: "—", up: false, color: "#fbbf24" },
     { label: "Completed", value: "—", change: "—", up: true, color: "#60a5fa" },
@@ -75,8 +67,22 @@ const GENERIC = (title: string, subtitle: string) => ({
   },
 });
 
-const DATA: Record<string, (typeof MODULE_DATA.dashboard)> = {
-  ...MODULE_DATA,
+const DATA: Record<string, DataShape> = {
+  dashboard: {
+    title: "Dashboard",
+    subtitle: "Business overview across all modules",
+    cards: [
+      { label: "Total Revenue", value: "—", change: "—", up: true, color: "#34d399" },
+      { label: "Net Profit", value: "—", change: "—", up: true, color: "#60a5fa" },
+      { label: "Active Employees", value: "—", change: "—", up: true, color: "#a78bfa" },
+      { label: "Active Projects", value: "—", change: "—", up: true, color: "#fbbf24" },
+    ],
+    table: {
+      columns: ["Module", "Status", "Tasks Today", "Alerts", "Last Activity"],
+      rows: [{ module: "No data yet", status: "—", tasks: "—", alerts: "—", last: "—" }],
+    },
+  },
+  sales: GENERIC("Sales & CRM", "Pipeline, deals, and revenue forecasting"),
   support: GENERIC("Customer Support", "Tickets, resolutions and knowledge base"),
   legal: GENERIC("Legal & Compliance", "Contracts, compliance and risk management"),
   marketing: GENERIC("Marketing", "Campaigns, content and performance analytics"),
@@ -88,72 +94,213 @@ const DATA: Record<string, (typeof MODULE_DATA.dashboard)> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  Healthy: "#34d399", Warning: "#fbbf24", Critical: "#f87171",
-  Active: "#34d399", "On Leave": "#fbbf24", Pending: "#fbbf24",
-  Paid: "#34d399", Received: "#34d399", "Closed Won": "#34d399",
-  Negotiation: "#a78bfa", Proposal: "#60a5fa", Discovery: "#fbbf24",
-  "At Risk": "#f87171",
+  Healthy: "#34d399",
+  Warning: "#fbbf24",
+  Critical: "#f87171",
+  Active: "#34d399",
+  Pending: "#fbbf24",
+  Paid: "#34d399",
+  Received: "#34d399",
 };
 
 const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string }>> = {
-  finance:  { title: "Finance",  subtitle: "Transactions, P&L, invoices and cash flow" },
-  hr:       { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
+  dashboard: { title: "Dashboard", subtitle: "Business overview across all modules" },
+  finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
+  hr: { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
   projects: { title: "Projects", subtitle: "Kanban boards, tasks and team collaboration" },
   settings: { title: "Settings", subtitle: "Account, workspace and preferences" },
   marketplace: { title: "Marketplace", subtitle: "Integrations and add-ons" },
 };
 
 export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Props) {
+  const router = useRouter();
   const data = DATA[activeSection] ?? DATA.dashboard;
   const overrideTitle = SECTION_TITLES[activeSection];
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#080808" }}>
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
 
-      {/* Top bar */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 24px", height: "56px", flexShrink: 0,
-        background: "#0a0a0a", borderBottom: "1px solid #1c1c1c",
-      }}>
+  const loadOverview = useCallback(async () => {
+    setOverviewLoading(true);
+    setOverviewError("");
+    try {
+      const workspaceId = getClientWorkspaceId();
+      const res = await fetch(
+        `${API}/dashboard/overview?workspace_id=${encodeURIComponent(workspaceId)}`
+      );
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setOverviewError(payload?.detail || "Failed to load live dashboard data.");
+        setOverview(null);
+        return;
+      }
+      const payload = (await res.json()) as DashboardOverview;
+      setOverview(payload);
+    } catch (e) {
+      console.error("Failed to load dashboard overview", e);
+      setOverviewError("Could not connect to the backend service.");
+      setOverview(null);
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, []);
+
+  const loadUnreadNotifications = useCallback(async () => {
+    try {
+      const workspaceId = getClientWorkspaceId();
+      const res = await fetch(
+        `${API}/notifications?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`
+      );
+      if (!res.ok) {
+        setUnreadCount(0);
+        return;
+      }
+      const payload = (await res.json()) as NotificationFeedItem[];
+      const ids = payload.map((item) => item.id);
+      setUnreadCount(getUnreadNotificationCount(ids));
+    } catch {
+      setUnreadCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== "dashboard") return;
+    const t = setTimeout(() => {
+      void loadOverview();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [activeSection, loadOverview]);
+
+  useEffect(() => {
+    void loadUnreadNotifications();
+
+    const onFocus = () => {
+      void loadUnreadNotifications();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void loadUnreadNotifications();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadUnreadNotifications]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-canvas)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 24px",
+          height: "56px",
+          flexShrink: 0,
+          background: "var(--bg-panel)",
+          borderBottom: "1px solid var(--border-default)",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: "16px", fontWeight: 600, color: "#f0f0f5" }}>
+          <h1 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
             {overrideTitle?.title ?? data.title}
           </h1>
-          <p style={{ fontSize: "11px", color: "#444", marginTop: "1px" }}>
+          <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "1px" }}>
             {overrideTitle?.subtitle ?? data.subtitle}
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {activeSection === "dashboard" && (
+            <button
+              onClick={() => void loadOverview()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "7px 12px",
+                borderRadius: "9px",
+                cursor: "pointer",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-muted)",
+                fontSize: "12px",
+              }}
+            >
+              <RefreshCcw size={12} />
+              {overviewLoading ? "Loading..." : "Refresh"}
+            </button>
+          )}
           <button
             onClick={onToggleAI}
             style={{
-              display: "flex", alignItems: "center", gap: "8px",
-              padding: "7px 14px", borderRadius: "10px", cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "7px 14px",
+              borderRadius: "10px",
+              cursor: "pointer",
               background: aiPanelOpen ? "rgba(124,106,255,0.15)" : "rgba(124,106,255,0.08)",
               border: aiPanelOpen ? "1px solid rgba(124,106,255,0.4)" : "1px solid rgba(124,106,255,0.2)",
-              color: "#a89aff", fontSize: "13px", fontWeight: 500, transition: "all 0.2s ease",
+              color: "#a89aff",
+              fontSize: "13px",
+              fontWeight: 500,
+              transition: "all 0.2s ease",
             }}
           >
             <Sparkles size={14} />
             Ask AI
           </button>
-          <button style={{
-            width: "34px", height: "34px", borderRadius: "9px",
-            background: "#111", border: "1px solid #1c1c1c",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", position: "relative",
-          }}>
-            <Bell size={14} color="#555" />
-            <div style={{
-              position: "absolute", top: "7px", right: "7px",
-              width: "6px", height: "6px", borderRadius: "50%", background: "#f87171",
-            }} />
+          <button
+            onClick={() => router.push("/notifications")}
+            style={{
+              width: "34px",
+              height: "34px",
+              borderRadius: "9px",
+              background: "var(--bg-elevated)",
+              border: unreadCount > 0 ? "1px solid var(--accent)" : "1px solid var(--border-default)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              position: "relative",
+            }}
+            title="Notifications"
+          >
+            <Bell size={14} color={unreadCount > 0 ? "var(--accent)" : "var(--text-subtle)"} />
+            {unreadCount > 0 ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-4px",
+                  minWidth: "16px",
+                  height: "16px",
+                  padding: "0 4px",
+                  borderRadius: "999px",
+                  background: "var(--accent)",
+                  color: "white",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </div>
+            ) : null}
           </button>
         </div>
       </div>
 
-      {/* Main content — route to real pages or fallback */}
       <div style={{ flex: 1, overflowY: "auto" }}>
         {activeSection === "finance" ? (
           <FinancePage />
@@ -161,104 +308,261 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           <HRPage />
         ) : activeSection === "projects" ? (
           <ProjectsPage />
+        ) : activeSection === "marketplace" ? (
+          <MarketplacePage />
+        ) : activeSection === "dashboard" ? (
+          <DashboardOverviewPanel overview={overview} fallback={data} error={overviewError} />
         ) : (
-          <div style={{ padding: "24px" }}>
-
-            {/* KPI Cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
-              {data.cards.map((card, i) => (
-                <div key={i} style={{
-                  background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "12px",
-                  padding: "18px 20px", position: "relative", overflow: "hidden",
-                }}>
-                  <p style={{ fontSize: "11px", color: "#444", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
-                  <p style={{ fontSize: "28px", fontWeight: 600, color: "#f0f0f5", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                    {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
-                    <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
-                    <span style={{ fontSize: "11px", color: "#333" }}>vs last month</span>
-                  </div>
-                  <div style={{
-                    position: "absolute", bottom: 0, left: 0, right: 0, height: "1px",
-                    background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)`,
-                  }} />
-                </div>
-              ))}
-            </div>
-
-            {/* Table */}
-            <div style={{ background: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "14px", overflow: "hidden" }}>
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "16px 20px", borderBottom: "1px solid #1c1c1c",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#7c6aff" }} />
-                  <span style={{ fontSize: "13px", fontWeight: 600, color: "#e0e0e0" }}>
-                    {activeSection === "dashboard" ? "Module Overview" : "Records"}
-                  </span>
-                </div>
-                <button style={{
-                  fontSize: "12px", color: "#555", background: "#111",
-                  border: "1px solid #1c1c1c", borderRadius: "8px",
-                  padding: "5px 12px", cursor: "pointer",
-                }}>+ Add New</button>
-              </div>
-
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
-                padding: "10px 20px", borderBottom: "1px solid #161616", background: "#0a0a0a",
-              }}>
-                {data.table.columns.map((col) => (
-                  <span key={col} style={{
-                    fontSize: "10px", fontWeight: 600, color: "#333",
-                    textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace",
-                  }}>{col}</span>
-                ))}
-              </div>
-
-              {data.table.rows.map((row, i) => {
-                const vals = Object.values(row) as string[];
-                return (
-                  <div key={i}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: `repeat(${data.table.columns.length}, 1fr)`,
-                      padding: "13px 20px",
-                      borderBottom: i < data.table.rows.length - 1 ? "1px solid #141414" : "none",
-                      transition: "background 0.1s ease", cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#0f0f0f"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                  >
-                    {vals.map((val, j) => {
-                      const statusColor = STATUS_COLORS[val];
-                      return (
-                        <span key={j} style={{ fontSize: "13px", display: "flex", alignItems: "center" }}>
-                          {statusColor ? (
-                            <span style={{
-                              display: "inline-flex", alignItems: "center", gap: "5px",
-                              padding: "2px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 500,
-                              background: `${statusColor}12`, color: statusColor, border: `1px solid ${statusColor}20`,
-                            }}>
-                              <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-                              {val}
-                            </span>
-                          ) : (
-                            <span style={{ color: j === 0 ? "#ccc" : "#555" }}>{val}</span>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-
-          </div>
+          <GenericPanel activeSection={activeSection} data={data} />
         )}
       </div>
+    </div>
+  );
+}
+
+function DashboardOverviewPanel({
+  overview,
+  fallback,
+  error,
+}: {
+  overview: DashboardOverview | null;
+  fallback: DataShape;
+  error?: string;
+}) {
+  const cards = overview?.cards?.length ? overview.cards : fallback.cards;
+  const rows = overview?.modules?.length
+    ? overview.modules.map((r) => ({
+        module: r.module,
+        status: r.status,
+        tasks: r.tasks_today,
+        alerts: r.alerts,
+        last: r.last_activity,
+      }))
+    : fallback.table.rows;
+
+  return (
+    <div style={{ padding: "24px" }}>
+      {error ? (
+        <div
+          style={{
+            marginBottom: "12px",
+            padding: "10px 12px",
+            borderRadius: "10px",
+            border: "1px solid rgba(248,113,113,0.25)",
+            background: "rgba(248,113,113,0.08)",
+            color: "#f87171",
+            fontSize: "12px",
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
+        {cards.map((card, i) => (
+          <div
+            key={i}
+            style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "12px",
+              padding: "18px 20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
+            <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
+              <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
+              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: "1px",
+                background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
+      <DataTable
+        title="Module Overview"
+        columns={["Module", "Status", "Tasks Today", "Alerts", "Last Activity"]}
+        rows={rows}
+      />
+    </div>
+  );
+}
+
+function GenericPanel({
+  activeSection,
+  data,
+}: {
+  activeSection: Section;
+  data: DataShape;
+}) {
+  return (
+    <div style={{ padding: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
+        {data.cards.map((card, i) => (
+          <div
+            key={i}
+            style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "12px",
+              padding: "18px 20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
+            <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
+              <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
+              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: "1px",
+                background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
+      <DataTable
+        title={activeSection === "dashboard" ? "Module Overview" : "Records"}
+        columns={data.table.columns}
+        rows={data.table.rows}
+      />
+    </div>
+  );
+}
+
+function DataTable({
+  title,
+  columns,
+  rows,
+}: {
+  title: string;
+  columns: string[];
+  rows: Record<string, string>[];
+}) {
+  return (
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "16px 20px",
+          borderBottom: "1px solid var(--border-default)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "var(--accent)" }} />
+          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{title}</span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${columns.length}, 1fr)`,
+          padding: "10px 20px",
+          borderBottom: "1px solid var(--border-soft)",
+          background: "var(--bg-panel)",
+        }}
+      >
+        {columns.map((col) => (
+          <span
+            key={col}
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              color: "var(--text-quiet)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              fontFamily: "monospace",
+            }}
+          >
+            {col}
+          </span>
+        ))}
+      </div>
+
+      {rows.map((row, i) => {
+        const vals = Object.values(row);
+        return (
+          <div
+            key={i}
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${columns.length}, 1fr)`,
+              padding: "13px 20px",
+              borderBottom: i < rows.length - 1 ? "1px solid #141414" : "none",
+              transition: "background 0.1s ease",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            {vals.map((val, j) => {
+              const statusColor = STATUS_COLORS[val];
+              return (
+                <span key={j} style={{ fontSize: "13px", display: "flex", alignItems: "center" }}>
+                  {statusColor ? (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: 500,
+                        background: `${statusColor}12`,
+                        color: statusColor,
+                        border: `1px solid ${statusColor}20`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "5px",
+                          height: "5px",
+                          borderRadius: "50%",
+                          background: statusColor,
+                          flexShrink: 0,
+                        }}
+                      />
+                      {val}
+                    </span>
+                  ) : (
+                    <span style={{ color: j === 0 ? "var(--text-muted)" : "var(--text-subtle)" }}>{val}</span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }

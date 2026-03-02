@@ -15,7 +15,7 @@ function LoadingSpinner() {
         alignItems: "center",
         justifyContent: "center",
         height: "100vh",
-        background: "#060608",
+        background: "var(--bg-canvas)",
       }}
     >
       <div
@@ -67,7 +67,7 @@ export default function AdminLayout({
       style={{
         display: "flex",
         height: "100vh",
-        background: "#060608",
+        background: "var(--bg-canvas)",
       }}
     >
       <AdminSidebar />

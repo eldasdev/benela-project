@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import secrets
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -8,6 +9,8 @@ from database.models import (
     ClientOrg,
     Subscription,
     Payment,
+    PaymentMethod,
+    PaymentMethodType,
     AdminNotification,
     ClientActivity,
     PlanTier,
@@ -15,8 +18,11 @@ from database.models import (
     PaymentStatus,
     NotificationType,
     NotificationTarget,
+    PlatformSettings,
 )
 from database import admin_schemas
+
+_PAYMENT_METHODS_SEEDED = False
 
 
 # ── Platform summary ──────────────────────────────────
@@ -120,6 +126,102 @@ def get_clients_with_subscriptions(db: Session) -> List[dict]:
         )
         result.append({"client": c, "subscription": sub})
     return result
+
+
+# ── Platform Settings ─────────────────────────────────
+def _ensure_platform_settings(db: Session):
+    settings = db.query(PlatformSettings).first()
+    if settings:
+        return settings
+    settings = PlatformSettings(
+        platform_name="Benela AI",
+        default_currency="USD",
+        default_trial_days=14,
+        default_tax_rate=0,
+        invoice_prefix="BNL",
+        maintenance_mode=False,
+        allow_new_signups=True,
+        enforce_admin_mfa=False,
+        session_timeout_minutes=60,
+        allow_marketplace=True,
+        allow_plugin_purchases=True,
+        webhook_signing_secret=f"whsec_{secrets.token_urlsafe(24)}",
+        platform_api_key=f"bnl_{secrets.token_urlsafe(24)}",
+    )
+    db.add(settings)
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def get_platform_settings(db: Session):
+    return _ensure_platform_settings(db)
+
+
+def update_platform_settings(db: Session, data: admin_schemas.PlatformSettingsUpdate):
+    settings = _ensure_platform_settings(db)
+    updates = data.model_dump(exclude_unset=True)
+
+    if "default_currency" in updates and updates["default_currency"] is not None:
+        updates["default_currency"] = updates["default_currency"].upper().strip()
+    if "invoice_prefix" in updates and updates["invoice_prefix"] is not None:
+        updates["invoice_prefix"] = updates["invoice_prefix"].upper().strip()
+
+    if "default_trial_days" in updates:
+        days = updates["default_trial_days"]
+        if days is not None and (days < 0 or days > 365):
+            raise ValueError("default_trial_days must be between 0 and 365")
+
+    if "default_tax_rate" in updates:
+        tax = updates["default_tax_rate"]
+        if tax is not None and (tax < 0 or tax > 100):
+            raise ValueError("default_tax_rate must be between 0 and 100")
+
+    if "session_timeout_minutes" in updates:
+        timeout = updates["session_timeout_minutes"]
+        if timeout is not None and (timeout < 5 or timeout > 1440):
+            raise ValueError("session_timeout_minutes must be between 5 and 1440")
+
+    for key, value in updates.items():
+        setattr(settings, key, value)
+
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def set_maintenance_mode(db: Session, enabled: bool):
+    settings = _ensure_platform_settings(db)
+    settings.maintenance_mode = enabled
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def emergency_lockdown(db: Session):
+    settings = _ensure_platform_settings(db)
+    settings.maintenance_mode = True
+    settings.allow_new_signups = False
+    settings.allow_plugin_purchases = False
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def rotate_platform_api_key(db: Session):
+    settings = _ensure_platform_settings(db)
+    settings.platform_api_key = f"bnl_{secrets.token_urlsafe(24)}"
+    db.commit()
+    db.refresh(settings)
+    return settings.platform_api_key
+
+
+def rotate_webhook_signing_secret(db: Session):
+    settings = _ensure_platform_settings(db)
+    settings.webhook_signing_secret = f"whsec_{secrets.token_urlsafe(24)}"
+    db.commit()
+    db.refresh(settings)
+    return settings.webhook_signing_secret
 
 
 # ── ClientOrg CRUD ────────────────────────────────────
@@ -233,6 +335,137 @@ def cancel_subscription(db: Session, id: int, reason: Optional[str] = None):
 
 
 # ── Payment CRUD ───────────────────────────────────────
+def _seed_payment_methods_if_empty(db: Session):
+    global _PAYMENT_METHODS_SEEDED
+    if _PAYMENT_METHODS_SEEDED:
+        return
+    count = db.query(func.count(PaymentMethod.id)).scalar() or 0
+    if count > 0:
+        _PAYMENT_METHODS_SEEDED = True
+        return
+    methods = [
+        PaymentMethod(
+            name="Primary Card Processor",
+            provider="Stripe",
+            method_type=PaymentMethodType.card,
+            details="Visa/Mastercard",
+            fee_percent=2.9,
+            fee_fixed=0.3,
+            supports_refunds=True,
+            is_active=True,
+            is_default=True,
+        ),
+        PaymentMethod(
+            name="Bank Transfer",
+            provider="Bank",
+            method_type=PaymentMethodType.bank,
+            details="ACH / Wire",
+            fee_percent=1.0,
+            fee_fixed=0,
+            supports_refunds=False,
+            is_active=True,
+            is_default=False,
+        ),
+        PaymentMethod(
+            name="Manual Invoice",
+            provider="Internal",
+            method_type=PaymentMethodType.manual,
+            details="Offline settlement",
+            fee_percent=0,
+            fee_fixed=0,
+            supports_refunds=False,
+            is_active=True,
+            is_default=False,
+        ),
+    ]
+    for m in methods:
+        db.add(m)
+    db.commit()
+    _PAYMENT_METHODS_SEEDED = True
+
+
+def _validate_payment_method_values(fee_percent: Optional[float], fee_fixed: Optional[float]):
+    if fee_percent is not None and (fee_percent < 0 or fee_percent > 100):
+        raise ValueError("fee_percent must be between 0 and 100")
+    if fee_fixed is not None and fee_fixed < 0:
+        raise ValueError("fee_fixed cannot be negative")
+
+
+def _ensure_single_default(db: Session, method_id: Optional[int] = None):
+    query = db.query(PaymentMethod)
+    if method_id is not None:
+        query = query.filter(PaymentMethod.id != method_id)
+    query.update({PaymentMethod.is_default: False}, synchronize_session=False)
+
+
+def _ensure_any_default(db: Session):
+    has_default = (
+        db.query(func.count(PaymentMethod.id))
+        .filter(PaymentMethod.is_default == True, PaymentMethod.is_active == True)
+        .scalar()
+        or 0
+    )
+    if has_default:
+        return
+    fallback = (
+        db.query(PaymentMethod)
+        .filter(PaymentMethod.is_active == True)
+        .order_by(PaymentMethod.created_at.asc())
+        .first()
+    )
+    if fallback:
+        fallback.is_default = True
+
+
+def get_payment_summary(db: Session):
+    total_payments = db.query(func.count(Payment.id)).scalar() or 0
+    paid_count = (
+        db.query(func.count(Payment.id))
+        .filter(Payment.status == PaymentStatus.paid)
+        .scalar()
+        or 0
+    )
+    pending_count = (
+        db.query(func.count(Payment.id))
+        .filter(Payment.status == PaymentStatus.pending)
+        .scalar()
+        or 0
+    )
+    failed_count = (
+        db.query(func.count(Payment.id))
+        .filter(Payment.status == PaymentStatus.failed)
+        .scalar()
+        or 0
+    )
+    refunded_count = (
+        db.query(func.count(Payment.id))
+        .filter(Payment.status == PaymentStatus.refunded)
+        .scalar()
+        or 0
+    )
+    paid_volume = (
+        db.query(func.sum(Payment.amount))
+        .filter(Payment.status == PaymentStatus.paid)
+        .scalar()
+        or 0
+    )
+    pending_volume = (
+        db.query(func.sum(Payment.amount))
+        .filter(Payment.status == PaymentStatus.pending)
+        .scalar()
+        or 0
+    )
+    return {
+        "total_payments": total_payments,
+        "paid_count": paid_count,
+        "pending_count": pending_count,
+        "failed_count": failed_count,
+        "refunded_count": refunded_count,
+        "paid_volume": round(float(paid_volume), 2),
+        "pending_volume": round(float(pending_volume), 2),
+    }
+
+
 def get_payments(
     db: Session,
     skip: int = 0,
@@ -250,6 +483,84 @@ def get_payments(
 
 def get_payment(db: Session, id: int):
     return db.query(Payment).filter(Payment.id == id).first()
+
+
+def get_payment_methods(db: Session, active_only: Optional[bool] = None):
+    _seed_payment_methods_if_empty(db)
+    query = db.query(PaymentMethod)
+    if active_only is not None:
+        query = query.filter(PaymentMethod.is_active == active_only)
+    return (
+        query.order_by(PaymentMethod.is_default.desc(), PaymentMethod.created_at.asc())
+        .all()
+    )
+
+
+def create_payment_method(db: Session, data: admin_schemas.PaymentMethodCreate):
+    _validate_payment_method_values(data.fee_percent, data.fee_fixed)
+    payload = data.model_dump()
+    method = PaymentMethod(**payload)
+
+    if payload.get("is_default"):
+        _ensure_single_default(db)
+
+    db.add(method)
+    db.commit()
+    _ensure_any_default(db)
+    db.commit()
+    db.refresh(method)
+    return method
+
+
+def update_payment_method(db: Session, method_id: int, data: admin_schemas.PaymentMethodUpdate):
+    method = db.query(PaymentMethod).filter(PaymentMethod.id == method_id).first()
+    if not method:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    _validate_payment_method_values(updates.get("fee_percent"), updates.get("fee_fixed"))
+
+    if updates.get("is_default") is True:
+        _ensure_single_default(db, method_id=method.id)
+
+    for key, value in updates.items():
+        setattr(method, key, value)
+
+    if updates.get("is_active") is False and method.is_default:
+        method.is_default = False
+
+    _ensure_any_default(db)
+    db.commit()
+    db.refresh(method)
+    return method
+
+
+def set_default_payment_method(db: Session, method_id: int):
+    method = db.query(PaymentMethod).filter(PaymentMethod.id == method_id).first()
+    if not method:
+        return None
+    if not method.is_active:
+        raise ValueError("Cannot set an inactive payment method as default")
+
+    _ensure_single_default(db, method_id=method.id)
+    method.is_default = True
+    db.commit()
+    db.refresh(method)
+    return method
+
+
+def set_payment_method_status(db: Session, method_id: int, is_active: bool):
+    method = db.query(PaymentMethod).filter(PaymentMethod.id == method_id).first()
+    if not method:
+        return None
+
+    method.is_active = is_active
+    if not is_active and method.is_default:
+        method.is_default = False
+    _ensure_any_default(db)
+    db.commit()
+    db.refresh(method)
+    return method
 
 
 def create_payment(db: Session, data: admin_schemas.PaymentCreate):
@@ -318,9 +629,51 @@ def send_notification(db: Session, id: int, recipient_count: int):
     return n
 
 
+def get_client_notifications(
+    db: Session,
+    workspace_id: Optional[str] = None,
+    limit: int = 50,
+):
+    query = (
+        db.query(AdminNotification)
+        .filter(AdminNotification.is_sent == True)
+        .order_by(AdminNotification.sent_at.desc(), AdminNotification.created_at.desc())
+    )
+
+    # Pull a wider slice first, then apply Python-side targeting filters.
+    candidates = query.limit(max(limit * 3, limit)).all()
+    filtered: List[AdminNotification] = []
+
+    for notif in candidates:
+        if notif.target == NotificationTarget.all:
+            filtered.append(notif)
+            continue
+
+        if notif.target == NotificationTarget.specific:
+            if not workspace_id or not notif.target_value:
+                continue
+            targets = {item.strip() for item in notif.target_value.split(",") if item.strip()}
+            if workspace_id in targets:
+                filtered.append(notif)
+            continue
+
+        # Plan-tier targeting is currently not mapped to tenant identity in client session.
+        # Keep these visible until plan context is wired.
+        if notif.target == NotificationTarget.plan_tier:
+            filtered.append(notif)
+
+    return filtered[:limit]
+
+
 # ── Activity ───────────────────────────────────────────
-def log_activity(db: Session, client_id: int, action: str, actor: Optional[str] = None, metadata: Optional[str] = None):
-    a = ClientActivity(client_id=client_id, action=action, actor=actor, metadata=metadata)
+def log_activity(
+    db: Session,
+    client_id: int,
+    action: str,
+    actor: Optional[str] = None,
+    metadata: Optional[str] = None,
+):
+    a = ClientActivity(client_id=client_id, action=action, actor=actor, extra_data=metadata)
     db.add(a)
     db.commit()
     db.refresh(a)

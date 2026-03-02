@@ -62,9 +62,9 @@ const inputStyle: CSSProperties = {
   width: "100%",
   padding: "9px 12px",
   borderRadius: "9px",
-  background: "#111",
-  border: "1px solid #2a2a2a",
-  color: "#f0f0f5",
+  background: "var(--bg-elevated)",
+  border: "1px solid var(--border-soft)",
+  color: "var(--text-primary)",
   fontSize: "13px",
   outline: "none",
   fontFamily: "inherit",
@@ -73,7 +73,7 @@ const inputStyle: CSSProperties = {
 
 const labelStyle: CSSProperties = {
   fontSize: "11px",
-  color: "#555",
+  color: "var(--text-subtle)",
   marginBottom: "6px",
   display: "block",
 };
@@ -82,14 +82,14 @@ const STATUS_COLOR: Record<ProjectStatus, string> = {
   active: "#34d399",
   on_hold: "#fbbf24",
   completed: "#60a5fa",
-  archived: "#555555",
+  archived: "var(--text-subtle)",
 };
 
 const PRIORITY_COLOR: Record<TaskPriority, string> = {
   critical: "#f87171",
   high: "#f59e0b",
   medium: "#60a5fa",
-  low: "#555555",
+  low: "var(--text-subtle)",
 };
 
 const emptyProjectForm = {
@@ -97,12 +97,12 @@ const emptyProjectForm = {
   description: "",
   owner: "",
   status: "active" as ProjectStatus,
-  color: "#7c6aff",
+  color: "var(--accent)",
 };
 
 const emptyColumnForm = {
   name: "",
-  color: "#555555",
+  color: "var(--text-subtle)",
 };
 
 const emptyTaskForm = {
@@ -202,7 +202,7 @@ export default function ProjectsPage() {
       description: project.description || "",
       owner: project.owner || "",
       status: project.status,
-      color: project.color || "#7c6aff",
+      color: project.color || "var(--accent)",
     });
     setModal("edit_project");
   };
@@ -214,7 +214,7 @@ export default function ProjectsPage() {
       description: projectForm.description || null,
       owner: projectForm.owner || null,
       status: projectForm.status,
-      color: projectForm.color || "#7c6aff",
+      color: projectForm.color || "var(--accent)",
     };
     if (modal === "add_project") {
       await fetch(`${API}/projects/`, {
@@ -256,7 +256,7 @@ export default function ProjectsPage() {
 
   const openEditColumn = (col: KanbanColumn) => {
     setSelected(col);
-    setColumnForm({ name: col.name, color: col.color || "#555555" });
+    setColumnForm({ name: col.name, color: col.color || "var(--text-subtle)" });
     setModal("edit_column");
   };
 
@@ -267,7 +267,7 @@ export default function ProjectsPage() {
       const body = {
         project_id: selectedProject.id,
         name: columnForm.name,
-        color: columnForm.color || "#555555",
+        color: columnForm.color || "var(--text-subtle)",
         position: columns.length,
       };
       await fetch(`${API}/projects/${selectedProject.id}/columns`, {
@@ -278,7 +278,7 @@ export default function ProjectsPage() {
     } else if (modal === "edit_column" && selected) {
       const body = {
         name: columnForm.name,
-        color: columnForm.color || "#555555",
+        color: columnForm.color || "var(--text-subtle)",
       };
       await fetch(`${API}/projects/columns/${selected.id}`, {
         method: "PUT",
@@ -466,9 +466,9 @@ export default function ProjectsPage() {
               padding: "2px 6px",
               borderRadius: "999px",
               fontSize: "10px",
-              background: "#111",
+              background: "var(--bg-elevated)",
               border: "1px solid #1f1f1f",
-              color: "#666",
+              color: "var(--text-muted)",
             }}
           >
             {tag}
@@ -495,7 +495,7 @@ export default function ProjectsPage() {
             {
               label: "Total Projects",
               value: summary.total_projects,
-              color: "#7c6aff",
+              color: "var(--accent)",
             },
             {
               label: "Active",
@@ -516,22 +516,22 @@ export default function ProjectsPage() {
             <div
               key={card.label}
               style={{
-                background: "#0d0d0d",
-                border: "1px solid #1c1c1c",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-default)",
                 borderRadius: "12px",
                 padding: "18px 20px",
                 position: "relative",
                 overflow: "hidden",
               }}
             >
-              <p style={{ fontSize: "11px", color: "#444", marginBottom: "10px" }}>
+              <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px" }}>
                 {card.label}
               </p>
               <p
                 style={{
                   fontSize: "28px",
                   fontWeight: 600,
-                  color: "#f0f0f5",
+                  color: "var(--text-primary)",
                   lineHeight: 1,
                 }}
               >
@@ -576,9 +576,9 @@ export default function ProjectsPage() {
                 gap: "6px",
                 padding: "7px 10px",
                 borderRadius: "8px",
-                border: "1px solid #1c1c1c",
-                background: "#0d0d0d",
-                color: "#888",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-muted)",
                 fontSize: "12px",
                 cursor: "pointer",
               }}
@@ -592,7 +592,7 @@ export default function ProjectsPage() {
               style={{
                 fontSize: "16px",
                 fontWeight: 600,
-                color: "#f0f0f5",
+                color: "var(--text-primary)",
                 margin: 0,
               }}
             >
@@ -603,7 +603,7 @@ export default function ProjectsPage() {
             <p
               style={{
                 fontSize: "11px",
-                color: "#444",
+                color: "var(--text-subtle)",
                 marginTop: "2px",
               }}
             >
@@ -623,7 +623,7 @@ export default function ProjectsPage() {
               gap: "6px",
               padding: "7px 14px",
               borderRadius: "9px",
-              background: "#7c6aff",
+              background: "var(--accent)",
               border: "none",
               color: "white",
               fontSize: "13px",
@@ -643,9 +643,9 @@ export default function ProjectsPage() {
               gap: "6px",
               padding: "7px 14px",
               borderRadius: "9px",
-              border: "1px dashed #2a2a2a",
+              border: "1px dashed var(--border-soft)",
               background: "transparent",
-              color: "#888",
+              color: "var(--text-muted)",
               fontSize: "13px",
               cursor: "pointer",
             }}
@@ -660,8 +660,8 @@ export default function ProjectsPage() {
       {view === "projects_list" && (
         <div
           style={{
-            background: "#0d0d0d",
-            border: "1px solid #1c1c1c",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
             borderRadius: "14px",
             padding: "20px",
           }}
@@ -674,16 +674,16 @@ export default function ProjectsPage() {
             }}
           >
             {projects.map((project) => {
-              const color = project.color || "#7c6aff";
+              const color = project.color || "var(--accent)";
               const count = taskCounts[project.id] ?? 0;
               return (
                 <div
                   key={project.id}
                   style={{
                     position: "relative",
-                    background: "#080808",
+                    background: "var(--bg-canvas)",
                     borderRadius: "14px",
-                    border: "1px solid #1c1c1c",
+                    border: "1px solid var(--border-default)",
                     padding: "16px 16px 14px 18px",
                     display: "flex",
                     flexDirection: "column",
@@ -722,7 +722,7 @@ export default function ProjectsPage() {
                           style={{
                             fontSize: "14px",
                             fontWeight: 600,
-                            color: "#f0f0f5",
+                            color: "var(--text-primary)",
                             margin: 0,
                             whiteSpace: "nowrap",
                             overflow: "hidden",
@@ -737,7 +737,7 @@ export default function ProjectsPage() {
                         <p
                           style={{
                             fontSize: "12px",
-                            color: "#555",
+                            color: "var(--text-subtle)",
                             marginTop: "4px",
                             marginBottom: 0,
                             overflow: "hidden",
@@ -767,7 +767,7 @@ export default function ProjectsPage() {
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
-                        color: "#444",
+                        color: "var(--text-subtle)",
                         fontSize: "11px",
                       }}
                     >
@@ -806,11 +806,11 @@ export default function ProjectsPage() {
                       <span
                         style={{
                           fontSize: "11px",
-                          color: "#666",
+                          color: "var(--text-muted)",
                           padding: "2px 8px",
                           borderRadius: "999px",
-                          background: "#111",
-                          border: "1px solid #1c1c1c",
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-default)",
                         }}
                       >
                         {count} task{count === 1 ? "" : "s"}
@@ -821,15 +821,15 @@ export default function ProjectsPage() {
                           width: "24px",
                           height: "24px",
                           borderRadius: "7px",
-                          background: "#111",
-                          border: "1px solid #222",
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-default)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           cursor: "pointer",
                         }}
                       >
-                        <Pencil size={11} color="#777" />
+                        <Pencil size={11} color="var(--text-muted)" />
                       </button>
                       <button
                         onClick={() => deleteProject(project.id)}
@@ -837,8 +837,8 @@ export default function ProjectsPage() {
                           width: "24px",
                           height: "24px",
                           borderRadius: "7px",
-                          background: "#111",
-                          border: "1px solid #222",
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-default)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -858,8 +858,8 @@ export default function ProjectsPage() {
                       fontSize: "12px",
                       padding: "6px 10px",
                       borderRadius: "8px",
-                      border: "1px solid #222",
-                      background: "#0d0d0d",
+                      border: "1px solid var(--border-default)",
+                      background: "var(--bg-surface)",
                       color: "#a78bfa",
                       cursor: "pointer",
                     }}
@@ -878,9 +878,9 @@ export default function ProjectsPage() {
         <div
           style={{
             marginTop: "8px",
-            background: "#0d0d0d",
+            background: "var(--bg-surface)",
             borderRadius: "14px",
-            border: "1px solid #1c1c1c",
+            border: "1px solid var(--border-default)",
             overflow: "hidden",
           }}
         >
@@ -890,7 +890,7 @@ export default function ProjectsPage() {
               alignItems: "center",
               justifyContent: "space-between",
               padding: "14px 18px",
-              borderBottom: "1px solid #1c1c1c",
+              borderBottom: "1px solid var(--border-default)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -899,13 +899,13 @@ export default function ProjectsPage() {
                   width: "9px",
                   height: "9px",
                   borderRadius: "50%",
-                  background: selectedProject.color || "#7c6aff",
+                  background: selectedProject.color || "var(--accent)",
                 }}
               />
               <span
                 style={{
                   fontSize: "13px",
-                  color: "#888",
+                  color: "var(--text-muted)",
                 }}
               >
                 {selectedProject.owner || "Unassigned owner"}
@@ -942,11 +942,11 @@ export default function ProjectsPage() {
                     maxWidth: "280px",
                     background: isActiveDrop
                       ? "rgba(124,106,255,0.04)"
-                      : "#0d0d0d",
+                      : "var(--bg-surface)",
                     borderRadius: "12px",
                     border: isActiveDrop
-                      ? "1px solid #7c6aff"
-                      : "1px solid #1c1c1c",
+                      ? "1px solid var(--accent)"
+                      : "1px solid var(--border-default)",
                     padding: "14px 12px 10px",
                     boxSizing: "border-box",
                   }}
@@ -971,13 +971,13 @@ export default function ProjectsPage() {
                           width: "10px",
                           height: "10px",
                           borderRadius: "3px",
-                          background: column.color || "#555555",
+                          background: column.color || "var(--text-subtle)",
                         }}
                       />
                       <span
                         style={{
                           fontSize: "13px",
-                          color: "#e0e0e0",
+                          color: "var(--text-primary)",
                           fontWeight: 500,
                         }}
                       >
@@ -986,11 +986,11 @@ export default function ProjectsPage() {
                       <span
                         style={{
                           fontSize: "10px",
-                          color: "#555",
+                          color: "var(--text-subtle)",
                           padding: "2px 6px",
                           borderRadius: "999px",
-                          border: "1px solid #222",
-                          background: "#111",
+                          border: "1px solid var(--border-default)",
+                          background: "var(--bg-elevated)",
                         }}
                       >
                         {inColumn.length}
@@ -1003,15 +1003,15 @@ export default function ProjectsPage() {
                           width: "22px",
                           height: "22px",
                           borderRadius: "6px",
-                          background: "#111",
-                          border: "1px solid #222",
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-default)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           cursor: "pointer",
                         }}
                       >
-                        <Pencil size={11} color="#777" />
+                        <Pencil size={11} color="var(--text-muted)" />
                       </button>
                       <button
                         onClick={() => deleteColumn(column.id)}
@@ -1019,8 +1019,8 @@ export default function ProjectsPage() {
                           width: "22px",
                           height: "22px",
                           borderRadius: "6px",
-                          background: "#111",
-                          border: "1px solid #222",
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-default)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -1045,8 +1045,8 @@ export default function ProjectsPage() {
                             setDragOverColumn(null);
                           }}
                           style={{
-                            background: "#111",
-                            border: "1px solid #1c1c1c",
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-default)",
                             borderRadius: "10px",
                             padding: "14px",
                             marginBottom: "8px",
@@ -1078,21 +1078,21 @@ export default function ProjectsPage() {
                                 width: "22px",
                                 height: "22px",
                                 borderRadius: "6px",
-                                background: "#151515",
-                                border: "1px solid #222",
+                                background: "var(--bg-elevated)",
+                                border: "1px solid var(--border-default)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 cursor: "pointer",
                               }}
                             >
-                              <Pencil size={11} color="#777" />
+                              <Pencil size={11} color="var(--text-muted)" />
                             </button>
                           </div>
                           <div
                             style={{
                               fontSize: "13px",
-                              color: "#e0e0e0",
+                              color: "var(--text-primary)",
                               fontWeight: 500,
                               marginBottom: "6px",
                             }}
@@ -1103,7 +1103,7 @@ export default function ProjectsPage() {
                             <div
                               style={{
                                 fontSize: "12px",
-                                color: "#666",
+                                color: "var(--text-muted)",
                                 marginBottom: "8px",
                               }}
                             >
@@ -1116,7 +1116,7 @@ export default function ProjectsPage() {
                               alignItems: "center",
                               justifyContent: "space-between",
                               fontSize: "11px",
-                              color: "#555",
+                              color: "var(--text-subtle)",
                             }}
                           >
                             <div
@@ -1156,7 +1156,7 @@ export default function ProjectsPage() {
                               style={{
                                 border: "none",
                                 background: "transparent",
-                                color: "#555",
+                                color: "var(--text-subtle)",
                                 fontSize: "11px",
                                 cursor: "pointer",
                               }}
@@ -1175,9 +1175,9 @@ export default function ProjectsPage() {
                       marginTop: "6px",
                       padding: "7px 10px",
                       borderRadius: "8px",
-                      border: "1px dashed #2a2a2a",
+                      border: "1px dashed var(--border-soft)",
                       background: "transparent",
-                      color: "#555",
+                      color: "var(--text-subtle)",
                       fontSize: "12px",
                       cursor: "pointer",
                     }}
@@ -1207,8 +1207,8 @@ export default function ProjectsPage() {
         >
           <div
             style={{
-              background: "#0d0d0d",
-              border: "1px solid #222",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-default)",
               borderRadius: "16px",
               padding: "26px",
               width: "480px",
@@ -1228,7 +1228,7 @@ export default function ProjectsPage() {
                 style={{
                   fontSize: "16px",
                   fontWeight: 600,
-                  color: "#f0f0f5",
+                  color: "var(--text-primary)",
                   margin: 0,
                 }}
               >
@@ -1250,15 +1250,15 @@ export default function ProjectsPage() {
                   width: "28px",
                   height: "28px",
                   borderRadius: "8px",
-                  background: "#1a1a1a",
-                  border: "1px solid #222",
+                  background: "var(--bg-elevated)",
+                  border: "1px solid var(--border-default)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <X size={13} color="#777" />
+                <X size={13} color="var(--text-muted)" />
               </button>
             </div>
 
@@ -1475,7 +1475,7 @@ export default function ProjectsPage() {
                 <div>
                   <label style={labelStyle}>
                     Tags{" "}
-                    <span style={{ color: "#333" }}>
+                    <span style={{ color: "var(--text-quiet)" }}>
                       (comma separated, e.g. design, frontend)
                     </span>
                   </label>
@@ -1504,9 +1504,9 @@ export default function ProjectsPage() {
                 style={{
                   padding: "9px 18px",
                   borderRadius: "9px",
-                  background: "#1a1a1a",
-                  border: "1px solid #222",
-                  color: "#777",
+                  background: "var(--bg-elevated)",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-muted)",
                   fontSize: "13px",
                   cursor: "pointer",
                 }}
@@ -1525,7 +1525,7 @@ export default function ProjectsPage() {
                 style={{
                   padding: "9px 20px",
                   borderRadius: "9px",
-                  background: "#7c6aff",
+                  background: "var(--accent)",
                   border: "none",
                   color: "white",
                   fontSize: "13px",
@@ -1547,4 +1547,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
