@@ -259,5 +259,5 @@ class ClientActivity(Base):
     client_id = Column(Integer, ForeignKey("client_orgs.id", ondelete="CASCADE"), nullable=False)
     action    = Column(String(255), nullable=False)
     actor     = Column(String(100), nullable=True)
-    metadata  = Column(Text, nullable=True)
+    extra_data  = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
