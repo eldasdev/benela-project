@@ -33,7 +33,7 @@ def _normalize_database_url(url: str) -> str:
 def _build_connect_args(url: str) -> dict:
     if url.startswith("postgresql"):
         connect_args = {
-            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10")),
+            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "5")),
             "keepalives": 1,
             "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE", "30")),
             "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL", "10")),
@@ -66,7 +66,7 @@ def _engine_kwargs(url: str) -> dict:
             "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "600")),
             "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
             "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "5")),
             "pool_use_lifo": _env_bool("DB_POOL_USE_LIFO", True),
         }
     )

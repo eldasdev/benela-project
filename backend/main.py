@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError, TimeoutError as SATimeoutError
 from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
@@ -34,8 +34,8 @@ def _should_auto_create_tables() -> bool:
     raw = os.getenv("AUTO_CREATE_TABLES")
     if raw is not None:
         return _env_bool("AUTO_CREATE_TABLES", False)
-    # Safe default: local/dev enabled, production disabled.
-    return settings.APP_ENV.lower() != "production"
+    # Safe default: disabled unless explicitly enabled.
+    return False
 
 
 app = FastAPI(
@@ -121,6 +121,34 @@ async def sqlalchemy_error_handler(request, exc: DBAPIError):
         logger.exception("Failed to dispose SQLAlchemy engine after DBAPIError")
 
     logger.error("DBAPIError on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database temporarily unavailable. Please retry in a few seconds."},
+    )
+
+
+@app.exception_handler(SATimeoutError)
+async def sqlalchemy_timeout_handler(request, exc: SATimeoutError):
+    try:
+        engine.dispose()
+    except Exception:
+        logger.exception("Failed to dispose SQLAlchemy engine after timeout")
+
+    logger.error("SQLAlchemy timeout on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database request timed out. Please retry in a few seconds."},
+    )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_generic_handler(request, exc: SQLAlchemyError):
+    try:
+        engine.dispose()
+    except Exception:
+        logger.exception("Failed to dispose SQLAlchemy engine after SQLAlchemyError")
+
+    logger.error("SQLAlchemyError on %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=503,
         content={"detail": "Database temporarily unavailable. Please retry in a few seconds."},
