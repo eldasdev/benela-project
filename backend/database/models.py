@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base
 import enum
@@ -26,6 +27,49 @@ class PositionStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
     on_hold = "on_hold"
+
+
+class MarketingCampaignStatus(str, enum.Enum):
+    draft = "draft"
+    scheduled = "scheduled"
+    active = "active"
+    paused = "paused"
+    completed = "completed"
+
+
+class MarketingObjective(str, enum.Enum):
+    awareness = "awareness"
+    traffic = "traffic"
+    leads = "leads"
+    conversion = "conversion"
+    retention = "retention"
+
+
+class MarketingContentType(str, enum.Enum):
+    social_post = "social_post"
+    email = "email"
+    blog = "blog"
+    landing_page = "landing_page"
+    ad_creative = "ad_creative"
+    video = "video"
+    webinar = "webinar"
+
+
+class MarketingContentStatus(str, enum.Enum):
+    idea = "idea"
+    in_production = "in_production"
+    scheduled = "scheduled"
+    published = "published"
+    archived = "archived"
+
+
+class MarketingLeadStatus(str, enum.Enum):
+    new = "new"
+    mql = "mql"
+    sql = "sql"
+    opportunity = "opportunity"
+    customer = "customer"
+    disqualified = "disqualified"
 
 
 class ProjectStatus(str, enum.Enum):
@@ -104,6 +148,84 @@ class Position(Base):
     status       = Column(Enum(PositionStatus), default=PositionStatus.open)
     opened_date  = Column(DateTime, default=func.now())
     created_at   = Column(DateTime, default=func.now())
+
+
+# ── Marketing Models ──────────────────────────────────
+class MarketingCampaign(Base):
+    __tablename__ = "marketing_campaigns"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    name        = Column(String(255), nullable=False)
+    channel     = Column(String(100), nullable=False)
+    objective   = Column(Enum(MarketingObjective), default=MarketingObjective.leads, nullable=False)
+    status      = Column(Enum(MarketingCampaignStatus), default=MarketingCampaignStatus.draft, nullable=False)
+    owner       = Column(String(120), nullable=True)
+    budget      = Column(Float, nullable=False, default=0)
+    spent       = Column(Float, nullable=False, default=0)
+    revenue     = Column(Float, nullable=False, default=0)
+    impressions = Column(Integer, nullable=False, default=0)
+    clicks      = Column(Integer, nullable=False, default=0)
+    conversions = Column(Integer, nullable=False, default=0)
+    start_date  = Column(DateTime, default=func.now())
+    end_date    = Column(DateTime, nullable=True)
+    notes       = Column(Text, nullable=True)
+    created_at  = Column(DateTime, default=func.now())
+    updated_at  = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class MarketingContentItem(Base):
+    __tablename__ = "marketing_content_items"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    title         = Column(String(255), nullable=False)
+    content_type  = Column(Enum(MarketingContentType), default=MarketingContentType.social_post, nullable=False)
+    channel       = Column(String(100), nullable=False)
+    status        = Column(Enum(MarketingContentStatus), default=MarketingContentStatus.idea, nullable=False)
+    campaign_id   = Column(Integer, ForeignKey("marketing_campaigns.id", ondelete="SET NULL"), nullable=True)
+    assignee      = Column(String(120), nullable=True)
+    publish_date  = Column(DateTime, nullable=True)
+    asset_url     = Column(String(500), nullable=True)
+    cta           = Column(String(255), nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class MarketingLead(Base):
+    __tablename__ = "marketing_leads"
+
+    id                     = Column(Integer, primary_key=True, index=True)
+    full_name              = Column(String(255), nullable=False)
+    email                  = Column(String(255), nullable=False)
+    company                = Column(String(255), nullable=True)
+    source_channel         = Column(String(100), nullable=False)
+    campaign_id            = Column(Integer, ForeignKey("marketing_campaigns.id", ondelete="SET NULL"), nullable=True)
+    status                 = Column(Enum(MarketingLeadStatus), default=MarketingLeadStatus.new, nullable=False)
+    score                  = Column(Integer, nullable=False, default=0)
+    estimated_value        = Column(Float, nullable=False, default=0)
+    conversion_probability = Column(Float, nullable=False, default=0)
+    notes                  = Column(Text, nullable=True)
+    created_at             = Column(DateTime, default=func.now())
+    updated_at             = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class MarketingChannelMetric(Base):
+    __tablename__ = "marketing_channel_metrics"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    channel        = Column(String(100), nullable=False, index=True)
+    period_label   = Column(String(50), nullable=False, default="Current")
+    spend          = Column(Float, nullable=False, default=0)
+    revenue        = Column(Float, nullable=False, default=0)
+    impressions    = Column(Integer, nullable=False, default=0)
+    clicks         = Column(Integer, nullable=False, default=0)
+    leads          = Column(Integer, nullable=False, default=0)
+    customers      = Column(Integer, nullable=False, default=0)
+    conversions    = Column(Integer, nullable=False, default=0)
+    benchmark_roas = Column(Float, nullable=False, default=3.0)
+    benchmark_cvr  = Column(Float, nullable=False, default=2.5)
+    benchmark_ctr  = Column(Float, nullable=False, default=1.8)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 # ── Projects & Kanban Models ─────────────────────────
@@ -322,6 +444,25 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # "user" | "assistant"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=func.now())
+    attachments = relationship(
+        "ChatAttachment",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ChatAttachment(Base):
+    __tablename__ = "chat_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    mime_type = Column(String(120), nullable=True)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    content_excerpt = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    message = relationship("ChatMessage", back_populates="attachments")
 
 
 # ── Marketplace Models ────────────────────────────────

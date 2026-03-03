@@ -37,6 +37,7 @@ def save_message(
         section=section,
         role=payload.role,
         content=payload.content,
+        attachments=payload.attachments,
     )
 
 

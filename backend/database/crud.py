@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_
 from database.models import (
     Transaction,
@@ -9,6 +9,13 @@ from database.models import (
     Position,
     Department,
     TransactionType,
+    MarketingCampaign,
+    MarketingContentItem,
+    MarketingLead,
+    MarketingChannelMetric,
+    MarketingCampaignStatus,
+    MarketingContentStatus,
+    MarketingLeadStatus,
     Project,
     KanbanColumn,
     KanbanTask,
@@ -20,6 +27,7 @@ from database.models import (
     PurchaseStatus,
     InstallStatus,
     ChatMessage,
+    ChatAttachment,
 )
 from database import schemas
 
@@ -86,6 +94,12 @@ def _max_dt(*values: datetime | None):
     if not filtered:
         return None
     return max(filtered)
+
+
+def _safe_div(numerator: float, denominator: float):
+    if denominator == 0:
+        return 0.0
+    return float(numerator) / float(denominator)
 
 
 # ── Dashboard ─────────────────────────────────────────
@@ -511,6 +525,304 @@ def create_department(db: Session, data: schemas.DepartmentCreate):
     db.commit()
     db.refresh(dept)
     return dept
+
+
+# ── Marketing ─────────────────────────────────────────
+DEFAULT_MARKETING_BENCHMARKS = {
+    "roas": 3.2,
+    "ctr": 1.8,
+    "cvr": 2.5,
+    "cac": 180.0,
+}
+
+
+def get_marketing_campaigns(db: Session, skip: int = 0, limit: int = 100):
+    return (
+        db.query(MarketingCampaign)
+        .order_by(MarketingCampaign.updated_at.desc(), MarketingCampaign.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_marketing_campaign(db: Session, data: schemas.MarketingCampaignCreate):
+    payload = data.model_dump()
+    if payload.get("start_date") is None:
+        payload["start_date"] = datetime.utcnow()
+    campaign = MarketingCampaign(**payload)
+    db.add(campaign)
+    db.commit()
+    db.refresh(campaign)
+    return campaign
+
+
+def update_marketing_campaign(db: Session, id: int, data: schemas.MarketingCampaignUpdate):
+    campaign = db.query(MarketingCampaign).filter(MarketingCampaign.id == id).first()
+    if not campaign:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(campaign, key, value)
+    db.commit()
+    db.refresh(campaign)
+    return campaign
+
+
+def delete_marketing_campaign(db: Session, id: int):
+    campaign = db.query(MarketingCampaign).filter(MarketingCampaign.id == id).first()
+    if not campaign:
+        return False
+    db.delete(campaign)
+    db.commit()
+    return True
+
+
+def get_marketing_content(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(MarketingContentItem)
+        .order_by(MarketingContentItem.updated_at.desc(), MarketingContentItem.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_marketing_content(db: Session, data: schemas.MarketingContentCreate):
+    item = MarketingContentItem(**data.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def update_marketing_content(db: Session, id: int, data: schemas.MarketingContentUpdate):
+    item = db.query(MarketingContentItem).filter(MarketingContentItem.id == id).first()
+    if not item:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def delete_marketing_content(db: Session, id: int):
+    item = db.query(MarketingContentItem).filter(MarketingContentItem.id == id).first()
+    if not item:
+        return False
+    db.delete(item)
+    db.commit()
+    return True
+
+
+def get_marketing_leads(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(MarketingLead)
+        .order_by(MarketingLead.updated_at.desc(), MarketingLead.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_marketing_lead(db: Session, data: schemas.MarketingLeadCreate):
+    lead = MarketingLead(**data.model_dump())
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    return lead
+
+
+def update_marketing_lead(db: Session, id: int, data: schemas.MarketingLeadUpdate):
+    lead = db.query(MarketingLead).filter(MarketingLead.id == id).first()
+    if not lead:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(lead, key, value)
+    db.commit()
+    db.refresh(lead)
+    return lead
+
+
+def delete_marketing_lead(db: Session, id: int):
+    lead = db.query(MarketingLead).filter(MarketingLead.id == id).first()
+    if not lead:
+        return False
+    db.delete(lead)
+    db.commit()
+    return True
+
+
+def get_marketing_channel_metrics(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(MarketingChannelMetric)
+        .order_by(MarketingChannelMetric.updated_at.desc(), MarketingChannelMetric.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_marketing_channel_metric(db: Session, data: schemas.MarketingChannelMetricCreate):
+    row = MarketingChannelMetric(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_marketing_channel_metric(db: Session, id: int, data: schemas.MarketingChannelMetricUpdate):
+    row = db.query(MarketingChannelMetric).filter(MarketingChannelMetric.id == id).first()
+    if not row:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_marketing_channel_metric(db: Session, id: int):
+    row = db.query(MarketingChannelMetric).filter(MarketingChannelMetric.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_marketing_funnel(db: Session):
+    def _count(status: MarketingLeadStatus):
+        return (
+            db.query(func.count(MarketingLead.id))
+            .filter(MarketingLead.status == status)
+            .scalar()
+            or 0
+        )
+
+    return {
+        "new": _count(MarketingLeadStatus.new),
+        "mql": _count(MarketingLeadStatus.mql),
+        "sql": _count(MarketingLeadStatus.sql),
+        "opportunity": _count(MarketingLeadStatus.opportunity),
+        "customer": _count(MarketingLeadStatus.customer),
+        "disqualified": _count(MarketingLeadStatus.disqualified),
+    }
+
+
+def get_marketing_benchmarks():
+    return {
+        "source": "Internal global benchmark profile (B2B SaaS blended channels)",
+        "roas_target": DEFAULT_MARKETING_BENCHMARKS["roas"],
+        "ctr_target_percent": DEFAULT_MARKETING_BENCHMARKS["ctr"],
+        "cvr_target_percent": DEFAULT_MARKETING_BENCHMARKS["cvr"],
+        "cac_target": DEFAULT_MARKETING_BENCHMARKS["cac"],
+    }
+
+
+def get_marketing_summary(db: Session):
+    campaigns_total = db.query(func.count(MarketingCampaign.id)).scalar() or 0
+    active_campaigns = (
+        db.query(func.count(MarketingCampaign.id))
+        .filter(
+            MarketingCampaign.status.in_(
+                [
+                    MarketingCampaignStatus.active,
+                    MarketingCampaignStatus.scheduled,
+                ]
+            )
+        )
+        .scalar()
+        or 0
+    )
+    campaigns_spend = db.query(func.sum(MarketingCampaign.spent)).scalar() or 0
+    campaigns_revenue = db.query(func.sum(MarketingCampaign.revenue)).scalar() or 0
+    campaigns_impressions = db.query(func.sum(MarketingCampaign.impressions)).scalar() or 0
+    campaigns_clicks = db.query(func.sum(MarketingCampaign.clicks)).scalar() or 0
+    campaigns_conversions = db.query(func.sum(MarketingCampaign.conversions)).scalar() or 0
+
+    content_total = db.query(func.count(MarketingContentItem.id)).scalar() or 0
+    content_scheduled = (
+        db.query(func.count(MarketingContentItem.id))
+        .filter(
+            MarketingContentItem.status.in_(
+                [MarketingContentStatus.scheduled, MarketingContentStatus.in_production]
+            )
+        )
+        .scalar()
+        or 0
+    )
+
+    leads_total = db.query(func.count(MarketingLead.id)).scalar() or 0
+    mql_count = (
+        db.query(func.count(MarketingLead.id))
+        .filter(
+            MarketingLead.status.in_(
+                [MarketingLeadStatus.mql, MarketingLeadStatus.sql, MarketingLeadStatus.opportunity]
+            )
+        )
+        .scalar()
+        or 0
+    )
+    customer_count = (
+        db.query(func.count(MarketingLead.id))
+        .filter(MarketingLead.status == MarketingLeadStatus.customer)
+        .scalar()
+        or 0
+    )
+    pipeline_value = db.query(func.sum(MarketingLead.estimated_value)).scalar() or 0
+
+    channel_spend = db.query(func.sum(MarketingChannelMetric.spend)).scalar() or 0
+    channel_revenue = db.query(func.sum(MarketingChannelMetric.revenue)).scalar() or 0
+    channel_impressions = db.query(func.sum(MarketingChannelMetric.impressions)).scalar() or 0
+    channel_clicks = db.query(func.sum(MarketingChannelMetric.clicks)).scalar() or 0
+    channel_conversions = db.query(func.sum(MarketingChannelMetric.conversions)).scalar() or 0
+    benchmark_roas_avg = db.query(func.avg(MarketingChannelMetric.benchmark_roas)).scalar()
+    benchmark_ctr_avg = db.query(func.avg(MarketingChannelMetric.benchmark_ctr)).scalar()
+    benchmark_cvr_avg = db.query(func.avg(MarketingChannelMetric.benchmark_cvr)).scalar()
+
+    spend = float(channel_spend or campaigns_spend or 0)
+    revenue = float(channel_revenue or campaigns_revenue or 0)
+    impressions = int(channel_impressions or campaigns_impressions or 0)
+    clicks = int(channel_clicks or campaigns_clicks or 0)
+    conversions = int(channel_conversions or campaigns_conversions or 0)
+
+    roas = _safe_div(revenue, spend)
+    ctr = _safe_div(clicks, impressions) * 100
+    cvr = _safe_div(conversions, clicks) * 100
+    cpa = _safe_div(spend, conversions) if conversions > 0 else 0.0
+    cac = _safe_div(spend, customer_count) if customer_count > 0 else 0.0
+
+    roas_target = float(benchmark_roas_avg or DEFAULT_MARKETING_BENCHMARKS["roas"])
+    ctr_target = float(benchmark_ctr_avg or DEFAULT_MARKETING_BENCHMARKS["ctr"])
+    cvr_target = float(benchmark_cvr_avg or DEFAULT_MARKETING_BENCHMARKS["cvr"])
+    cac_target = DEFAULT_MARKETING_BENCHMARKS["cac"]
+
+    return {
+        "total_campaigns": campaigns_total,
+        "active_campaigns": active_campaigns,
+        "total_content_items": content_total,
+        "content_pipeline": content_scheduled,
+        "total_leads": leads_total,
+        "mql_count": mql_count,
+        "customers": customer_count,
+        "pipeline_value": round(float(pipeline_value), 2),
+        "spend": round(spend, 2),
+        "revenue": round(revenue, 2),
+        "roas": round(roas, 2),
+        "ctr": round(ctr, 2),
+        "cvr": round(cvr, 2),
+        "cpa": round(cpa, 2),
+        "cac": round(cac, 2),
+        "benchmark_roas": round(roas_target, 2),
+        "benchmark_ctr": round(ctr_target, 2),
+        "benchmark_cvr": round(cvr_target, 2),
+        "benchmark_cac": round(float(cac_target), 2),
+        "roas_gap_percent": round((roas - roas_target) * 100 / roas_target, 2) if roas_target else 0,
+        "ctr_gap_percent": round((ctr - ctr_target) * 100 / ctr_target, 2) if ctr_target else 0,
+        "cvr_gap_percent": round((cvr - cvr_target) * 100 / cvr_target, 2) if cvr_target else 0,
+        "cac_gap_percent": round((cac_target - cac) * 100 / cac_target, 2) if cac_target and cac else 0,
+    }
 
 
 # ── Projects & Kanban ─────────────────────────────────
@@ -1033,6 +1345,7 @@ def get_chat_messages(db: Session, session_id: str, limit: int = 50):
     rows = (
         db.query(ChatMessage)
         .filter(ChatMessage.session_id == session_id)
+        .options(selectinload(ChatMessage.attachments))
         .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(limit)
         .all()
@@ -1040,7 +1353,14 @@ def get_chat_messages(db: Session, session_id: str, limit: int = 50):
     return list(reversed(rows))
 
 
-def save_chat_message(db: Session, session_id: str, section: str, role: str, content: str):
+def save_chat_message(
+    db: Session,
+    session_id: str,
+    section: str,
+    role: str,
+    content: str,
+    attachments: list[schemas.ChatAttachmentCreate] | None = None,
+):
     """Save a single message."""
     msg = ChatMessage(
         session_id=session_id,
@@ -1049,6 +1369,20 @@ def save_chat_message(db: Session, session_id: str, section: str, role: str, con
         content=content,
     )
     db.add(msg)
+    db.flush()
+
+    for attachment in attachments or []:
+        excerpt = (attachment.content_excerpt or "").strip()
+        db.add(
+            ChatAttachment(
+                message_id=msg.id,
+                file_name=attachment.file_name.strip(),
+                mime_type=attachment.mime_type.strip() if attachment.mime_type else None,
+                size_bytes=max(0, int(attachment.size_bytes or 0)),
+                content_excerpt=excerpt[:4000] if excerpt else None,
+            )
+        )
+
     db.commit()
     db.refresh(msg)
     return msg

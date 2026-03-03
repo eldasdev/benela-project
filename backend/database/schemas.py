@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 from database.models import (
@@ -6,6 +6,11 @@ from database.models import (
     TransactionStatus,
     EmployeeStatus,
     PositionStatus,
+    MarketingCampaignStatus,
+    MarketingObjective,
+    MarketingContentType,
+    MarketingContentStatus,
+    MarketingLeadStatus,
     ProjectStatus,
     TaskPriority,
     PluginCategory,
@@ -164,6 +169,202 @@ class DepartmentOut(BaseModel):
     id: int
     name: str
     head: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Marketing Schemas ─────────────────────────────────
+class MarketingCampaignCreate(BaseModel):
+    name: str
+    channel: str
+    objective: MarketingObjective = MarketingObjective.leads
+    status: MarketingCampaignStatus = MarketingCampaignStatus.draft
+    owner: Optional[str] = None
+    budget: float = 0
+    spent: float = 0
+    revenue: float = 0
+    impressions: int = 0
+    clicks: int = 0
+    conversions: int = 0
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class MarketingCampaignUpdate(BaseModel):
+    name: Optional[str] = None
+    channel: Optional[str] = None
+    objective: Optional[MarketingObjective] = None
+    status: Optional[MarketingCampaignStatus] = None
+    owner: Optional[str] = None
+    budget: Optional[float] = None
+    spent: Optional[float] = None
+    revenue: Optional[float] = None
+    impressions: Optional[int] = None
+    clicks: Optional[int] = None
+    conversions: Optional[int] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class MarketingCampaignOut(BaseModel):
+    id: int
+    name: str
+    channel: str
+    objective: MarketingObjective
+    status: MarketingCampaignStatus
+    owner: Optional[str]
+    budget: float
+    spent: float
+    revenue: float
+    impressions: int
+    clicks: int
+    conversions: int
+    start_date: datetime
+    end_date: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MarketingContentCreate(BaseModel):
+    title: str
+    content_type: MarketingContentType = MarketingContentType.social_post
+    channel: str
+    status: MarketingContentStatus = MarketingContentStatus.idea
+    campaign_id: Optional[int] = None
+    assignee: Optional[str] = None
+    publish_date: Optional[datetime] = None
+    asset_url: Optional[str] = None
+    cta: Optional[str] = None
+
+
+class MarketingContentUpdate(BaseModel):
+    title: Optional[str] = None
+    content_type: Optional[MarketingContentType] = None
+    channel: Optional[str] = None
+    status: Optional[MarketingContentStatus] = None
+    campaign_id: Optional[int] = None
+    assignee: Optional[str] = None
+    publish_date: Optional[datetime] = None
+    asset_url: Optional[str] = None
+    cta: Optional[str] = None
+
+
+class MarketingContentOut(BaseModel):
+    id: int
+    title: str
+    content_type: MarketingContentType
+    channel: str
+    status: MarketingContentStatus
+    campaign_id: Optional[int]
+    assignee: Optional[str]
+    publish_date: Optional[datetime]
+    asset_url: Optional[str]
+    cta: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MarketingLeadCreate(BaseModel):
+    full_name: str
+    email: str
+    company: Optional[str] = None
+    source_channel: str
+    campaign_id: Optional[int] = None
+    status: MarketingLeadStatus = MarketingLeadStatus.new
+    score: int = 0
+    estimated_value: float = 0
+    conversion_probability: float = 0
+    notes: Optional[str] = None
+
+
+class MarketingLeadUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    source_channel: Optional[str] = None
+    campaign_id: Optional[int] = None
+    status: Optional[MarketingLeadStatus] = None
+    score: Optional[int] = None
+    estimated_value: Optional[float] = None
+    conversion_probability: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class MarketingLeadOut(BaseModel):
+    id: int
+    full_name: str
+    email: str
+    company: Optional[str]
+    source_channel: str
+    campaign_id: Optional[int]
+    status: MarketingLeadStatus
+    score: int
+    estimated_value: float
+    conversion_probability: float
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MarketingChannelMetricCreate(BaseModel):
+    channel: str
+    period_label: str = "Current"
+    spend: float = 0
+    revenue: float = 0
+    impressions: int = 0
+    clicks: int = 0
+    leads: int = 0
+    customers: int = 0
+    conversions: int = 0
+    benchmark_roas: float = 3.0
+    benchmark_cvr: float = 2.5
+    benchmark_ctr: float = 1.8
+
+
+class MarketingChannelMetricUpdate(BaseModel):
+    channel: Optional[str] = None
+    period_label: Optional[str] = None
+    spend: Optional[float] = None
+    revenue: Optional[float] = None
+    impressions: Optional[int] = None
+    clicks: Optional[int] = None
+    leads: Optional[int] = None
+    customers: Optional[int] = None
+    conversions: Optional[int] = None
+    benchmark_roas: Optional[float] = None
+    benchmark_cvr: Optional[float] = None
+    benchmark_ctr: Optional[float] = None
+
+
+class MarketingChannelMetricOut(BaseModel):
+    id: int
+    channel: str
+    period_label: str
+    spend: float
+    revenue: float
+    impressions: int
+    clicks: int
+    leads: int
+    customers: int
+    conversions: int
+    benchmark_roas: float
+    benchmark_cvr: float
+    benchmark_ctr: float
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -349,11 +550,31 @@ class PluginInstallOut(BaseModel):
 
 
 # ── Chat Schemas ──────────────────────────────────────
+class ChatAttachmentCreate(BaseModel):
+    file_name: str
+    mime_type: Optional[str] = None
+    size_bytes: int = 0
+    content_excerpt: Optional[str] = None
+
+
+class ChatAttachmentOut(BaseModel):
+    id: int
+    file_name: str
+    mime_type: Optional[str]
+    size_bytes: int
+    content_excerpt: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ChatMessageCreate(BaseModel):
     session_id: str
     section: str
     role: str
     content: str
+    attachments: list[ChatAttachmentCreate] = Field(default_factory=list)
 
 
 class ChatMessageOut(BaseModel):
@@ -362,6 +583,7 @@ class ChatMessageOut(BaseModel):
     section: str
     role: str
     content: str
+    attachments: list[ChatAttachmentOut] = Field(default_factory=list)
     created_at: datetime
 
     class Config:

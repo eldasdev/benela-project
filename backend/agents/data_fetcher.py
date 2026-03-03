@@ -151,6 +151,81 @@ Tasks ({len(tasks)} total):
         db.close()
 
 
+def get_marketing_context() -> str:
+    """Fetch live marketing operations data."""
+    db = SessionLocal()
+    try:
+        summary = crud.get_marketing_summary(db)
+        funnel = crud.get_marketing_funnel(db)
+        campaigns = crud.get_marketing_campaigns(db, limit=20)
+        content = crud.get_marketing_content(db, limit=20)
+        channels = crud.get_marketing_channel_metrics(db, limit=20)
+
+        campaign_lines = []
+        for campaign in campaigns[:12]:
+            roas = (float(campaign.revenue) / float(campaign.spent)) if campaign.spent else 0
+            campaign_lines.append(
+                f"  - {campaign.name} | {campaign.channel} | {campaign.status} | "
+                f"Spend: {_fmt_money(campaign.spent)} | Revenue: {_fmt_money(campaign.revenue)} | ROAS: {roas:.2f}"
+            )
+
+        content_lines = []
+        for item in content[:12]:
+            content_lines.append(
+                f"  - {item.title} | {item.content_type} | {item.channel} | {item.status} | "
+                f"Publish: {_fmt_date(item.publish_date)}"
+            )
+
+        channel_lines = []
+        for row in channels[:10]:
+            ctr = (float(row.clicks) / float(row.impressions) * 100) if row.impressions else 0
+            cvr = (float(row.conversions) / float(row.clicks) * 100) if row.clicks else 0
+            roas = (float(row.revenue) / float(row.spend)) if row.spend else 0
+            channel_lines.append(
+                f"  - {row.channel} ({row.period_label}) | Spend: {_fmt_money(row.spend)} | "
+                f"Revenue: {_fmt_money(row.revenue)} | ROAS: {roas:.2f} | CTR: {ctr:.2f}% | CVR: {cvr:.2f}%"
+            )
+
+        return f"""
+REAL MARKETING DATA (live from database):
+
+Performance Summary:
+  Campaigns Total:     {summary.get('total_campaigns', 0)}
+  Active Campaigns:    {summary.get('active_campaigns', 0)}
+  Leads Total:         {summary.get('total_leads', 0)}
+  MQL Pipeline:        {summary.get('mql_count', 0)}
+  Customers:           {summary.get('customers', 0)}
+  Spend:               {_fmt_money(summary.get('spend', 0))}
+  Revenue:             {_fmt_money(summary.get('revenue', 0))}
+  ROAS:                {summary.get('roas', 0):.2f}
+  CTR:                 {summary.get('ctr', 0):.2f}%
+  CVR:                 {summary.get('cvr', 0):.2f}%
+  CAC:                 {_fmt_money(summary.get('cac', 0))}
+  Benchmark ROAS:      {summary.get('benchmark_roas', 0):.2f}
+  Benchmark CTR:       {summary.get('benchmark_ctr', 0):.2f}%
+  Benchmark CVR:       {summary.get('benchmark_cvr', 0):.2f}%
+
+Funnel:
+  New:          {funnel.get('new', 0)}
+  MQL:          {funnel.get('mql', 0)}
+  SQL:          {funnel.get('sql', 0)}
+  Opportunity:  {funnel.get('opportunity', 0)}
+  Customer:     {funnel.get('customer', 0)}
+  Disqualified: {funnel.get('disqualified', 0)}
+
+Campaigns:
+{chr(10).join(campaign_lines) if campaign_lines else "  No campaigns found."}
+
+Content Calendar:
+{chr(10).join(content_lines) if content_lines else "  No content items found."}
+
+Channel Metrics:
+{chr(10).join(channel_lines) if channel_lines else "  No channel metric rows found."}
+""".strip()
+    finally:
+        db.close()
+
+
 def get_admin_context() -> str:
     """Fetch platform-wide admin data."""
     db = SessionLocal()
@@ -210,6 +285,7 @@ def get_context_for_section(section: str) -> str:
         "finance": get_finance_context,
         "hr": get_hr_context,
         "projects": get_projects_context,
+        "marketing": get_marketing_context,
         "admin": get_admin_context,
     }
 

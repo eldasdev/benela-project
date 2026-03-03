@@ -1,19 +1,58 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Section } from "@/types";
-import { X, Send, Sparkles, Loader2, User, Trash2 } from "lucide-react";
+import {
+  X,
+  Send,
+  Sparkles,
+  Loader2,
+  User,
+  Trash2,
+  Download,
+  Plus,
+  Search,
+  Pin,
+  PinOff,
+  MessageSquareText,
+  Bot,
+  Settings2,
+  Paperclip,
+  FileText,
+  Mic,
+  Square,
+} from "lucide-react";
+
+interface MessageAttachment {
+  file_name: string;
+  mime_type?: string | null;
+  size_bytes: number;
+  content_excerpt?: string | null;
+}
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: MessageAttachment[];
+  report?: {
+    fileName: string;
+    url: string;
+  };
 }
 
 interface Props {
   isOpen: boolean;
   section: Section;
   onClose: () => void;
+  onSectionChange?: (section: Section) => void;
+}
+
+interface PendingAttachment extends MessageAttachment {
+  id: string;
+  text_content?: string;
+  base64_data?: string | null;
+  encoding?: "base64";
 }
 
 const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: string[] }> = {
@@ -32,16 +71,6 @@ const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: s
   marketplace:  { label: "Marketplace",  icon: "📦", prompts: ["What integrations are available?", "How do I install an add-on?", "List popular integrations"] },
 };
 
-const getSessionId = (sectionName: string): string => {
-  const key = "benela_session_id";
-  let id = sessionStorage.getItem(key);
-  if (!id) {
-    id = Math.random().toString(36).substring(2, 15);
-    sessionStorage.setItem(key, id);
-  }
-  return `${id}_${sectionName}`;
-};
-
 const stripAssistantMarkdown = (content: string): string =>
   content
     .replace(/#{1,3} /g, "")
@@ -49,15 +78,1541 @@ const stripAssistantMarkdown = (content: string): string =>
     .replace(/\*(.*?)\*/g, "$1")
     .trim();
 
-export default function AIPanel({ isOpen, section, onClose }: Props) {
+const REPORT_REQUEST_PATTERN =
+  /\b(report|pdf|export|financial statement|income statement|balance sheet|cash flow statement|executive summary|performance report|conclusion)\b/i;
+const INCOME_STATEMENT_REQUEST_PATTERN =
+  /\b(financial statement|income statement|profit and loss|p&l|statement of operations)\b/i;
+
+const isReportRequest = (text: string): boolean => REPORT_REQUEST_PATTERN.test(text);
+const isIncomeStatementRequest = (text: string, sectionName: Section): boolean =>
+  sectionName === "finance" && INCOME_STATEMENT_REQUEST_PATTERN.test(text);
+
+type RgbColor = [number, number, number];
+type YearValues = [number, number, number];
+type NullableYearValues = [number | null, number | null, number | null];
+
+type IncomeMetricKey =
+  | "sales"
+  | "salesReturn"
+  | "discounts"
+  | "netSales"
+  | "materials"
+  | "labor"
+  | "overhead"
+  | "totalCOGS"
+  | "grossProfit"
+  | "wages"
+  | "advertising"
+  | "repairsMaintenance"
+  | "travel"
+  | "rentLease"
+  | "deliveryFreight"
+  | "utilitiesTelephone"
+  | "insurance"
+  | "mileage"
+  | "officeSupplies"
+  | "depreciation"
+  | "interestExpense"
+  | "otherExpenses"
+  | "totalOperatingExpenses"
+  | "operatingProfit"
+  | "interestIncome"
+  | "otherIncome"
+  | "profitBeforeTaxes"
+  | "taxExpense"
+  | "netProfit";
+
+interface IncomeStatementData {
+  companyName: string;
+  address: string;
+  createdDate: string;
+  issuedDate: string;
+  values: Record<IncomeMetricKey, YearValues>;
+}
+
+interface IncomeMetricDefinition {
+  key: IncomeMetricKey;
+  keywords: string[];
+}
+
+interface IncomeStatementRow {
+  kind: "section" | "line";
+  label: string;
+  key?: IncomeMetricKey;
+  yearHeader?: boolean;
+  indent?: number;
+  bold?: boolean;
+  italic?: boolean;
+  fill?: RgbColor;
+  lineWidth?: number;
+}
+
+const INCOME_METRIC_KEYS: IncomeMetricKey[] = [
+  "sales",
+  "salesReturn",
+  "discounts",
+  "netSales",
+  "materials",
+  "labor",
+  "overhead",
+  "totalCOGS",
+  "grossProfit",
+  "wages",
+  "advertising",
+  "repairsMaintenance",
+  "travel",
+  "rentLease",
+  "deliveryFreight",
+  "utilitiesTelephone",
+  "insurance",
+  "mileage",
+  "officeSupplies",
+  "depreciation",
+  "interestExpense",
+  "otherExpenses",
+  "totalOperatingExpenses",
+  "operatingProfit",
+  "interestIncome",
+  "otherIncome",
+  "profitBeforeTaxes",
+  "taxExpense",
+  "netProfit",
+];
+
+const INCOME_METRIC_DEFINITIONS: IncomeMetricDefinition[] = [
+  { key: "sales", keywords: ["sales"] },
+  { key: "salesReturn", keywords: ["sales return", "returns"] },
+  { key: "discounts", keywords: ["discounts", "allowances"] },
+  { key: "netSales", keywords: ["net sales"] },
+  { key: "materials", keywords: ["materials"] },
+  { key: "labor", keywords: ["labor", "labour"] },
+  { key: "overhead", keywords: ["overhead"] },
+  { key: "totalCOGS", keywords: ["total cost of goods sold", "total cogs"] },
+  { key: "grossProfit", keywords: ["gross profit"] },
+  { key: "wages", keywords: ["wages", "salary"] },
+  { key: "advertising", keywords: ["advertising", "marketing spend"] },
+  { key: "repairsMaintenance", keywords: ["repairs", "maintenance"] },
+  { key: "travel", keywords: ["travel"] },
+  { key: "rentLease", keywords: ["rent", "lease"] },
+  { key: "deliveryFreight", keywords: ["delivery", "freight"] },
+  { key: "utilitiesTelephone", keywords: ["utilities", "telephone"] },
+  { key: "insurance", keywords: ["insurance"] },
+  { key: "mileage", keywords: ["mileage"] },
+  { key: "officeSupplies", keywords: ["office supplies", "supplies"] },
+  { key: "depreciation", keywords: ["depreciation"] },
+  { key: "interestExpense", keywords: ["interest expense"] },
+  { key: "otherExpenses", keywords: ["other expenses", "misc expense"] },
+  { key: "totalOperatingExpenses", keywords: ["total operating expenses", "total opex"] },
+  { key: "operatingProfit", keywords: ["operating profit", "operating income"] },
+  { key: "interestIncome", keywords: ["interest income"] },
+  { key: "otherIncome", keywords: ["other income"] },
+  { key: "profitBeforeTaxes", keywords: ["profit before taxes", "profit before tax"] },
+  { key: "taxExpense", keywords: ["tax expense", "taxes"] },
+  { key: "netProfit", keywords: ["net profit", "net income"] },
+];
+
+const INCOME_STATEMENT_ROWS: IncomeStatementRow[] = [
+  { kind: "section", label: "Revenue", yearHeader: true },
+  { kind: "line", label: "Sales", key: "sales" },
+  { kind: "line", label: "Less: Sales Return", key: "salesReturn", indent: 10, italic: true },
+  { kind: "line", label: "Less: Discounts and Allowances", key: "discounts", indent: 10, italic: true },
+  { kind: "line", label: "Net Sales", key: "netSales", bold: true, fill: [230, 239, 251] },
+  { kind: "section", label: "Cost of Goods Sold" },
+  { kind: "line", label: "Materials", key: "materials" },
+  { kind: "line", label: "Labor", key: "labor" },
+  { kind: "line", label: "Overhead", key: "overhead" },
+  { kind: "line", label: "Total Cost of Goods Sold", key: "totalCOGS", bold: true, fill: [230, 239, 251] },
+  { kind: "line", label: "Gross Profit", key: "grossProfit", bold: true, fill: [221, 233, 249] },
+  { kind: "section", label: "Operating Expenses" },
+  { kind: "line", label: "Wages", key: "wages" },
+  { kind: "line", label: "Advertising", key: "advertising" },
+  { kind: "line", label: "Repairs & Maintenance", key: "repairsMaintenance" },
+  { kind: "line", label: "Travel", key: "travel" },
+  { kind: "line", label: "Rent/Lease", key: "rentLease" },
+  { kind: "line", label: "Delivery/Freight Expense", key: "deliveryFreight" },
+  { kind: "line", label: "Utilities/Telephone Expenses", key: "utilitiesTelephone" },
+  { kind: "line", label: "Insurance", key: "insurance" },
+  { kind: "line", label: "Mileage", key: "mileage" },
+  { kind: "line", label: "Office Supplies", key: "officeSupplies" },
+  { kind: "line", label: "Depreciation", key: "depreciation" },
+  { kind: "line", label: "Interest", key: "interestExpense" },
+  { kind: "line", label: "Other Expenses", key: "otherExpenses" },
+  { kind: "line", label: "Total Operating Expenses", key: "totalOperatingExpenses", bold: true, fill: [230, 239, 251] },
+  { kind: "line", label: "Operating Profit (Loss)", key: "operatingProfit", bold: true, fill: [221, 233, 249] },
+  { kind: "line", label: "Add: Other Income", indent: 10, italic: true },
+  { kind: "line", label: "Interest Income", key: "interestIncome" },
+  { kind: "line", label: "Other Income", key: "otherIncome" },
+  { kind: "line", label: "Profit (Loss) Before Taxes", key: "profitBeforeTaxes", bold: true, fill: [221, 233, 249] },
+  { kind: "line", label: "Less: Tax Expense", key: "taxExpense", indent: 10, italic: true },
+  { kind: "line", label: "Net Profit (Loss)", key: "netProfit", bold: true, fill: [212, 227, 246], lineWidth: 1.2 },
+];
+
+const cleanLabel = (value: string): string =>
+  value.replace(/[_*`#>]/g, "").replace(/\s+/g, " ").trim();
+
+const formatReportDate = (date: Date = new Date()): string =>
+  new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+
+const createIncomeRecord = <T,>(initializer: () => T): Record<IncomeMetricKey, T> => {
+  const record = {} as Record<IncomeMetricKey, T>;
+  for (const key of INCOME_METRIC_KEYS) {
+    record[key] = initializer();
+  }
+  return record;
+};
+
+const MONEY_TOKEN_PATTERN = /\(?-?\$?\s*\d[\d,]*(?:\.\d{1,2})?\)?/g;
+
+function parseMoneyToken(token: string): { value: number; hasHint: boolean; digitsLength: number } | null {
+  const compact = token.replace(/\s+/g, "");
+  if (!compact) return null;
+  const isParentheticalNegative = compact.startsWith("(") && compact.endsWith(")");
+  const numericPortion = compact.replace(/[()$]/g, "").replace(/,/g, "");
+  if (!/^-?\d+(?:\.\d{1,2})?$/.test(numericPortion)) return null;
+  const parsed = Number(numericPortion);
+  if (!Number.isFinite(parsed)) return null;
+  const value = isParentheticalNegative ? -Math.abs(parsed) : parsed;
+  const digitsLength = compact.replace(/\D/g, "").length;
+  const hasHint = /[$,().-]/.test(compact) || digitsLength > 3;
+  return { value, hasHint, digitsLength };
+}
+
+function extractYearValuesFromLine(line: string): NullableYearValues {
+  const matches = line.match(MONEY_TOKEN_PATTERN) ?? [];
+  const parsed = matches
+    .map((token) => parseMoneyToken(token))
+    .filter((item): item is NonNullable<ReturnType<typeof parseMoneyToken>> => Boolean(item));
+  if (!parsed.length) return [null, null, null];
+
+  const candidates = parsed.some((item) => item.hasHint)
+    ? parsed.filter((item) => item.hasHint)
+    : parsed;
+  const withoutLikelyYears = candidates.filter(
+    (item) => !(item.digitsLength >= 4 && item.value >= 1900 && item.value <= 2100),
+  );
+  const selected = (withoutLikelyYears.length ? withoutLikelyYears : candidates).slice(0, 3);
+  const values = selected.map((item) => item.value);
+  return [
+    values[0] ?? null,
+    values[1] ?? values[0] ?? null,
+    values[2] ?? values[1] ?? values[0] ?? null,
+  ];
+}
+
+function formatCurrency(value: number): string {
+  const absValue = Math.abs(value);
+  const formatted = absValue.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return value < 0 ? `($${formatted})` : `$${formatted}`;
+}
+
+function extractCompanyName(userRequest: string, assistantResponse: string): string {
+  const directMatch = assistantResponse.match(/company(?:\s+name)?\s*[:\-]\s*([^\n]+)/i);
+  if (directMatch?.[1]) {
+    const value = cleanLabel(directMatch[1]).slice(0, 70);
+    if (value) return value;
+  }
+
+  const requestMatch = userRequest.match(/\bfor\s+([A-Za-z0-9&.,' -]{3,70})/i);
+  if (requestMatch?.[1]) {
+    const value = cleanLabel(requestMatch[1])
+      .replace(/\b(income statement|financial statement|report)\b.*$/i, "")
+      .trim();
+    const blocked = new Set(["the company", "company", "our company", "this company", "my company"]);
+    if (value && !blocked.has(value.toLowerCase())) return value.slice(0, 70);
+  }
+
+  return "Company Name";
+}
+
+function extractAddress(userRequest: string, assistantResponse: string): string {
+  const sources = [assistantResponse, userRequest];
+  for (const source of sources) {
+    const match = source.match(/address\s*[:\-]\s*([^\n]+)/i);
+    if (match?.[1]) {
+      const value = cleanLabel(match[1]).slice(0, 110);
+      if (value) return value;
+    }
+  }
+  return "Address not provided";
+}
+
+function parseIncomeStatementValues(text: string): Record<IncomeMetricKey, NullableYearValues> {
+  const lines = text
+    .split(/\r?\n/)
+    .map((raw) => ({
+      raw: raw.trim(),
+      normalized: cleanLabel(raw).toLowerCase(),
+    }))
+    .filter((line) => line.normalized.length > 0);
+
+  const parsed = createIncomeRecord<NullableYearValues>(() => [null, null, null]);
+  for (const definition of INCOME_METRIC_DEFINITIONS) {
+    const matchingLine = lines.find((line) =>
+      definition.keywords.some((keyword) => line.normalized.includes(keyword)),
+    );
+    if (!matchingLine) continue;
+    parsed[definition.key] = extractYearValuesFromLine(matchingLine.raw);
+  }
+  return parsed;
+}
+
+function buildIncomeStatementData(
+  sectionLabel: string,
+  userRequest: string,
+  assistantResponse: string,
+): IncomeStatementData {
+  const parsed = parseIncomeStatementValues(assistantResponse);
+  const values = createIncomeRecord<YearValues>(() => [0, 0, 0]);
+  const directKeys: IncomeMetricKey[] = [
+    "sales",
+    "salesReturn",
+    "discounts",
+    "materials",
+    "labor",
+    "overhead",
+    "wages",
+    "advertising",
+    "repairsMaintenance",
+    "travel",
+    "rentLease",
+    "deliveryFreight",
+    "utilitiesTelephone",
+    "insurance",
+    "mileage",
+    "officeSupplies",
+    "depreciation",
+    "interestExpense",
+    "otherExpenses",
+    "interestIncome",
+    "otherIncome",
+    "taxExpense",
+  ];
+
+  for (let index = 0; index < 3; index += 1) {
+    for (const key of directKeys) {
+      values[key][index] = parsed[key][index] ?? 0;
+    }
+
+    const hasRevenueInputs =
+      parsed.sales[index] !== null ||
+      parsed.salesReturn[index] !== null ||
+      parsed.discounts[index] !== null;
+    values.netSales[index] =
+      parsed.netSales[index] ??
+      (hasRevenueInputs
+        ? values.sales[index] - values.salesReturn[index] - values.discounts[index]
+        : 0);
+
+    const hasCogsInputs =
+      parsed.materials[index] !== null ||
+      parsed.labor[index] !== null ||
+      parsed.overhead[index] !== null;
+    values.totalCOGS[index] =
+      parsed.totalCOGS[index] ??
+      (hasCogsInputs
+        ? values.materials[index] + values.labor[index] + values.overhead[index]
+        : 0);
+
+    values.grossProfit[index] =
+      parsed.grossProfit[index] ?? values.netSales[index] - values.totalCOGS[index];
+
+    const hasOperatingExpenseInputs = [
+      parsed.wages[index],
+      parsed.advertising[index],
+      parsed.repairsMaintenance[index],
+      parsed.travel[index],
+      parsed.rentLease[index],
+      parsed.deliveryFreight[index],
+      parsed.utilitiesTelephone[index],
+      parsed.insurance[index],
+      parsed.mileage[index],
+      parsed.officeSupplies[index],
+      parsed.depreciation[index],
+      parsed.interestExpense[index],
+      parsed.otherExpenses[index],
+    ].some((value) => value !== null);
+
+    values.totalOperatingExpenses[index] =
+      parsed.totalOperatingExpenses[index] ??
+      (hasOperatingExpenseInputs
+        ? values.wages[index] +
+          values.advertising[index] +
+          values.repairsMaintenance[index] +
+          values.travel[index] +
+          values.rentLease[index] +
+          values.deliveryFreight[index] +
+          values.utilitiesTelephone[index] +
+          values.insurance[index] +
+          values.mileage[index] +
+          values.officeSupplies[index] +
+          values.depreciation[index] +
+          values.interestExpense[index] +
+          values.otherExpenses[index]
+        : 0);
+
+    values.operatingProfit[index] =
+      parsed.operatingProfit[index] ??
+      values.grossProfit[index] - values.totalOperatingExpenses[index];
+
+    values.profitBeforeTaxes[index] =
+      parsed.profitBeforeTaxes[index] ??
+      values.operatingProfit[index] + values.interestIncome[index] + values.otherIncome[index];
+
+    values.netProfit[index] =
+      parsed.netProfit[index] ??
+      values.profitBeforeTaxes[index] - values.taxExpense[index];
+  }
+
+  const now = new Date();
+  const today = formatReportDate(now);
+  return {
+    companyName: extractCompanyName(userRequest, assistantResponse) || sectionLabel,
+    address: extractAddress(userRequest, assistantResponse),
+    createdDate: today,
+    issuedDate: today,
+    values,
+  };
+}
+
+const slugifyFileName = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "")
+    .slice(0, 48) || "export";
+
+const timestampForFileName = (): string =>
+  new Date().toISOString().replace(/[:.]/g, "-");
+
+function downloadBlob(blob: Blob, fileName: string): string {
+  const safeName = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = safeName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  return url;
+}
+
+function buildReportBody(sectionLabel: string, userRequest: string, assistantResponse: string): string {
+  const cleaned = stripAssistantMarkdown(assistantResponse);
+  const generatedAt = new Date().toLocaleString();
+  return [
+    "REPORT OVERVIEW",
+    `Module: ${sectionLabel}`,
+    `Generated: ${generatedAt}`,
+    "",
+    "REQUEST",
+    userRequest.trim() || "N/A",
+    "",
+    "FINDINGS & ANALYSIS",
+    cleaned || "No response content available.",
+    "",
+    "RECOMMENDED NEXT ACTIONS",
+    "1. Validate key figures and assumptions against source records.",
+    "2. Assign owners and deadlines for the most urgent actions.",
+    "3. Review progress in the next operational checkpoint.",
+  ].join("\n");
+}
+
+async function generatePdfBlob(
+  title: string,
+  subtitle: string,
+  body: string,
+): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  const margin = 44;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const maxWidth = pageWidth - margin * 2;
+  const lineHeight = 17;
+  let y = margin;
+
+  const ensureSpace = (requiredHeight: number = lineHeight) => {
+    if (y + requiredHeight <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  const titleLines = doc.splitTextToSize(title, maxWidth);
+  for (const line of titleLines) {
+    ensureSpace(22);
+    doc.text(line, margin, y);
+    y += 22;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  const subtitleLines = doc.splitTextToSize(subtitle, maxWidth);
+  for (const line of subtitleLines) {
+    ensureSpace(14);
+    doc.text(line, margin, y);
+    y += 14;
+  }
+
+  y += 8;
+  ensureSpace(12);
+  doc.setDrawColor(170, 170, 180);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 18;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  const bodyLines = doc.splitTextToSize(body || "No content available.", maxWidth);
+  for (const line of bodyLines) {
+    ensureSpace();
+    doc.text(line, margin, y);
+    y += lineHeight;
+  }
+
+  return doc.output("blob");
+}
+
+async function generateIncomeStatementPdfBlob(data: IncomeStatementData): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  const margin = 42;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - margin * 2;
+  const descWidth = contentWidth * 0.62;
+  const yearWidth = (contentWidth - descWidth) / 3;
+  const xYear1 = margin + descWidth;
+  const xYear2 = xYear1 + yearWidth;
+  const xYear3 = xYear2 + yearWidth;
+  const tableBottomPadding = 4;
+
+  const colors = {
+    headerBlue: [135, 166, 203] as RgbColor,
+    sectionBlue: [73, 121, 188] as RgbColor,
+    border: [182, 194, 210] as RgbColor,
+    darkText: [27, 37, 51] as RgbColor,
+    mutedText: [74, 86, 102] as RgbColor,
+  };
+
+  const applyTextColor = (color: RgbColor) => {
+    doc.setTextColor(color[0], color[1], color[2]);
+  };
+
+  const drawCenteredText = (text: string, x: number, width: number, y: number) => {
+    const textWidth = doc.getTextWidth(text);
+    doc.text(text, x + (width - textWidth) / 2, y);
+  };
+
+  const drawRightText = (text: string, rightX: number, y: number) => {
+    doc.text(text, rightX - doc.getTextWidth(text), y);
+  };
+
+  let y = margin;
+
+  const headerHeight = 78;
+  doc.setFillColor(colors.headerBlue[0], colors.headerBlue[1], colors.headerBlue[2]);
+  doc.rect(margin, y, contentWidth, headerHeight, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.companyName, margin + 12, y + 30);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(`Address: ${data.address}`, margin + 12, y + 52, { maxWidth: contentWidth * 0.52 });
+
+  const title = "Income Statement";
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(28);
+  drawRightText(title, margin + contentWidth - 12, y + 34);
+
+  y += headerHeight;
+
+  const dateBlockHeight = 56;
+  const dateLabelHeight = 24;
+  doc.setDrawColor(colors.border[0], colors.border[1], colors.border[2]);
+  doc.setLineWidth(0.8);
+  doc.rect(margin, y, contentWidth, dateBlockHeight, "S");
+  doc.line(margin, y + dateLabelHeight, margin + contentWidth, y + dateLabelHeight);
+
+  const dateColWidth = contentWidth / 4;
+  doc.line(margin + dateColWidth, y, margin + dateColWidth, y + dateBlockHeight);
+  doc.line(margin + dateColWidth * 2, y, margin + dateColWidth * 2, y + dateBlockHeight);
+  doc.line(margin + dateColWidth * 3, y, margin + dateColWidth * 3, y + dateBlockHeight);
+
+  applyTextColor(colors.darkText);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  drawCenteredText("Date Created:", margin, dateColWidth, y + 16);
+  drawCenteredText("Date Issued:", margin + dateColWidth, dateColWidth, y + 16);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  drawCenteredText(data.createdDate, margin, dateColWidth, y + 41);
+  drawCenteredText(data.issuedDate, margin + dateColWidth, dateColWidth, y + 41);
+
+  y += dateBlockHeight + 16;
+  doc.setDrawColor(colors.darkText[0], colors.darkText[1], colors.darkText[2]);
+  doc.setLineWidth(1);
+  doc.line(margin, y, margin + contentWidth, y);
+  y += 12;
+
+  const statementHeaderHeight = 24;
+  doc.setFillColor(colors.sectionBlue[0], colors.sectionBlue[1], colors.sectionBlue[2]);
+  doc.rect(margin, y, contentWidth, statementHeaderHeight, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Income Statement", margin + 8, y + 16);
+  y += statementHeaderHeight;
+
+  const drawColumnGrid = (rowTop: number, rowHeight: number) => {
+    doc.setDrawColor(colors.border[0], colors.border[1], colors.border[2]);
+    doc.setLineWidth(0.7);
+    doc.line(xYear1, rowTop, xYear1, rowTop + rowHeight);
+    doc.line(xYear2, rowTop, xYear2, rowTop + rowHeight);
+    doc.line(xYear3, rowTop, xYear3, rowTop + rowHeight);
+  };
+
+  const drawContinuationHeader = () => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    applyTextColor(colors.darkText);
+    doc.text("Income Statement (continued)", margin, margin + 10);
+    y = margin + 18;
+
+    doc.setFillColor(colors.sectionBlue[0], colors.sectionBlue[1], colors.sectionBlue[2]);
+    doc.rect(margin, y, contentWidth, 18, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text("Description", margin + 8, y + 12);
+    drawCenteredText("Year 1", xYear1, yearWidth, y + 12);
+    drawCenteredText("Year 2", xYear2, yearWidth, y + 12);
+    drawCenteredText("Year 3", xYear3, yearWidth, y + 12);
+    y += 18;
+  };
+
+  for (const row of INCOME_STATEMENT_ROWS) {
+    const rowHeight = row.kind === "section" ? 18 : 16;
+    if (y + rowHeight > pageHeight - margin - tableBottomPadding) {
+      doc.addPage();
+      drawContinuationHeader();
+    }
+
+    if (row.kind === "section") {
+      doc.setFillColor(colors.sectionBlue[0], colors.sectionBlue[1], colors.sectionBlue[2]);
+      doc.rect(margin, y, contentWidth, rowHeight, "FD");
+      drawColumnGrid(y, rowHeight);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text(row.label, margin + 8, y + 12);
+      if (row.yearHeader) {
+        drawCenteredText("Year 1", xYear1, yearWidth, y + 12);
+        drawCenteredText("Year 2", xYear2, yearWidth, y + 12);
+        drawCenteredText("Year 3", xYear3, yearWidth, y + 12);
+      }
+      y += rowHeight;
+      continue;
+    }
+
+    const fill = row.fill ?? ([255, 255, 255] as RgbColor);
+    doc.setFillColor(fill[0], fill[1], fill[2]);
+    doc.rect(margin, y, contentWidth, rowHeight, "FD");
+    drawColumnGrid(y, rowHeight);
+
+    const fontStyle = row.bold ? (row.italic ? "bolditalic" : "bold") : row.italic ? "italic" : "normal";
+    doc.setFont("helvetica", fontStyle);
+    doc.setFontSize(10);
+    applyTextColor(colors.darkText);
+    doc.text(row.label, margin + 8 + (row.indent ?? 0), y + 11);
+
+    if (row.key) {
+      const rowValues = data.values[row.key];
+      const textY = y + 11;
+      drawRightText(formatCurrency(rowValues[0]), xYear1 + yearWidth - 8, textY);
+      drawRightText(formatCurrency(rowValues[1]), xYear2 + yearWidth - 8, textY);
+      drawRightText(formatCurrency(rowValues[2]), xYear3 + yearWidth - 8, textY);
+    }
+
+    if (row.lineWidth) {
+      doc.setDrawColor(colors.darkText[0], colors.darkText[1], colors.darkText[2]);
+      doc.setLineWidth(row.lineWidth);
+      doc.line(margin, y + rowHeight, margin + contentWidth, y + rowHeight);
+      doc.setLineWidth(0.7);
+    }
+
+    y += rowHeight;
+  }
+
+  y += 8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  applyTextColor(colors.mutedText);
+  doc.text("Generated by Benela AI Financial Assistant", margin, Math.min(y, pageHeight - margin + 4));
+
+  return doc.output("blob");
+}
+
+type ClaudeModelId =
+  | "claude-haiku-4-5-20251001"
+  | "claude-sonnet-4-5-20250929"
+  | "claude-opus-4-1-20250805";
+
+interface ClaudeModelOption {
+  id: ClaudeModelId;
+  label: string;
+  description: string;
+}
+
+interface ChatThread {
+  id: string;
+  section: Section;
+  sessionId: string;
+  title: string;
+  preview: string;
+  model: ClaudeModelId;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const CLAUDE_MODEL_OPTIONS: ClaudeModelOption[] = [
+  {
+    id: "claude-haiku-4-5-20251001",
+    label: "Claude Haiku 4.5",
+    description: "Fastest responses for routine operational prompts.",
+  },
+  {
+    id: "claude-sonnet-4-5-20250929",
+    label: "Claude Sonnet 4.5",
+    description: "Balanced depth and speed for most business analysis.",
+  },
+  {
+    id: "claude-opus-4-1-20250805",
+    label: "Claude Opus 4.1",
+    description: "Highest reasoning depth for complex strategic tasks.",
+  },
+];
+
+const DEFAULT_CLAUDE_MODEL: ClaudeModelId = "claude-haiku-4-5-20251001";
+const CHAT_SEED_STORAGE_KEY = "benela_ai_chat_seed_v1";
+const THREADS_STORAGE_PREFIX = "benela_ai_threads_v1";
+const ACTIVE_THREAD_STORAGE_PREFIX = "benela_ai_active_thread_v1";
+const MAX_FILE_ATTACHMENTS = 5;
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_TEXT_CHARS = 12000;
+const MAX_FILE_EXCERPT_CHARS = 320;
+const AUDIO_MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+];
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "csv",
+  "json",
+  "xml",
+  "html",
+  "htm",
+  "log",
+  "tsv",
+  "yaml",
+  "yml",
+]);
+const TEXT_ATTACHMENT_MIME_PREFIXES = ["text/"];
+const TEXT_ATTACHMENT_MIME_EXACT = new Set([
+  "application/json",
+  "application/xml",
+  "text/csv",
+  "application/csv",
+  "application/javascript",
+  "application/x-javascript",
+  "application/x-yaml",
+  "application/vnd.ms-excel",
+]);
+
+const SECTION_OPTIONS = (Object.keys(SECTION_CONTEXT) as Section[]).map((value) => ({
+  value,
+  label: SECTION_CONTEXT[value].label,
+}));
+
+const threadStorageKey = (section: Section) => `${THREADS_STORAGE_PREFIX}_${section}`;
+const activeThreadStorageKey = (section: Section) => `${ACTIVE_THREAD_STORAGE_PREFIX}_${section}`;
+
+const getChatSeed = (): string => {
+  if (typeof window === "undefined") return "local-seed";
+  let seed = localStorage.getItem(CHAT_SEED_STORAGE_KEY);
+  if (!seed) {
+    seed = Math.random().toString(36).slice(2, 12);
+    localStorage.setItem(CHAT_SEED_STORAGE_KEY, seed);
+  }
+  return seed;
+};
+
+const makeThreadId = (): string =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const buildSessionId = (section: Section, threadId: string): string =>
+  `${getChatSeed()}_${section}_${threadId}`;
+
+const defaultThreadTitle = (section: Section): string =>
+  `${SECTION_CONTEXT[section]?.label ?? "Workspace"} Chat`;
+
+const deriveThreadTitle = (input: string, fallback: string): string => {
+  const normalized = cleanLabel(input)
+    .replace(/["'`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return fallback;
+  return normalized.length > 52 ? `${normalized.slice(0, 52)}...` : normalized;
+};
+
+const buildNewThread = (section: Section, model: ClaudeModelId): ChatThread => {
+  const id = makeThreadId();
+  const now = new Date().toISOString();
+  return {
+    id,
+    section,
+    sessionId: buildSessionId(section, id),
+    title: defaultThreadTitle(section),
+    preview: "",
+    model,
+    pinned: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+const sortThreads = (threads: ChatThread[]): ChatThread[] =>
+  [...threads].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+
+const formatThreadTime = (isoValue: string): string => {
+  const timestamp = new Date(isoValue).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const deltaMs = Date.now() - timestamp;
+  if (deltaMs < 60_000) return "now";
+  if (deltaMs < 3_600_000) return `${Math.floor(deltaMs / 60_000)}m`;
+  if (deltaMs < 86_400_000) return `${Math.floor(deltaMs / 3_600_000)}h`;
+  if (deltaMs < 7 * 86_400_000) return `${Math.floor(deltaMs / 86_400_000)}d`;
+  return new Date(isoValue).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+const formatBytes = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) return "0 B";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+};
+
+const extensionOf = (name: string): string =>
+  name.toLowerCase().split(".").pop() || "";
+
+const isLikelyTextAttachment = (file: File): boolean => {
+  const ext = extensionOf(file.name);
+  if (TEXT_ATTACHMENT_EXTENSIONS.has(ext)) return true;
+  if (file.type && TEXT_ATTACHMENT_MIME_EXACT.has(file.type)) return true;
+  if (file.type && TEXT_ATTACHMENT_MIME_PREFIXES.some((prefix) => file.type.startsWith(prefix))) {
+    return true;
+  }
+  return false;
+};
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+};
+
+const buildPendingAttachment = async (file: File): Promise<PendingAttachment> => {
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`${file.name} exceeds ${formatBytes(MAX_FILE_SIZE_BYTES)}.`);
+  }
+  const isText = isLikelyTextAttachment(file);
+  let normalizedText = "";
+  let base64Data: string | null = null;
+  let excerpt: string | null = null;
+
+  if (isText) {
+    try {
+      const raw = await file.text();
+      normalizedText = raw.replace(/\u0000/g, "").trim();
+      if (normalizedText) {
+        excerpt = normalizedText.slice(0, MAX_FILE_EXCERPT_CHARS);
+      }
+    } catch {
+      normalizedText = "";
+    }
+  }
+
+  if (!normalizedText) {
+    const buffer = await file.arrayBuffer();
+    base64Data = arrayBufferToBase64(buffer);
+    const mimeLabel = file.type || "application/octet-stream";
+    excerpt = `[Binary attachment: ${mimeLabel}]`;
+  }
+
+  return {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+    text_content: normalizedText ? normalizedText.slice(0, MAX_FILE_TEXT_CHARS) : undefined,
+    base64_data: base64Data,
+    encoding: base64Data ? "base64" : undefined,
+    content_excerpt: excerpt,
+  };
+};
+
+const readStoredThreads = (section: Section): ChatThread[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(threadStorageKey(section));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatThread[];
+    return parsed
+      .filter((thread) => thread.section === section && thread.sessionId && thread.id)
+      .map((thread) => ({
+        ...thread,
+        model:
+          CLAUDE_MODEL_OPTIONS.some((option) => option.id === thread.model)
+            ? thread.model
+            : DEFAULT_CLAUDE_MODEL,
+        title: thread.title || defaultThreadTitle(section),
+        preview: thread.preview || "",
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredThreads = (section: Section, threads: ChatThread[]) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(threadStorageKey(section), JSON.stringify(threads));
+};
+
+const readStoredActiveThreadId = (section: Section): string | null => {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(activeThreadStorageKey(section));
+};
+
+const writeStoredActiveThreadId = (section: Section, threadId: string) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(activeThreadStorageKey(section), threadId);
+};
+
+const findClaudeModel = (modelId: ClaudeModelId): ClaudeModelOption =>
+  CLAUDE_MODEL_OPTIONS.find((model) => model.id === modelId) ?? CLAUDE_MODEL_OPTIONS[0];
+
+export default function AIPanel({ isOpen, section, onClose, onSectionChange }: Props) {
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [threadsReady, setThreadsReady] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [threadSearch, setThreadSearch] = useState("");
   const [input, setInput] = useState("");
+  const [model, setModel] = useState<ClaudeModelId>(DEFAULT_CLAUDE_MODEL);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentNotice, setAttachmentNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState("");
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const reportUrlsRef = useRef<string[]>([]);
+  const historyRequestRef = useRef(0);
+  const threadsRef = useRef<ChatThread[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const ctx = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
+  const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
+  const selectedModel = findClaudeModel(model);
+
+  const filteredThreads = useMemo(() => {
+    const query = threadSearch.trim().toLowerCase();
+    if (!query) return sortThreads(threads);
+    return sortThreads(threads).filter((thread) => {
+      const haystack = `${thread.title} ${thread.preview}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [threads, threadSearch]);
+
+  const clearReportUrls = () => {
+    for (const url of reportUrlsRef.current) {
+      URL.revokeObjectURL(url);
+    }
+    reportUrlsRef.current = [];
+  };
+
+  const stopMediaStream = () => {
+    if (mediaStreamRef.current) {
+      for (const track of mediaStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const transcribeAudioBlob = async (blob: Blob) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+    const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
+      type: blob.type || "audio/webm",
+    });
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${apiUrl}/agents/transcribe`, {
+      method: "POST",
+      body: formData,
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      text?: string;
+      detail?: string;
+    };
+    if (!response.ok) {
+      throw new Error(payload.detail || "Audio transcription failed.");
+    }
+    const transcript = (payload.text || "").trim();
+    if (!transcript) {
+      throw new Error("No speech could be transcribed from the recording.");
+    }
+    return transcript;
+  };
+
+  const updateThread = (threadId: string, updates: Partial<ChatThread>) => {
+    setThreads((prev) =>
+      sortThreads(
+        prev.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                ...updates,
+              }
+            : thread,
+        ),
+      ),
+    );
+  };
+
+  const ensureThread = (): ChatThread => {
+    const existing = threadsRef.current.find((thread) => thread.id === activeThreadId);
+    if (existing) return existing;
+    const created = buildNewThread(section, model);
+    setThreads((prev) => sortThreads([created, ...prev]));
+    setActiveThreadId(created.id);
+    return created;
+  };
+
+  const loadHistory = async (thread: ChatThread) => {
+    const requestId = ++historyRequestRef.current;
+    setHistoryLoading(true);
+    setMessages([]);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(
+        `${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}&limit=100`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as Array<{
+        id: number;
+        role: "user" | "assistant";
+        content: string;
+        attachments?: Array<{
+          file_name: string;
+          mime_type?: string | null;
+          size_bytes: number;
+          content_excerpt?: string | null;
+        }>;
+        created_at?: string;
+      }>;
+      if (requestId !== historyRequestRef.current) return;
+
+      setMessages(
+        data.map((msg) => ({
+          id: String(msg.id),
+          role: msg.role,
+          content: msg.content,
+          attachments: (msg.attachments || []).map((attachment) => ({
+            file_name: attachment.file_name,
+            mime_type: attachment.mime_type || null,
+            size_bytes: attachment.size_bytes,
+            content_excerpt: attachment.content_excerpt || null,
+          })),
+        })),
+      );
+
+      const latest = data[data.length - 1];
+      if (!latest) return;
+      const preview =
+        latest.role === "assistant"
+          ? stripAssistantMarkdown(latest.content)
+          : cleanLabel(latest.content);
+      updateThread(thread.id, {
+        preview: preview.slice(0, 120),
+        updatedAt: latest.created_at ?? new Date().toISOString(),
+      });
+    } catch {
+      // keep workspace usable even if history fetch fails
+    } finally {
+      if (requestId === historyRequestRef.current) {
+        setHistoryLoading(false);
+      }
+    }
+  };
+
+  const saveMessages = async (
+    sessionId: string,
+    userText: string,
+    assistantText: string,
+    attachments: MessageAttachment[] = [],
+  ) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    await fetch(`${apiUrl}/chat/${section}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        section,
+        role: "user",
+        content: userText,
+        attachments: attachments.map((attachment) => ({
+          file_name: attachment.file_name,
+          mime_type: attachment.mime_type || null,
+          size_bytes: attachment.size_bytes,
+          content_excerpt: attachment.content_excerpt || null,
+        })),
+      }),
+    });
+    await fetch(`${apiUrl}/chat/${section}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        section,
+        role: "assistant",
+        content: assistantText,
+      }),
+    });
+  };
+
+  const clearActiveConversation = async () => {
+    const thread = activeThread;
+    if (!thread) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}`, {
+        method: "DELETE",
+      });
+    } catch {
+      // ignore and still clear local view
+    }
+
+    clearReportUrls();
+    setMessages([]);
+    setShowClearConfirm(false);
+    setPdfNotice("");
+    updateThread(thread.id, {
+      preview: "",
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const createNewThread = () => {
+    stopMediaStream();
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    const created = buildNewThread(section, model);
+    setThreads((prev) => sortThreads([created, ...prev]));
+    setActiveThreadId(created.id);
+    setMessages([]);
+    setInput("");
+    setPendingAttachments([]);
+    setAttachmentNotice("");
+    setPdfNotice("");
+    setShowClearConfirm(false);
+    setIsRecordingAudio(false);
+    setIsTranscribingAudio(false);
+  };
+
+  const removePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
+  };
+
+  const handleAttachmentInput = async (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => {
+    const files = Array.from(event.target.files || []);
+    event.currentTarget.value = "";
+    if (!files.length) return;
+
+    const existing = [...pendingAttachments];
+    const availableSlots = MAX_FILE_ATTACHMENTS - existing.length;
+    if (availableSlots <= 0) {
+      setAttachmentNotice(`You can attach up to ${MAX_FILE_ATTACHMENTS} files per prompt.`);
+      return;
+    }
+
+    const next = [...existing];
+    const errors: string[] = [];
+    for (const file of files.slice(0, availableSlots)) {
+      try {
+        const parsed = await buildPendingAttachment(file);
+        const duplicate = next.some(
+          (item) => item.file_name === parsed.file_name && item.size_bytes === parsed.size_bytes,
+        );
+        if (duplicate) continue;
+        next.push(parsed);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : `${file.name} could not be attached.`);
+      }
+    }
+
+    if (files.length > availableSlots) {
+      errors.push(`Only ${availableSlots} more file(s) could be attached in this prompt.`);
+    }
+
+    setPendingAttachments(next);
+    setAttachmentNotice(errors.join(" "));
+  };
+
+  const startRecordingAudio = async () => {
+    if (loading || historyLoading || isTranscribingAudio || isRecordingAudio) return;
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      setAttachmentNotice("Audio recording is not available in this environment.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setAttachmentNotice("This browser does not support microphone recording.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const mimeType =
+        AUDIO_MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const chunk = audioChunksRef.current;
+        audioChunksRef.current = [];
+        const audioBlob = new Blob(chunk, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        stopMediaStream();
+        setIsRecordingAudio(false);
+
+        if (!audioBlob.size) {
+          setAttachmentNotice("The recording was empty. Please try again.");
+          return;
+        }
+
+        setIsTranscribingAudio(true);
+        setAttachmentNotice("Transcribing audio...");
+        void (async () => {
+          try {
+            const transcript = await transcribeAudioBlob(audioBlob);
+            setAttachmentNotice("");
+            setInput(transcript);
+            await send(transcript);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Audio transcription failed. Please try again.";
+            setAttachmentNotice(message);
+          } finally {
+            setIsTranscribingAudio(false);
+          }
+        })();
+      };
+
+      recorder.onerror = () => {
+        setIsRecordingAudio(false);
+        stopMediaStream();
+        setAttachmentNotice("Audio recording failed. Please try again.");
+      };
+
+      recorder.start();
+      setAttachmentNotice("Recording... click stop when finished.");
+      setIsRecordingAudio(true);
+    } catch {
+      setAttachmentNotice("Microphone permission denied or unavailable.");
+      setIsRecordingAudio(false);
+      stopMediaStream();
+    }
+  };
+
+  const stopRecordingAudio = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (recorder.state === "recording") {
+      recorder.stop();
+    }
+  };
+
+  const deleteThread = async (threadId: string) => {
+    const target = threadsRef.current.find((thread) => thread.id === threadId);
+    if (!target) return;
+    const approved = window.confirm(`Delete chat "${target.title}"? This removes its history.`);
+    if (!approved) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(target.sessionId)}`, {
+        method: "DELETE",
+      });
+    } catch {
+      // ignore and continue local cleanup
+    }
+
+    const remaining = sortThreads(threadsRef.current.filter((thread) => thread.id !== threadId));
+    if (!remaining.length) {
+      const fallback = buildNewThread(section, model);
+      setThreads([fallback]);
+      setActiveThreadId(fallback.id);
+      setMessages([]);
+      return;
+    }
+
+    setThreads(remaining);
+    if (threadId === activeThreadId) {
+      setActiveThreadId(remaining[0].id);
+    }
+  };
+
+  const send = async (
+    rawText: string,
+    attachmentDrafts: PendingAttachment[] = pendingAttachments,
+  ) => {
+    const text = rawText.trim();
+    const attachmentsForSend = attachmentDrafts.slice(0, MAX_FILE_ATTACHMENTS);
+    const hasAttachments = attachmentsForSend.length > 0;
+    if ((!text && !hasAttachments) || loading || historyLoading || isRecordingAudio || isTranscribingAudio) return;
+
+    const displayText =
+      text || `Analyze ${attachmentsForSend.length} attached file${attachmentsForSend.length > 1 ? "s" : ""}.`;
+    const effectiveMessage =
+      text || "Please analyze the attached files and provide clear, practical insights.";
+    const thread = ensureThread();
+    const selectedModelId = model;
+    const wantsReport = isReportRequest(effectiveMessage);
+    const wantsIncomeStatement = isIncomeStatementRequest(effectiveMessage, section);
+
+    const userAttachments: MessageAttachment[] = attachmentsForSend.map((attachment) => ({
+      file_name: attachment.file_name,
+      mime_type: attachment.mime_type || null,
+      size_bytes: attachment.size_bytes,
+      content_excerpt: attachment.content_excerpt || null,
+    }));
+
+    const userMsg: Message = {
+      id: `${Date.now()}-u`,
+      role: "user",
+      content: displayText,
+      attachments: userAttachments,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setPendingAttachments([]);
+    setAttachmentNotice("");
+    setLoading(true);
+    setPdfNotice("");
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/agents/${section}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: effectiveMessage,
+          model: selectedModelId,
+          attachments: attachmentsForSend.map((attachment) => ({
+            file_name: attachment.file_name,
+            mime_type: attachment.mime_type || null,
+            size_bytes: attachment.size_bytes,
+            text_content: attachment.text_content || null,
+            base64_data: attachment.base64_data || null,
+            encoding: attachment.encoding || null,
+          })),
+        }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        response?: string;
+        detail?: string;
+      };
+      if (!res.ok) {
+        throw new Error(payload.detail || "Assistant request failed.");
+      }
+
+      let assistantText = payload.response ?? payload.detail ?? "Something went wrong.";
+      const refusalAboutFiles =
+        /\b(can'?t|cannot|unable|do not have)\b/i.test(assistantText) &&
+        /\b(pdf|file|download)\b/i.test(assistantText);
+      if (wantsReport && refusalAboutFiles) {
+        assistantText +=
+          "\n\nPDF report generation is available in this workspace. I will generate a downloadable report for this request.";
+      }
+
+      const assistantMsg: Message = {
+        id: `${Date.now()}-a`,
+        role: "assistant",
+        content: assistantText,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+
+      saveMessages(thread.sessionId, displayText, assistantText, userAttachments).catch(console.error);
+
+      const defaultTitle = defaultThreadTitle(section);
+      const shouldRetitle =
+        !thread.title ||
+        thread.title === defaultTitle ||
+        thread.title.toLowerCase() === "new chat";
+      const preview = stripAssistantMarkdown(assistantText).slice(0, 120);
+      const titleSeed = text || attachmentsForSend[0]?.file_name || "File Analysis";
+      updateThread(thread.id, {
+        title: shouldRetitle ? deriveThreadTitle(titleSeed, defaultTitle) : thread.title,
+        preview,
+        model: selectedModelId,
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (wantsReport) {
+        setPdfLoading(true);
+        try {
+          let fileName = `${slugifyFileName(ctx.label)}-report-${timestampForFileName()}.pdf`;
+          let blob: Blob;
+
+          if (wantsIncomeStatement) {
+            const statementData = buildIncomeStatementData(ctx.label, effectiveMessage, assistantText);
+            const companySlug = slugifyFileName(statementData.companyName);
+            fileName = `${companySlug}-income-statement-${timestampForFileName()}.pdf`;
+            blob = await generateIncomeStatementPdfBlob(statementData);
+          } else {
+            const reportTitle = `${ctx.label} Report`;
+            const reportSubtitle = `Prepared by Benela AI on ${new Date().toLocaleString()}`;
+            const reportBody = buildReportBody(ctx.label, text, assistantText);
+            blob = await generatePdfBlob(reportTitle, reportSubtitle, reportBody);
+          }
+
+          const url = downloadBlob(blob, fileName);
+          reportUrlsRef.current.push(url);
+          const reportMsg: Message = {
+            id: `${Date.now()}-r`,
+            role: "assistant",
+            content: wantsIncomeStatement
+              ? `Income statement generated and downloaded: ${fileName}`
+              : `Report generated and downloaded: ${fileName}`,
+            report: { fileName, url },
+          };
+          setMessages((prev) => [...prev, reportMsg]);
+        } catch {
+          setPdfNotice(
+            wantsIncomeStatement
+              ? "Could not generate the income statement PDF for this request."
+              : "Could not generate the report PDF for this request.",
+          );
+        } finally {
+          setPdfLoading(false);
+        }
+      }
+    } catch (error) {
+      if (attachmentsForSend.length) {
+        setPendingAttachments(attachmentsForSend);
+      }
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : "Backend not connected. Check your API configuration.";
+      const assistantMsg: Message = {
+        id: `${Date.now()}-e`,
+        role: "assistant",
+        content: errMsg,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      updateThread(thread.id, {
+        preview: cleanLabel(errMsg).slice(0, 120),
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportFullConversation = async () => {
+    if (!messages.length || pdfLoading || historyLoading) return;
+    setPdfLoading(true);
+    setPdfNotice("");
+    try {
+      const now = new Date().toLocaleString();
+      const conversation = messages
+        .map((msg) => {
+          const role = msg.role === "assistant" ? "AI Assistant" : "User";
+          const text =
+            msg.role === "assistant" ? stripAssistantMarkdown(msg.content) : msg.content;
+          return `${role}:\n${text}`;
+        })
+        .join("\n\n");
+
+      const fileName = `${slugifyFileName(ctx.label)}-ai-chat-${timestampForFileName()}.pdf`;
+      const blob = await generatePdfBlob(
+        `${ctx.label} AI Conversation`,
+        `Generated from Benela AI on ${now}`,
+        conversation,
+      );
+      const url = downloadBlob(blob, fileName);
+      reportUrlsRef.current.push(url);
+    } catch {
+      setPdfNotice("Could not export PDF right now. Please try again.");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  useEffect(() => {
+    return () => {
+      clearReportUrls();
+      stopMediaStream();
+      mediaRecorderRef.current = null;
+      audioChunksRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -65,545 +1620,1032 @@ export default function AIPanel({ isOpen, section, onClose }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
+    setThreadsReady(false);
+    setThreadSearch("");
+    setInput("");
+    setPendingAttachments([]);
+    setAttachmentNotice("");
+    setPdfNotice("");
     setShowClearConfirm(false);
-    void loadHistory();
+    setIsRecordingAudio(false);
+    setIsTranscribingAudio(false);
+    stopMediaStream();
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    clearReportUrls();
+
+    const stored = sortThreads(readStoredThreads(section));
+    const initialThreads = stored.length
+      ? stored
+      : [buildNewThread(section, DEFAULT_CLAUDE_MODEL)];
+    const storedActiveId = readStoredActiveThreadId(section);
+    const nextActiveId =
+      storedActiveId && initialThreads.some((thread) => thread.id === storedActiveId)
+        ? storedActiveId
+        : initialThreads[0].id;
+
+    setThreads(initialThreads);
+    setActiveThreadId(nextActiveId);
+    setModel(initialThreads.find((thread) => thread.id === nextActiveId)?.model ?? DEFAULT_CLAUDE_MODEL);
+    setThreadsReady(true);
   }, [section, isOpen]);
 
-  const loadHistory = async () => {
-    setHistoryLoading(true);
-    setMessages([]);
-    try {
-      const sessionId = getSessionId(section);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(
-        `${apiUrl}/chat/${section}?session_id=${encodeURIComponent(sessionId)}&limit=50`
-      );
-      if (res.ok) {
-        const data = (await res.json()) as Array<{ id: number; role: "user" | "assistant"; content: string }>;
-        setMessages(
-          data.map((msg) => ({
-            id: String(msg.id),
-            role: msg.role,
-            content: msg.content,
-          }))
-        );
-      }
-    } catch {
-      // keep chat usable even if history fetch fails
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!isOpen || !threadsReady) return;
+    writeStoredThreads(section, threads);
+  }, [threads, section, isOpen, threadsReady]);
 
-  const saveMessages = async (userText: string, assistantText: string) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const sessionId = getSessionId(section);
-
-    await Promise.all([
-      fetch(`${apiUrl}/chat/${section}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          section,
-          role: "user",
-          content: userText,
-        }),
-      }),
-      fetch(`${apiUrl}/chat/${section}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          section,
-          role: "assistant",
-          content: assistantText,
-        }),
-      }),
-    ]);
-  };
-
-  const send = async (text: string) => {
-    if (!text.trim() || loading) return;
-
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: text,
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    setLoading(true);
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/agents/${section}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      });
-
-      const data = await res.json();
-      const assistantText = data.response ?? data.detail ?? "Something went wrong.";
-
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: assistantText,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-
-      saveMessages(text, assistantText).catch(console.error);
-    } catch {
-      const errMsg = "Backend not connected. Check your API configuration.";
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: errMsg,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const clearChat = async () => {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const sessionId = getSessionId(section);
-      await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(sessionId)}`, {
-        method: "DELETE",
-      });
-      setMessages([]);
-      setShowClearConfirm(false);
-    } catch {
-      setMessages([]);
-      setShowClearConfirm(false);
-    }
-  };
+  useEffect(() => {
+    if (!isOpen || !threadsReady || !activeThread) return;
+    writeStoredActiveThreadId(section, activeThread.id);
+    setModel(activeThread.model);
+    setPendingAttachments([]);
+    setAttachmentNotice("");
+    void loadHistory(activeThread);
+  }, [activeThread?.sessionId, activeThreadId, section, isOpen, threadsReady]);
 
   return (
     <>
       {isOpen && (
         <div
           onClick={onClose}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
+          style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop-soft)", zIndex: 48 }}
         />
       )}
 
       <div
         style={{
           position: "fixed",
-          top: 0,
-          right: isOpen ? 0 : "-420px",
-          width: "400px",
-          height: "100vh",
+          top: "12px",
+          right: "12px",
+          width: "min(980px, calc(100vw - 24px))",
+          height: "calc(100vh - 24px)",
           background: "var(--bg-panel)",
-          borderLeft: "1px solid var(--border-default)",
+          border: "1px solid var(--border-default)",
+          borderRadius: "16px",
+          overflow: "hidden",
           display: "flex",
-          flexDirection: "column",
           zIndex: 50,
-          transition: "right 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          boxShadow: isOpen ? "-20px 0 60px rgba(0,0,0,0.5)" : "none",
+          transform: isOpen ? "translateX(0)" : "translateX(calc(100% + 24px))",
+          transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          boxShadow: isOpen ? "var(--drawer-shadow)" : "none",
+          pointerEvents: isOpen ? "auto" : "none",
         }}
       >
-        <div
+        <aside
           style={{
+            width: "clamp(240px, 28%, 296px)",
+            borderRight: "1px solid var(--border-default)",
+            background: "linear-gradient(180deg, var(--bg-panel), var(--bg-surface))",
             display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border-default)",
-            flexShrink: 0,
+            flexDirection: "column",
           }}
         >
-          <div
-            style={{
-              width: "34px",
-              height: "34px",
-              borderRadius: "10px",
-              background: "rgba(124,106,255,0.12)",
-              border: "1px solid rgba(124,106,255,0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Sparkles size={15} color="#a89aff" />
-          </div>
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>AI Assistant</p>
-            <p style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
-              {ctx.icon} {ctx.label} context active
-            </p>
-          </div>
-
-          {messages.length > 0 && (
-            <span
-              style={{
-                fontSize: "10px",
-                color: "var(--text-subtle)",
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "6px",
-                padding: "2px 7px",
-                fontFamily: "monospace",
-              }}
+          <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--border-default)" }}>
+            <div
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}
             >
-              {messages.length} msgs
-            </span>
-          )}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    borderRadius: "10px",
+                    background: "var(--accent-soft)",
+                    border: "1px solid color-mix(in srgb, var(--accent) 36%, transparent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Bot size={14} color="var(--accent)" />
+                </div>
+                <div>
+                  <p style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em" }}>BENELA AI</p>
+                  <p style={{ fontSize: "10px", color: "var(--text-subtle)" }}>Conversations</p>
+                </div>
+              </div>
 
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            title="Clear chat history"
-            style={{
-              width: "28px",
-              height: "28px",
-              borderRadius: "8px",
-              background: "transparent",
-              border: `1px solid ${showClearConfirm ? "rgba(248,113,113,0.3)" : "var(--border-default)"}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              color: showClearConfirm ? "#f87171" : "var(--text-subtle)",
-            }}
-          >
-            <Trash2 size={12} />
-          </button>
-
-          <button
-            onClick={onClose}
-            style={{
-              width: "28px",
-              height: "28px",
-              borderRadius: "8px",
-              background: "transparent",
-              border: "1px solid var(--border-default)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              color: "var(--text-subtle)",
-            }}
-          >
-            <X size={13} />
-          </button>
-        </div>
-
-        {showClearConfirm && (
-          <div
-            style={{
-              padding: "10px 20px",
-              background: "rgba(248,113,113,0.06)",
-              borderBottom: "1px solid rgba(248,113,113,0.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexShrink: 0,
-              gap: "8px",
-            }}
-          >
-            <span style={{ fontSize: "12px", color: "#f87171" }}>
-              Clear all chat history for {ctx.label}?
-            </span>
-            <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
               <button
-                onClick={() => setShowClearConfirm(false)}
+                onClick={createNewThread}
+                title="New chat"
                 style={{
-                  fontSize: "11px",
-                  color: "var(--text-subtle)",
-                  background: "transparent",
+                  width: "30px",
+                  height: "30px",
+                  borderRadius: "9px",
+                  background: "var(--bg-elevated)",
                   border: "1px solid var(--border-default)",
-                  borderRadius: "6px",
-                  padding: "3px 10px",
+                  color: "var(--text-muted)",
                   cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={clearChat}
-                style={{
-                  fontSize: "11px",
-                  color: "white",
-                  background: "#ef4444",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "3px 10px",
-                  cursor: "pointer",
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-          {historyLoading ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px",
-                padding: "40px",
-                color: "var(--text-quiet)",
-                fontSize: "12px",
-              }}
-            >
-              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-              Loading history...
-            </div>
-          ) : messages.length === 0 ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "20px",
-                paddingTop: "20px",
-              }}
-            >
-              <div
-                style={{
-                  width: "48px",
-                  height: "48px",
-                  borderRadius: "14px",
-                  background: "rgba(124,106,255,0.08)",
-                  border: "1px solid rgba(124,106,255,0.15)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "22px",
                 }}
               >
-                {ctx.icon}
-              </div>
+                <Plus size={14} />
+              </button>
+            </div>
 
-              <div style={{ textAlign: "center" }}>
-                <p style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "6px" }}>
-                  {ctx.label} AI Assistant
-                </p>
-                <p style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: "1.6" }}>
-                  Ask anything about your {ctx.label.toLowerCase()} data, operations, or get AI-powered analysis.
-                </p>
-              </div>
+            <div
+              style={{
+                border: "1px solid var(--border-default)",
+                borderRadius: "10px",
+                background: "var(--bg-surface)",
+                padding: "8px 10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <Search size={13} color="var(--text-subtle)" />
+              <input
+                value={threadSearch}
+                onChange={(event) => setThreadSearch(event.target.value)}
+                placeholder="Search chats"
+                style={{
+                  width: "100%",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontSize: "12px",
+                  fontFamily: "Geist, sans-serif",
+                }}
+              />
+            </div>
+          </div>
 
-              <div style={{ width: "100%" }}>
-                <p
+          <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
+            {filteredThreads.length === 0 ? (
+              <div
+                style={{
+                  border: "1px dashed var(--border-default)",
+                  borderRadius: "10px",
+                  padding: "14px",
+                  color: "var(--text-subtle)",
+                  fontSize: "12px",
+                }}
+              >
+                No chats match your search.
+              </div>
+            ) : (
+              filteredThreads.map((thread) => {
+                const isActive = thread.id === activeThreadId;
+                return (
+                  <button
+                    key={thread.id}
+                    onClick={() => {
+                      setActiveThreadId(thread.id);
+                      setPdfNotice("");
+                      setShowClearConfirm(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      marginBottom: "8px",
+                      textAlign: "left",
+                      borderRadius: "11px",
+                      border: isActive
+                        ? "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default))"
+                        : "1px solid var(--border-default)",
+                      background: isActive ? "var(--accent-soft)" : "var(--bg-surface)",
+                      padding: "10px",
+                      cursor: "pointer",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px" }}>
+                      <MessageSquareText size={13} color={isActive ? "var(--accent)" : "var(--text-subtle)"} />
+                      <span
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {thread.title}
+                      </span>
+                      <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>
+                        {formatThreadTime(thread.updatedAt)}
+                      </span>
+                    </div>
+
+                    <p
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--text-subtle)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      {thread.preview || "No messages yet"}
+                    </p>
+
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "999px",
+                          padding: "2px 6px",
+                          color: "var(--text-muted)",
+                          background: "var(--bg-panel)",
+                        }}
+                      >
+                        {findClaudeModel(thread.model).label}
+                      </span>
+                      <div style={{ display: "inline-flex", gap: "4px" }}>
+                        <span
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            updateThread(thread.id, { pinned: !thread.pinned });
+                          }}
+                          title={thread.pinned ? "Unpin chat" : "Pin chat"}
+                          style={{
+                            width: "24px",
+                            height: "24px",
+                            borderRadius: "7px",
+                            border: "1px solid var(--border-default)",
+                            background: "var(--bg-panel)",
+                            color: "var(--text-subtle)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {thread.pinned ? <PinOff size={11} /> : <Pin size={11} />}
+                        </span>
+                        <span
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteThread(thread.id);
+                          }}
+                          title="Delete chat"
+                          style={{
+                            width: "24px",
+                            height: "24px",
+                            borderRadius: "7px",
+                            border: "1px solid var(--danger-soft-border)",
+                            background: "var(--danger-soft-bg)",
+                            color: "var(--danger)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Trash2 size={11} />
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border-default)", padding: "10px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "10px", color: "var(--text-subtle)" }}>Chats</span>
+              <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                {threads.length}
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        <section style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div style={{ borderBottom: "1px solid var(--border-default)", padding: "12px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "9px",
+                  background: "var(--bg-elevated)",
+                  padding: "5px 8px",
+                }}
+              >
+                <Settings2 size={12} color="var(--text-subtle)" />
+                <select
+                  value={section}
+                  onChange={(event) => {
+                    const nextSection = event.target.value as Section;
+                    if (nextSection === section) return;
+                    onSectionChange?.(nextSection);
+                  }}
+                  disabled={!onSectionChange}
                   style={{
-                    fontSize: "9px",
-                    color: "var(--text-quiet)",
-                    letterSpacing: "0.12em",
-                    fontFamily: "monospace",
-                    textAlign: "center",
-                    marginBottom: "10px",
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    color: onSectionChange ? "var(--text-primary)" : "var(--text-quiet)",
+                    fontSize: "11px",
+                    fontFamily: "Geist, sans-serif",
+                    cursor: onSectionChange ? "pointer" : "not-allowed",
                   }}
                 >
-                  SUGGESTED
+                  {SECTION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "9px",
+                  background: "var(--bg-elevated)",
+                  padding: "5px 8px",
+                }}
+              >
+                <Sparkles size={12} color="var(--accent)" />
+                <select
+                  value={model}
+                  onChange={(event) => {
+                    const nextModel = event.target.value as ClaudeModelId;
+                    setModel(nextModel);
+                    if (activeThreadId) {
+                      updateThread(activeThreadId, { model: nextModel });
+                    }
+                  }}
+                  style={{
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    color: "var(--text-primary)",
+                    fontSize: "11px",
+                    fontFamily: "Geist, sans-serif",
+                    cursor: "pointer",
+                  }}
+                >
+                  {CLAUDE_MODEL_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginLeft: "auto", display: "inline-flex", gap: "6px" }}>
+                <button
+                  onClick={() => void exportFullConversation()}
+                  disabled={!messages.length || historyLoading || pdfLoading}
+                  title="Export active chat as PDF"
+                  style={{
+                    height: "30px",
+                    borderRadius: "8px",
+                    padding: "0 10px",
+                    border: "1px solid var(--border-default)",
+                    background:
+                      messages.length && !historyLoading && !pdfLoading
+                        ? "var(--bg-elevated)"
+                        : "transparent",
+                    color:
+                      messages.length && !historyLoading && !pdfLoading
+                        ? "var(--text-primary)"
+                        : "var(--text-quiet)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    fontSize: "11px",
+                    cursor:
+                      messages.length && !historyLoading && !pdfLoading ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {pdfLoading ? (
+                    <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+                  ) : (
+                    <Download size={12} />
+                  )}
+                  PDF
+                </button>
+
+                <button
+                  onClick={() => setShowClearConfirm((prev) => !prev)}
+                  title="Clear active chat"
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    borderRadius: "8px",
+                    border: `1px solid ${showClearConfirm ? "var(--danger-soft-border)" : "var(--border-default)"}`,
+                    background: "transparent",
+                    color: showClearConfirm ? "var(--danger)" : "var(--text-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+
+                <button
+                  onClick={onClose}
+                  title="Close"
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-default)",
+                    background: "transparent",
+                    color: "var(--text-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <p
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {activeThread?.title ?? defaultThreadTitle(section)}
+              </p>
+              <span
+                style={{
+                  fontSize: "10px",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "999px",
+                  padding: "2px 7px",
+                  color: "var(--text-subtle)",
+                  background: "var(--bg-surface)",
+                }}
+              >
+                {selectedModel.label}
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--text-quiet)", marginLeft: "auto" }}>
+                {ctx.icon} {ctx.label}
+              </span>
+            </div>
+          </div>
+
+          {showClearConfirm && (
+            <div
+              style={{
+                padding: "9px 14px",
+                borderBottom: "1px solid var(--danger-soft-border)",
+                background: "var(--danger-soft-bg)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+              }}
+            >
+              <p style={{ fontSize: "12px", color: "var(--danger)" }}>
+                Clear all messages in the active chat?
+              </p>
+              <div style={{ display: "inline-flex", gap: "8px" }}>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  style={{
+                    fontSize: "11px",
+                    borderRadius: "7px",
+                    padding: "4px 10px",
+                    border: "1px solid var(--border-default)",
+                    background: "transparent",
+                    color: "var(--text-subtle)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void clearActiveConversation()}
+                  style={{
+                    fontSize: "11px",
+                    borderRadius: "7px",
+                    padding: "4px 10px",
+                    border: "none",
+                    background: "var(--danger)",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ flex: 1, overflowY: "auto", padding: "18px" }}>
+            {historyLoading ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px",
+                  padding: "45px 10px",
+                  color: "var(--text-subtle)",
+                  fontSize: "12px",
+                }}
+              >
+                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+                Loading chat history...
+              </div>
+            ) : messages.length === 0 ? (
+              <div style={{ maxWidth: "620px", margin: "18px auto 0" }}>
+                <div
+                  style={{
+                    padding: "16px",
+                    borderRadius: "14px",
+                    border: "1px solid var(--border-default)",
+                    background: "linear-gradient(130deg, var(--bg-surface), var(--bg-elevated))",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "6px" }}>
+                    {ctx.label} Intelligence Workspace
+                  </p>
+                  <p style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.6 }}>
+                    Ask for summaries, anomalies, reports, forecasts, and recommendations. For financial
+                    statement requests, this workspace will auto-generate a professional PDF.
+                  </p>
+                </div>
+
+                <p
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-quiet)",
+                    letterSpacing: "0.14em",
+                    fontFamily: "monospace",
+                    marginBottom: "9px",
+                  }}
+                >
+                  SUGGESTED PROMPTS
                 </p>
+
                 {ctx.prompts.map((prompt) => (
                   <button
                     key={prompt}
-                    onClick={() => send(prompt)}
+                    onClick={() => void send(prompt)}
                     style={{
                       width: "100%",
                       textAlign: "left",
-                      padding: "10px 14px",
                       borderRadius: "10px",
-                      marginBottom: "6px",
-                      cursor: "pointer",
-                      background: "var(--bg-surface)",
                       border: "1px solid var(--border-default)",
-                      fontSize: "13px",
-                      color: "var(--text-subtle)",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,106,255,0.25)";
-                      (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
-                      (e.currentTarget as HTMLElement).style.color = "var(--text-subtle)";
+                      background: "var(--bg-surface)",
+                      color: "var(--text-muted)",
+                      padding: "10px 12px",
+                      marginBottom: "7px",
+                      fontSize: "12px",
+                      cursor: "pointer",
                     }}
                   >
                     {prompt}
                   </button>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {messages.map((msg) => {
-                const rendered =
-                  msg.role === "assistant" ? stripAssistantMarkdown(msg.content) : msg.content;
-                return (
-                  <div
-                    key={msg.id}
-                    style={{
-                      display: "flex",
-                      gap: "10px",
-                      flexDirection: msg.role === "user" ? "row-reverse" : "row",
-                    }}
-                  >
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px", maxWidth: "760px", margin: "0 auto" }}>
+                {messages.map((msg) => {
+                  const rendered =
+                    msg.role === "assistant" ? stripAssistantMarkdown(msg.content) : msg.content;
+                  return (
+                    <div
+                      key={msg.id}
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        flexDirection: msg.role === "user" ? "row-reverse" : "row",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "30px",
+                          height: "30px",
+                          borderRadius: "9px",
+                          border: "1px solid var(--border-default)",
+                          background:
+                            msg.role === "user"
+                              ? "color-mix(in srgb, var(--accent) 18%, transparent)"
+                              : "var(--bg-surface)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {msg.role === "user" ? (
+                          <User size={13} color="var(--accent)" />
+                        ) : (
+                          <Sparkles size={13} color="var(--text-subtle)" />
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          maxWidth: "86%",
+                          padding: msg.role === "assistant" ? "13px 14px" : "11px 12px",
+                          borderRadius:
+                            msg.role === "assistant" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
+                          border: "1px solid var(--border-default)",
+                          background:
+                            msg.role === "assistant"
+                              ? "var(--bg-surface)"
+                              : "color-mix(in srgb, var(--accent) 16%, var(--bg-surface))",
+                          color: "var(--text-primary)",
+                          fontSize: "12.5px",
+                          lineHeight: 1.58,
+                        }}
+                      >
+                        <span style={{ whiteSpace: "pre-wrap" }}>{rendered}</span>
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div style={{ marginTop: "9px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                            {msg.attachments.map((attachment, index) => (
+                              <span
+                                key={`${msg.id}-att-${index}-${attachment.file_name}`}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "5px",
+                                  fontSize: "10px",
+                                  border: "1px solid var(--border-default)",
+                                  borderRadius: "999px",
+                                  padding: "3px 8px",
+                                  background: "var(--bg-elevated)",
+                                  color: "var(--text-subtle)",
+                                  maxWidth: "100%",
+                                }}
+                                title={attachment.file_name}
+                              >
+                                <FileText size={10} />
+                                <span
+                                  style={{
+                                    maxWidth: "180px",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {attachment.file_name}
+                                </span>
+                                <span style={{ color: "var(--text-quiet)" }}>
+                                  {formatBytes(attachment.size_bytes)}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {msg.role === "assistant" && msg.report && (
+                          <div style={{ marginTop: "9px" }}>
+                            <a
+                              href={msg.report.url}
+                              download={msg.report.fileName}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                textDecoration: "none",
+                                fontSize: "10px",
+                                border: "1px solid var(--border-default)",
+                                borderRadius: "8px",
+                                padding: "4px 9px",
+                                background: "var(--bg-elevated)",
+                                color: "var(--text-subtle)",
+                              }}
+                            >
+                              <Download size={10} />
+                              Download Report
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {loading && (
+                  <div style={{ display: "flex", gap: "10px" }}>
                     <div
                       style={{
-                        width: "28px",
-                        height: "28px",
-                        borderRadius: "8px",
-                        flexShrink: 0,
+                        width: "30px",
+                        height: "30px",
+                        borderRadius: "9px",
+                        border: "1px solid var(--border-default)",
+                        background: "var(--bg-surface)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        background:
-                          msg.role === "user" ? "rgba(124,106,255,0.15)" : "rgba(255,255,255,0.04)",
-                        border:
-                          msg.role === "user"
-                            ? "1px solid rgba(124,106,255,0.25)"
-                            : "1px solid var(--border-default)",
                       }}
                     >
-                      {msg.role === "user" ? (
-                        <User size={12} color="#a89aff" />
-                      ) : (
-                        <Sparkles size={12} color="var(--text-subtle)" />
-                      )}
+                      <Sparkles size={13} color="var(--text-subtle)" />
                     </div>
-
                     <div
                       style={{
-                        maxWidth: "82%",
-                        padding: msg.role === "assistant" ? "14px 16px" : "12px 14px",
-                        borderRadius:
-                          msg.role === "user" ? "12px 2px 12px 12px" : "2px 12px 12px 12px",
-                        fontSize: "13px",
-                        lineHeight: "1.6",
-                        background: msg.role === "user" ? "rgba(124,106,255,0.1)" : "#141414",
-                        border:
-                          msg.role === "user"
-                            ? "1px solid rgba(124,106,255,0.2)"
-                            : "1px solid #252525",
-                        color: msg.role === "user" ? "#c4baff" : "#c8c8c8",
+                        border: "1px solid var(--border-default)",
+                        background: "var(--bg-surface)",
+                        borderRadius: "4px 12px 12px 12px",
+                        padding: "10px 12px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        color: "var(--text-subtle)",
+                        fontSize: "12px",
                       }}
                     >
-                      <span style={{ whiteSpace: "pre-wrap" }}>{rendered}</span>
+                      <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
+                      Thinking...
                     </div>
                   </div>
-                );
-              })}
+                )}
+              </div>
+            )}
 
-              {loading && (
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <div
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      borderRadius: "8px",
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid var(--border-default)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Sparkles size={12} color="var(--text-subtle)" />
-                  </div>
-                  <div
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: "2px 12px 12px 12px",
-                      background: "var(--bg-elevated)",
-                      border: "1px solid var(--border-default)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <Loader2 size={13} color="var(--text-subtle)" style={{ animation: "spin 1s linear infinite" }} />
-                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Thinking...</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div ref={bottomRef} />
-        </div>
-
-        <div style={{ padding: "16px", borderTop: "1px solid var(--border-default)", flexShrink: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-end",
-              gap: "10px",
-              padding: "10px 14px",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              borderRadius: "12px",
-            }}
-          >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send(input);
-                }
-              }}
-              placeholder={`Ask about ${ctx.label}...`}
-              rows={1}
-              style={{
-                flex: 1,
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                resize: "none",
-                fontSize: "13px",
-                color: "var(--text-primary)",
-                lineHeight: "1.5",
-                fontFamily: "Geist, sans-serif",
-              }}
-            />
-
-            <button
-              onClick={() => void send(input)}
-              disabled={!input.trim() || loading || historyLoading}
-              style={{
-                width: "30px",
-                height: "30px",
-                borderRadius: "8px",
-                background: input.trim() && !loading && !historyLoading ? "var(--accent)" : "var(--bg-elevated)",
-                border: "none",
-                cursor: input.trim() && !loading && !historyLoading ? "pointer" : "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                transition: "background 0.15s ease",
-              }}
-            >
-              <Send size={13} color={input.trim() && !loading && !historyLoading ? "white" : "var(--text-quiet)"} />
-            </button>
+            <div ref={bottomRef} />
           </div>
 
-          <p
-            style={{
-              fontSize: "10px",
-              color: "var(--border-soft)",
-              textAlign: "center",
-              marginTop: "8px",
-              fontFamily: "monospace",
-            }}
-          >
-            ENTER to send · SHIFT+ENTER for new line
-          </p>
-        </div>
+          <div style={{ borderTop: "1px solid var(--border-default)", padding: "12px 14px" }}>
+            {attachmentNotice && (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "8px 10px",
+                  borderRadius: "9px",
+                  border: "1px solid var(--danger-soft-border)",
+                  background: "var(--danger-soft-bg)",
+                  color: "var(--danger)",
+                  fontSize: "11px",
+                }}
+              >
+                {attachmentNotice}
+              </div>
+            )}
+
+            {pdfNotice && (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "8px 10px",
+                  borderRadius: "9px",
+                  border: "1px solid var(--danger-soft-border)",
+                  background: "var(--danger-soft-bg)",
+                  color: "var(--danger)",
+                  fontSize: "11px",
+                }}
+              >
+                {pdfNotice}
+              </div>
+            )}
+
+            <div
+              style={{
+                border: "1px solid var(--border-default)",
+                borderRadius: "12px",
+                background: "var(--bg-surface)",
+                padding: "10px 10px 8px",
+              }}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={(event) => {
+                  void handleAttachmentInput(event);
+                }}
+                style={{ display: "none" }}
+              />
+
+              {pendingAttachments.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                  {pendingAttachments.map((attachment) => (
+                    <span
+                      key={attachment.id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        border: "1px solid var(--border-default)",
+                        background: "var(--bg-elevated)",
+                        color: "var(--text-subtle)",
+                        borderRadius: "999px",
+                        padding: "4px 8px",
+                        fontSize: "10px",
+                        maxWidth: "100%",
+                      }}
+                      title={attachment.file_name}
+                    >
+                      <FileText size={10} />
+                      <span
+                        style={{
+                          maxWidth: "160px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {attachment.file_name}
+                      </span>
+                      <span style={{ color: "var(--text-quiet)" }}>{formatBytes(attachment.size_bytes)}</span>
+                      <button
+                        onClick={() => removePendingAttachment(attachment.id)}
+                        style={{
+                          width: "16px",
+                          height: "16px",
+                          borderRadius: "50%",
+                          border: "none",
+                          background: "transparent",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        title="Remove attachment"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void send(input);
+                  }
+                }}
+                rows={2}
+                placeholder={`Ask ${ctx.label} anything...`}
+                style={{
+                  width: "100%",
+                  minHeight: "46px",
+                  maxHeight: "140px",
+                  resize: "vertical",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                  fontFamily: "Geist, sans-serif",
+                }}
+              />
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px" }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--text-quiet)", fontSize: "10px" }}>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={
+                      loading ||
+                      historyLoading ||
+                      isRecordingAudio ||
+                      isTranscribingAudio ||
+                      pendingAttachments.length >= MAX_FILE_ATTACHMENTS
+                    }
+                    style={{
+                      height: "24px",
+                      borderRadius: "7px",
+                      border: "1px solid var(--border-default)",
+                      background: "var(--bg-elevated)",
+                      color: "var(--text-subtle)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      fontSize: "10px",
+                      padding: "0 7px",
+                      cursor:
+                        loading ||
+                        historyLoading ||
+                        isRecordingAudio ||
+                        isTranscribingAudio ||
+                        pendingAttachments.length >= MAX_FILE_ATTACHMENTS
+                          ? "not-allowed"
+                          : "pointer",
+                      opacity:
+                        loading ||
+                        historyLoading ||
+                        isRecordingAudio ||
+                        isTranscribingAudio ||
+                        pendingAttachments.length >= MAX_FILE_ATTACHMENTS
+                          ? 0.6
+                          : 1,
+                    }}
+                    title={`Attach files (${MAX_FILE_ATTACHMENTS} max)`}
+                  >
+                    <Paperclip size={10} />
+                    Attach
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (isRecordingAudio) {
+                        stopRecordingAudio();
+                      } else {
+                        void startRecordingAudio();
+                      }
+                    }}
+                    disabled={loading || historyLoading || isTranscribingAudio}
+                    style={{
+                      height: "24px",
+                      borderRadius: "7px",
+                      border: "1px solid var(--border-default)",
+                      background: isRecordingAudio
+                        ? "color-mix(in srgb, var(--danger) 16%, var(--bg-elevated))"
+                        : "var(--bg-elevated)",
+                      color: isRecordingAudio ? "var(--danger)" : "var(--text-subtle)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      fontSize: "10px",
+                      padding: "0 7px",
+                      cursor: loading || historyLoading || isTranscribingAudio ? "not-allowed" : "pointer",
+                      opacity: loading || historyLoading || isTranscribingAudio ? 0.6 : 1,
+                    }}
+                    title={isRecordingAudio ? "Stop recording" : "Record audio prompt"}
+                  >
+                    {isRecordingAudio ? <Square size={10} /> : <Mic size={10} />}
+                    {isRecordingAudio ? "Stop" : "Record"}
+                  </button>
+                  <span style={{ fontFamily: "monospace" }}>ENTER send</span>
+                  <span style={{ fontFamily: "monospace" }}>SHIFT+ENTER newline</span>
+                  <span style={{ fontFamily: "monospace" }}>
+                    {isTranscribingAudio ? "transcribing audio..." : "voice prompts enabled"}
+                  </span>
+                  <span style={{ fontFamily: "monospace" }}>auto-report enabled</span>
+                </div>
+
+                <button
+                  onClick={() => void send(input)}
+                  disabled={
+                    (!input.trim() && pendingAttachments.length === 0) ||
+                    loading ||
+                    historyLoading ||
+                    isRecordingAudio ||
+                    isTranscribingAudio
+                  }
+                  style={{
+                    width: "34px",
+                    height: "34px",
+                    borderRadius: "10px",
+                    border: "none",
+                    background:
+                      (input.trim() || pendingAttachments.length > 0) &&
+                      !loading &&
+                      !historyLoading &&
+                      !isRecordingAudio &&
+                      !isTranscribingAudio
+                        ? "var(--accent)"
+                        : "var(--bg-elevated)",
+                    color:
+                      (input.trim() || pendingAttachments.length > 0) &&
+                      !loading &&
+                      !historyLoading &&
+                      !isRecordingAudio &&
+                      !isTranscribingAudio
+                        ? "white"
+                        : "var(--text-quiet)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor:
+                      (input.trim() || pendingAttachments.length > 0) &&
+                      !loading &&
+                      !historyLoading &&
+                      !isRecordingAudio &&
+                      !isTranscribingAudio
+                        ? "pointer"
+                        : "not-allowed",
+                  }}
+                  title="Send message"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </div>
+
+            <p style={{ marginTop: "8px", fontSize: "10px", color: "var(--text-quiet)" }}>
+              {selectedModel.description}
+            </p>
+          </div>
+        </section>
 
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>

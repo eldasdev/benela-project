@@ -106,6 +106,7 @@ export default function DashboardPage() {
       <AIPanel
         isOpen={aiPanelOpen}
         section={activeSection}
+        onSectionChange={handleSectionChange}
         onClose={() => setAiPanelOpen(false)}
       />
     </div>

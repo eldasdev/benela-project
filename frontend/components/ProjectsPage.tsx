@@ -467,7 +467,7 @@ export default function ProjectsPage() {
               borderRadius: "999px",
               fontSize: "10px",
               background: "var(--bg-elevated)",
-              border: "1px solid #1f1f1f",
+              border: "1px solid var(--border-soft)",
               color: "var(--text-muted)",
             }}
           >
@@ -940,9 +940,7 @@ export default function ProjectsPage() {
                     flexDirection: "column",
                     minWidth: "280px",
                     maxWidth: "280px",
-                    background: isActiveDrop
-                      ? "rgba(124,106,255,0.04)"
-                      : "var(--bg-surface)",
+                    background: isActiveDrop ? "var(--accent-soft)" : "var(--bg-surface)",
                     borderRadius: "12px",
                     border: isActiveDrop
                       ? "1px solid var(--accent)"
@@ -1197,7 +1195,7 @@ export default function ProjectsPage() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.7)",
+            background: "var(--overlay-backdrop)",
             zIndex: 100,
             display: "flex",
             alignItems: "center",

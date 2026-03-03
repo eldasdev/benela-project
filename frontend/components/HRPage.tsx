@@ -156,14 +156,14 @@ export default function HRPage() {
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "#60a5fa" }} />
+            <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "var(--accent)" }} />
             <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
               {tab === "employees" ? "Employees" : "Open Positions"}
             </span>
           </div>
           <button
             onClick={() => { setModal(tab === "employees" ? "add_emp" : "add_pos"); setEmpForm(emptyEmp); setPosForm(emptyPos); }}
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px", background: "#60a5fa", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}>
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}>
             <Plus size={14} /> Add {tab === "employees" ? "Employee" : "Position"}
           </button>
         </div>
@@ -177,7 +177,7 @@ export default function HRPage() {
               ))}
             </div>
             {employees.map((emp, i) => (
-              <div key={emp.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < employees.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
+              <div key={emp.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < employees.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
                 <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{emp.full_name}</span>
@@ -192,7 +192,7 @@ export default function HRPage() {
                     <Pencil size={11} color="var(--text-muted)" />
                   </button>
                   <button onClick={() => deleteEmp(emp.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Trash2 size={11} color="#f87171" />
+                    <Trash2 size={11} color="var(--danger)" />
                   </button>
                 </div>
               </div>
@@ -209,7 +209,7 @@ export default function HRPage() {
               ))}
             </div>
             {positions.map((pos, i) => (
-              <div key={pos.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < positions.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
+              <div key={pos.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < positions.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
                 <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{pos.title}</span>
@@ -224,7 +224,7 @@ export default function HRPage() {
                     <Pencil size={11} color="var(--text-muted)" />
                   </button>
                   <button onClick={() => deletePos(pos.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Trash2 size={11} color="#f87171" />
+                    <Trash2 size={11} color="var(--danger)" />
                   </button>
                 </div>
               </div>
@@ -235,7 +235,7 @@ export default function HRPage() {
 
       {/* Modals */}
       {modal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px", width: "480px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
@@ -333,7 +333,7 @@ export default function HRPage() {
                 Cancel
               </button>
               <button onClick={modal?.includes("emp") ? saveEmp : savePos} disabled={loading}
-                style={{ padding: "9px 20px", borderRadius: "9px", background: "#60a5fa", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
+                style={{ padding: "9px 20px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
                 {loading ? "Saving..." : modal?.startsWith("add") ? "Add" : "Save Changes"}
               </button>
             </div>

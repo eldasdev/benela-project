@@ -64,7 +64,7 @@ export default function Sidebar({ activeSection, onSectionChange, onLogout }: Si
     }}>
       <div style={{ padding: "20px 16px", borderBottom: "1px solid var(--border-default)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ width: "32px", height: "32px", borderRadius: "10px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", boxShadow: "0 0 16px rgba(124,106,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: "32px", height: "32px", borderRadius: "10px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", boxShadow: "0 0 16px var(--brand-glow)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 1.5L12.5 4.75V9.25L7 12.5L1.5 9.25V4.75L7 1.5Z" stroke="white" strokeWidth="1.5" fill="none" />
               <circle cx="7" cy="7" r="1.8" fill="white" />
@@ -284,20 +284,20 @@ export default function Sidebar({ activeSection, onSectionChange, onLogout }: Si
                 background: "transparent",
                 cursor: "pointer",
                 textAlign: "left",
-                color: "#f87171",
+                color: "var(--danger)",
                 fontSize: "13px",
                 transition: "background 0.15s ease",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.08)";
-                (e.currentTarget as HTMLElement).style.color = "#fca5a5";
+                (e.currentTarget as HTMLElement).style.background = "var(--danger-soft-bg)";
+                (e.currentTarget as HTMLElement).style.color = "var(--danger)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "transparent";
-                (e.currentTarget as HTMLElement).style.color = "#f87171";
+                (e.currentTarget as HTMLElement).style.color = "var(--danger)";
               }}
             >
-              <LogOut size={14} color="#f87171" />
+              <LogOut size={14} color="var(--danger)" />
               Log Out
             </button>
           </div>

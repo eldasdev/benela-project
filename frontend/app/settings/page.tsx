@@ -228,10 +228,10 @@ export default function ClientSettingsPage() {
                 padding: "10px 12px",
                 borderRadius: "10px",
                 border: error
-                  ? "1px solid rgba(248,113,113,0.25)"
-                  : "1px solid rgba(52,211,153,0.25)",
-                background: error ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-                color: error ? "#f87171" : "#34d399",
+                  ? "1px solid var(--danger-soft-border)"
+                  : "1px solid var(--success-soft-border)",
+                background: error ? "var(--danger-soft-bg)" : "var(--success-soft-bg)",
+                color: error ? "var(--danger)" : "var(--success)",
                 fontSize: "12px",
               }}
             >
@@ -429,7 +429,7 @@ function ToggleRow({
       onClick={() => onChange(!checked)}
       style={{
         width: "100%",
-        border: "1px solid #1f1f1f",
+        border: "1px solid var(--border-default)",
         background: "var(--bg-surface)",
         borderRadius: "10px",
         padding: "10px 12px",
@@ -449,8 +449,10 @@ function ToggleRow({
           width: "38px",
           height: "21px",
           borderRadius: "999px",
-          border: checked ? "1px solid #3a2f88" : "1px solid var(--border-soft)",
-          background: checked ? "rgba(124,106,255,0.25)" : "#101010",
+          border: checked
+            ? "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-soft))"
+            : "1px solid var(--border-soft)",
+          background: checked ? "var(--accent-soft)" : "var(--bg-elevated)",
           position: "relative",
           flexShrink: 0,
           transition: "all 0.2s ease",
@@ -464,7 +466,7 @@ function ToggleRow({
             width: "15px",
             height: "15px",
             borderRadius: "50%",
-            background: checked ? "#a89aff" : "var(--text-muted)",
+            background: checked ? "var(--accent)" : "var(--text-muted)",
             transition: "left 0.2s ease",
           }}
         />
@@ -509,7 +511,7 @@ const panelHeader: React.CSSProperties = {
   padding: "12px 14px",
   fontSize: "12px",
   fontWeight: 600,
-  color: "#d0d0d0",
+  color: "var(--text-primary)",
   borderBottom: "1px solid var(--border-default)",
   background: "var(--bg-surface)",
 };
@@ -526,7 +528,7 @@ const inputStyle: React.CSSProperties = {
   borderRadius: "9px",
   border: "1px solid var(--border-soft)",
   background: "var(--bg-elevated)",
-  color: "#eee",
+  color: "var(--text-primary)",
   fontSize: "13px",
   padding: "9px 10px",
   outline: "none",
@@ -536,9 +538,9 @@ const primaryBtn: React.CSSProperties = {
   height: "34px",
   padding: "0 12px",
   borderRadius: "9px",
-  border: "1px solid #332a73",
-  background: "linear-gradient(135deg, rgba(124,106,255,0.25), rgba(79,61,232,0.2))",
-  color: "#bcaeff",
+  border: "1px solid color-mix(in srgb, var(--accent) 42%, var(--border-default))",
+  background: "var(--accent)",
+  color: "white",
   display: "inline-flex",
   alignItems: "center",
   gap: "7px",
@@ -554,7 +556,7 @@ const secondaryBtn: React.CSSProperties = {
   borderRadius: "9px",
   border: "1px solid var(--border-soft)",
   background: "var(--bg-elevated)",
-  color: "#bbb",
+  color: "var(--text-muted)",
   display: "inline-flex",
   alignItems: "center",
   gap: "7px",

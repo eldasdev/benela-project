@@ -8,6 +8,7 @@ import FinancePage from "./FinancePage";
 import HRPage from "./HRPage";
 import ProjectsPage from "./ProjectsPage";
 import MarketplacePage from "./MarketplacePage";
+import MarketingPage from "./MarketingPage";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 
@@ -108,6 +109,7 @@ const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string 
   finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
   hr: { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
   projects: { title: "Projects", subtitle: "Kanban boards, tasks and team collaboration" },
+  marketing: { title: "Marketing", subtitle: "Campaigns, content, leads, attribution and benchmark analytics" },
   settings: { title: "Settings", subtitle: "Account, workspace and preferences" },
   marketplace: { title: "Marketplace", subtitle: "Integrations and add-ons" },
 };
@@ -246,9 +248,13 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
               padding: "7px 14px",
               borderRadius: "10px",
               cursor: "pointer",
-              background: aiPanelOpen ? "rgba(124,106,255,0.15)" : "rgba(124,106,255,0.08)",
-              border: aiPanelOpen ? "1px solid rgba(124,106,255,0.4)" : "1px solid rgba(124,106,255,0.2)",
-              color: "#a89aff",
+              background: aiPanelOpen
+                ? "color-mix(in srgb, var(--accent) 22%, transparent)"
+                : "var(--accent-soft)",
+              border: aiPanelOpen
+                ? "1px solid color-mix(in srgb, var(--accent) 48%, var(--border-default))"
+                : "1px solid color-mix(in srgb, var(--accent) 30%, var(--border-default))",
+              color: "var(--accent)",
               fontSize: "13px",
               fontWeight: 500,
               transition: "all 0.2s ease",
@@ -308,6 +314,8 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           <HRPage />
         ) : activeSection === "projects" ? (
           <ProjectsPage />
+        ) : activeSection === "marketing" ? (
+          <MarketingPage />
         ) : activeSection === "marketplace" ? (
           <MarketplacePage />
         ) : activeSection === "dashboard" ? (
@@ -348,9 +356,9 @@ function DashboardOverviewPanel({
             marginBottom: "12px",
             padding: "10px 12px",
             borderRadius: "10px",
-            border: "1px solid rgba(248,113,113,0.25)",
-            background: "rgba(248,113,113,0.08)",
-            color: "#f87171",
+            border: "1px solid var(--danger-soft-border)",
+            background: "var(--danger-soft-bg)",
+            color: "var(--danger)",
             fontSize: "12px",
           }}
         >
@@ -373,8 +381,8 @@ function DashboardOverviewPanel({
             <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
             <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
-              <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
+              {card.up ? <TrendingUp size={11} color="var(--success)" /> : <TrendingDown size={11} color="var(--danger)" />}
+              <span style={{ fontSize: "11px", color: card.up ? "var(--success)" : "var(--danger)" }}>{card.change}</span>
               <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
             </div>
             <div
@@ -425,8 +433,8 @@ function GenericPanel({
             <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px", fontWeight: 500 }}>{card.label}</p>
             <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "8px" }}>{card.value}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
-              <span style={{ fontSize: "11px", color: card.up ? "#34d399" : "#f87171" }}>{card.change}</span>
+              {card.up ? <TrendingUp size={11} color="var(--success)" /> : <TrendingDown size={11} color="var(--danger)" />}
+              <span style={{ fontSize: "11px", color: card.up ? "var(--success)" : "var(--danger)" }}>{card.change}</span>
               <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
             </div>
             <div
@@ -513,7 +521,7 @@ function DataTable({
               display: "grid",
               gridTemplateColumns: `repeat(${columns.length}, 1fr)`,
               padding: "13px 20px",
-              borderBottom: i < rows.length - 1 ? "1px solid #141414" : "none",
+              borderBottom: i < rows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
               transition: "background 0.1s ease",
               cursor: "pointer",
             }}

@@ -17,8 +17,28 @@ class BaseAgent:
         self.system_prompt = system_prompt
         self.api_key       = settings.ANTHROPIC_API_KEY
         self.api_url       = "https://api.anthropic.com/v1/messages"
+        self.default_model = "claude-haiku-4-5-20251001"
+        self.allowed_models = {
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1-20250805",
+        }
 
-    def run(self, user_message: str, context: str = "") -> str:
+    def _resolve_model(self, requested_model: str | None) -> str:
+        if not requested_model:
+            return self.default_model
+        normalized = requested_model.strip()
+        if normalized in self.allowed_models:
+            return normalized
+        return self.default_model
+
+    def run(
+        self,
+        user_message: str,
+        context: str = "",
+        model: str | None = None,
+        user_blocks: list[dict] | None = None,
+    ) -> str:
         """Send a message to Claude with optional real data context."""
 
         if context:
@@ -32,12 +52,19 @@ class BaseAgent:
         else:
             full_system = self.system_prompt
 
+        content_blocks: list[dict] = []
+        if user_message.strip():
+            content_blocks.append({"type": "text", "text": user_message})
+        if user_blocks:
+            content_blocks.extend(user_blocks)
+
+        selected_model = self._resolve_model(model)
         payload = {
-            "model":      "claude-haiku-4-5-20251001",
+            "model":      selected_model,
             "max_tokens": 1024,
             "system":     full_system,
             "messages": [
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": content_blocks}
             ]
         }
 

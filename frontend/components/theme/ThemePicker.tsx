@@ -40,7 +40,7 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
             borderRadius: "14px",
             background: "var(--bg-surface)",
             border: "1px solid var(--border-default)",
-            boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
+            boxShadow: "var(--panel-flyout-shadow)",
             overflow: "hidden",
           }}
         >
@@ -110,7 +110,7 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
                           height: "12px",
                           borderRadius: "50%",
                           background: color,
-                          border: "1px solid rgba(0,0,0,0.2)",
+                          border: "1px solid var(--border-soft)",
                         }}
                       />
                     ))}
@@ -134,7 +134,7 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 10px 26px rgba(0,0,0,0.25)",
+          boxShadow: "var(--panel-flyout-shadow)",
           cursor: "pointer",
         }}
         aria-label="Open theme picker"

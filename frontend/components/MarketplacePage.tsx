@@ -175,9 +175,9 @@ export default function MarketplacePage() {
             marginBottom: "12px",
             padding: "10px 12px",
             borderRadius: "10px",
-            border: "1px solid rgba(248,113,113,0.25)",
-            background: "rgba(248,113,113,0.08)",
-            color: "#f87171",
+            border: "1px solid var(--danger-soft-border)",
+            background: "var(--danger-soft-bg)",
+            color: "var(--danger)",
             fontSize: "12px",
           }}
         >
@@ -195,10 +195,10 @@ export default function MarketplacePage() {
         >
           {[
             { label: "Total Items", value: String(summary.total_items), color: "var(--accent)" },
-            { label: "Active", value: String(summary.active), color: "#34d399" },
+            { label: "Active", value: String(summary.active), color: "var(--success)" },
             { label: "Pending", value: String(summary.pending), color: "#fbbf24" },
             { label: "Completed", value: String(summary.completed), color: "#60a5fa" },
-            { label: "Monthly Spend", value: `$${summary.monthly_spend.toLocaleString()}`, color: "#f87171" },
+            { label: "Monthly Spend", value: `$${summary.monthly_spend.toLocaleString()}`, color: "var(--danger)" },
           ].map((card) => (
             <div
               key={card.label}
@@ -246,9 +246,11 @@ export default function MarketplacePage() {
             style={{
               padding: "6px 12px",
               borderRadius: "8px",
-              border: category === item.id ? "1px solid #3a2f88" : "1px solid var(--border-default)",
-              background: category === item.id ? "rgba(124,106,255,0.15)" : "var(--bg-elevated)",
-              color: category === item.id ? "#b6a9ff" : "var(--text-muted)",
+              border: category === item.id
+                ? "1px solid color-mix(in srgb, var(--accent) 48%, var(--border-default))"
+                : "1px solid var(--border-default)",
+              background: category === item.id ? "var(--accent-soft)" : "var(--bg-elevated)",
+              color: category === item.id ? "var(--accent)" : "var(--text-muted)",
               fontSize: "12px",
               cursor: "pointer",
             }}
@@ -294,7 +296,7 @@ export default function MarketplacePage() {
               borderRadius: "9px",
               border: "1px solid var(--border-soft)",
               background: "var(--bg-elevated)",
-              color: "#aaa",
+              color: "var(--text-muted)",
               fontSize: "12px",
               cursor: "pointer",
             }}
@@ -334,8 +336,8 @@ export default function MarketplacePage() {
                       width: "30px",
                       height: "30px",
                       borderRadius: "8px",
-                      background: "rgba(124,106,255,0.12)",
-                      border: "1px solid rgba(124,106,255,0.2)",
+                      background: "var(--accent-soft)",
+                      border: "1px solid color-mix(in srgb, var(--accent) 28%, var(--border-default))",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -345,7 +347,7 @@ export default function MarketplacePage() {
                     {plugin.icon || "🔌"}
                   </div>
                   <div>
-                    <p style={{ fontSize: "13px", color: "#e7e7ea", margin: 0, fontWeight: 600 }}>
+                    <p style={{ fontSize: "13px", color: "var(--text-primary)", margin: 0, fontWeight: 600 }}>
                       {plugin.name}
                     </p>
                     <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: 0 }}>
@@ -359,9 +361,9 @@ export default function MarketplacePage() {
                       fontSize: "10px",
                       padding: "3px 7px",
                       borderRadius: "999px",
-                      color: "#b6a9ff",
-                      background: "rgba(124,106,255,0.15)",
-                      border: "1px solid rgba(124,106,255,0.25)",
+                      color: "var(--accent)",
+                      background: "var(--accent-soft)",
+                      border: "1px solid color-mix(in srgb, var(--accent) 34%, var(--border-default))",
                     }}
                   >
                     Featured
@@ -374,7 +376,7 @@ export default function MarketplacePage() {
               </p>
 
               <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <p style={{ fontSize: "13px", color: "#34d399", margin: 0, fontWeight: 600 }}>
+                <p style={{ fontSize: "13px", color: "var(--success)", margin: 0, fontWeight: 600 }}>
                   ${plugin.price_monthly}/mo
                 </p>
                 <button
@@ -386,9 +388,9 @@ export default function MarketplacePage() {
                     gap: "6px",
                     padding: "7px 11px",
                     borderRadius: "8px",
-                    border: owned ? "1px solid #2c3e34" : "1px solid var(--border-soft)",
-                    background: owned ? "rgba(52,211,153,0.14)" : "var(--bg-elevated)",
-                    color: owned ? "#34d399" : "#bfbfc5",
+                    border: owned ? "1px solid var(--success-soft-border)" : "1px solid var(--border-soft)",
+                    background: owned ? "var(--success-soft-bg)" : "var(--bg-elevated)",
+                    color: owned ? "var(--success)" : "var(--text-muted)",
                     fontSize: "12px",
                     cursor: owned ? "not-allowed" : "pointer",
                   }}
@@ -452,17 +454,17 @@ export default function MarketplacePage() {
                   display: "grid",
                   gridTemplateColumns: "2fr 1fr 1fr 120px",
                   padding: "12px 16px",
-                  borderBottom: "1px solid #141414",
+                  borderBottom: "1px solid var(--table-row-divider)",
                   alignItems: "center",
                 }}
               >
                 <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
                   {plugin?.name || `Plugin #${install.plugin_id}`}
                 </span>
-                <span style={{ fontSize: "11px", color: install.status === "installed" ? "#34d399" : "#fbbf24" }}>
+                <span style={{ fontSize: "11px", color: install.status === "installed" ? "var(--success)" : "#fbbf24" }}>
                   {install.status}
                 </span>
-                <span style={{ fontSize: "11px", color: install.is_enabled ? "#34d399" : "var(--text-muted)" }}>
+                <span style={{ fontSize: "11px", color: install.is_enabled ? "var(--success)" : "var(--text-muted)" }}>
                   {install.is_enabled ? "Enabled" : "Disabled"}
                 </span>
                 <button
@@ -475,9 +477,9 @@ export default function MarketplacePage() {
                     gap: "5px",
                     fontSize: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #272727",
+                    border: "1px solid var(--border-soft)",
                     background: "var(--bg-elevated)",
-                    color: "#aaa",
+                    color: "var(--text-muted)",
                     padding: "6px 10px",
                     cursor: "pointer",
                   }}
@@ -542,7 +544,7 @@ export default function MarketplacePage() {
                   display: "grid",
                   gridTemplateColumns: "2fr 1fr 1fr 1fr",
                   padding: "12px 16px",
-                  borderBottom: "1px solid #141414",
+                  borderBottom: "1px solid var(--table-row-divider)",
                   alignItems: "center",
                 }}
               >
@@ -551,10 +553,10 @@ export default function MarketplacePage() {
                   {plugin?.name || `Plugin #${purchase.plugin_id}`}
                 </span>
                 <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{purchase.billing_cycle}</span>
-                <span style={{ fontSize: "12px", color: "#34d399" }}>
+                <span style={{ fontSize: "12px", color: "var(--success)" }}>
                   {purchase.currency} {purchase.amount}
                 </span>
-                <span style={{ fontSize: "11px", color: purchase.status === "active" ? "#34d399" : "#fbbf24" }}>
+                <span style={{ fontSize: "11px", color: purchase.status === "active" ? "var(--success)" : "#fbbf24" }}>
                   {purchase.status}
                 </span>
               </div>

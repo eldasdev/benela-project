@@ -132,7 +132,7 @@ export default function FinancePage() {
               <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "10px" }}>{card.label}</p>
               <p style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1, marginBottom: "6px" }}>{card.value}</p>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                {card.up ? <TrendingUp size={11} color="#34d399" /> : <TrendingDown size={11} color="#f87171" />}
+                {card.up ? <TrendingUp size={11} color="var(--success)" /> : <TrendingDown size={11} color="var(--danger)" />}
               </div>
               <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "1px", background: `linear-gradient(90deg, transparent, ${card.color}40, transparent)` }} />
             </div>
@@ -175,7 +175,7 @@ export default function FinancePage() {
               ))}
             </div>
             {transactions.map((tx, i) => (
-              <div key={tx.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < transactions.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
+              <div key={tx.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < transactions.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
                 <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{tx.description}</span>
@@ -194,7 +194,7 @@ export default function FinancePage() {
                     <Pencil size={11} color="var(--text-muted)" />
                   </button>
                   <button onClick={() => deleteTx(tx.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Trash2 size={11} color="#f87171" />
+                    <Trash2 size={11} color="var(--danger)" />
                   </button>
                 </div>
               </div>
@@ -211,7 +211,7 @@ export default function FinancePage() {
               ))}
             </div>
             {invoices.map((inv, i) => (
-              <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < invoices.length - 1 ? "1px solid #141414" : "none", transition: "background 0.1s", cursor: "pointer" }}
+              <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < invoices.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
                 <span style={{ fontSize: "13px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
@@ -226,7 +226,7 @@ export default function FinancePage() {
                     <Pencil size={11} color="var(--text-muted)" />
                   </button>
                   <button onClick={() => deleteInv(inv.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Trash2 size={11} color="#f87171" />
+                    <Trash2 size={11} color="var(--danger)" />
                   </button>
                 </div>
               </div>
@@ -237,7 +237,7 @@ export default function FinancePage() {
 
       {/* Modals */}
       {modal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setModal(null)}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px", width: "460px", maxWidth: "90vw" }} onClick={e => e.stopPropagation()}>
 
             {/* Modal header */}

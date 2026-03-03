@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from typing import Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,12 +13,21 @@ from api.agents import router as agents_router
 from api.finance import router as finance_router
 from api.hr import router as hr_router
 from api.projects import router as projects_router
+from api.marketing import router as marketing_router
 from api.admin import router as admin_router
 from api.marketplace import router as marketplace_router
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
 from api.notifications import router as notifications_router
 from database.connection import Base, engine
+from database.models import (
+    MarketingCampaign,
+    MarketingContentItem,
+    MarketingLead,
+    MarketingChannelMetric,
+    ChatMessage,
+    ChatAttachment,
+)
 
 logger = logging.getLogger("uvicorn.error")
 _db_bootstrap_ok = False
@@ -36,6 +46,34 @@ def _should_auto_create_tables() -> bool:
         return _env_bool("AUTO_CREATE_TABLES", False)
     # Safe default: disabled unless explicitly enabled.
     return False
+
+
+def _should_auto_create_marketing_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_MARKETING_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_MARKETING_TABLES", True)
+    # Keep marketing module usable by default even when full create_all is disabled.
+    return True
+
+
+def _ensure_marketing_schema():
+    MarketingCampaign.__table__.create(bind=engine, checkfirst=True)
+    MarketingContentItem.__table__.create(bind=engine, checkfirst=True)
+    MarketingLead.__table__.create(bind=engine, checkfirst=True)
+    MarketingChannelMetric.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_chat_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_CHAT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_CHAT_TABLES", True)
+    # Keep chat features usable by default even when full create_all is disabled.
+    return True
+
+
+def _ensure_chat_schema():
+    ChatMessage.__table__.create(bind=engine, checkfirst=True)
+    ChatAttachment.__table__.create(bind=engine, checkfirst=True)
 
 
 app = FastAPI(
@@ -63,6 +101,7 @@ app.include_router(agents_router, prefix="/agents", tags=["Agents"])
 app.include_router(finance_router, tags=["Finance"])
 app.include_router(hr_router, tags=["HR"])
 app.include_router(projects_router, tags=["Projects"])
+app.include_router(marketing_router)
 app.include_router(admin_router)
 app.include_router(marketplace_router)
 app.include_router(dashboard_router)
@@ -78,12 +117,55 @@ def bootstrap_database():
     """
     global _db_bootstrap_ok
 
-    if not _should_auto_create_tables():
-        logger.info("AUTO_CREATE_TABLES disabled; skipping metadata.create_all()")
-        return
-
     retries = max(1, int(os.getenv("DB_BOOTSTRAP_RETRIES", "3")))
     delay_seconds = max(0.0, float(os.getenv("DB_BOOTSTRAP_RETRY_DELAY", "2")))
+
+    if not _should_auto_create_tables():
+        logger.info("AUTO_CREATE_TABLES disabled; skipping metadata.create_all()")
+        targeted_bootstraps: list[tuple[str, Callable[[], None]]] = []
+        if _should_auto_create_marketing_tables():
+            targeted_bootstraps.append(("marketing", _ensure_marketing_schema))
+        else:
+            logger.info("AUTO_CREATE_MARKETING_TABLES disabled; skipping marketing schema checks")
+
+        if _should_auto_create_chat_tables():
+            targeted_bootstraps.append(("chat", _ensure_chat_schema))
+        else:
+            logger.info("AUTO_CREATE_CHAT_TABLES disabled; skipping chat schema checks")
+
+        if not targeted_bootstraps:
+            return
+
+        for attempt in range(1, retries + 1):
+            try:
+                for _, bootstrap_fn in targeted_bootstraps:
+                    bootstrap_fn()
+                _db_bootstrap_ok = True
+                logger.info(
+                    "Targeted schema bootstrap complete (%s).",
+                    ", ".join(name for name, _ in targeted_bootstraps),
+                )
+                return
+            except DBAPIError as exc:
+                logger.warning(
+                    "Targeted schema bootstrap attempt %s/%s failed: %s",
+                    attempt,
+                    retries,
+                    exc,
+                )
+                try:
+                    engine.dispose()
+                except Exception:
+                    logger.exception("Failed to dispose SQLAlchemy engine after targeted schema bootstrap error")
+                if attempt < retries and delay_seconds > 0:
+                    time.sleep(delay_seconds)
+
+        logger.error(
+            "Targeted schema bootstrap skipped after %s failed attempts. "
+            "Affected endpoints may return 503 until schema is applied.",
+            retries,
+        )
+        return
 
     for attempt in range(1, retries + 1):
         try:
