@@ -7,7 +7,7 @@ export function readSeenNotificationIds(): Set<number> {
     if (!raw) return new Set<number>();
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return new Set<number>();
-    const ids = parsed
+    const ids = parsed  
       .map((value) => Number(value))
       .filter((value) => Number.isInteger(value) && value > 0);
     return new Set<number>(ids);

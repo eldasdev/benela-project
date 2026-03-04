@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import re
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_
@@ -9,6 +10,8 @@ from database.models import (
     Position,
     Department,
     TransactionType,
+    EmployeeStatus,
+    PositionStatus,
     MarketingCampaign,
     MarketingContentItem,
     MarketingLead,
@@ -16,9 +19,20 @@ from database.models import (
     MarketingCampaignStatus,
     MarketingContentStatus,
     MarketingLeadStatus,
+    LegalDocument,
+    LegalContract,
+    LegalComplianceTask,
+    LegalSearchLog,
+    LegalDocumentSource,
+    LegalDocumentStatus,
+    LegalContractStatus,
+    LegalRiskLevel,
+    LegalTaskStatus,
     Project,
+    ProjectStatus,
     KanbanColumn,
     KanbanTask,
+    TaskPriority,
     MarketplacePlugin,
     PluginPurchase,
     PluginInstall,
@@ -89,6 +103,20 @@ def _status_from_alerts(alerts: int):
     return "Healthy"
 
 
+def _status_from_score(score: int):
+    if score >= 80:
+        return "Healthy"
+    if score >= 55:
+        return "Warning"
+    return "Critical"
+
+
+def _month_window(start: datetime):
+    if start.month == 12:
+        return start, datetime(start.year + 1, 1, 1)
+    return start, datetime(start.year, start.month + 1, 1)
+
+
 def _max_dt(*values: datetime | None):
     filtered = [v for v in values if v is not None]
     if not filtered:
@@ -100,6 +128,41 @@ def _safe_div(numerator: float, denominator: float):
     if denominator == 0:
         return 0.0
     return float(numerator) / float(denominator)
+
+
+def _tokenize_query(value: str) -> list[str]:
+    return [token for token in re.split(r"\W+", (value or "").lower()) if len(token) > 1]
+
+
+def _pick_excerpt(text: str | None, query: str, tokens: list[str], max_len: int = 260) -> str:
+    body = (text or "").strip()
+    if not body:
+        return ""
+
+    normalized = re.sub(r"\s+", " ", body)
+    search_space = normalized.lower()
+
+    anchors = [query.lower(), *tokens]
+    index = -1
+    for anchor in anchors:
+        if not anchor:
+            continue
+        index = search_space.find(anchor.lower())
+        if index >= 0:
+            break
+
+    if index < 0:
+        snippet = normalized[:max_len]
+        return snippet + ("..." if len(normalized) > max_len else "")
+
+    start = max(0, index - max_len // 3)
+    end = min(len(normalized), start + max_len)
+    snippet = normalized[start:end]
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(normalized):
+        snippet = snippet + "..."
+    return snippet
 
 
 # ── Dashboard ─────────────────────────────────────────
@@ -259,6 +322,36 @@ def get_dashboard_overview(db: Session, workspace_id: str = "default-workspace")
         db.query(func.max(Project.updated_at)).scalar(),
     )
 
+    legal_tasks_today = (
+        (db.query(func.count(LegalComplianceTask.id)).filter(LegalComplianceTask.created_at >= today_start).scalar() or 0)
+        + (db.query(func.count(LegalDocument.id)).filter(LegalDocument.created_at >= today_start).scalar() or 0)
+    )
+    legal_alerts = (
+        (db.query(func.count(LegalComplianceTask.id))
+         .filter(
+            LegalComplianceTask.due_date.isnot(None),
+            LegalComplianceTask.due_date < now,
+            LegalComplianceTask.status != LegalTaskStatus.completed,
+         )
+         .scalar()
+         or 0)
+        + (db.query(func.count(LegalContract.id))
+           .filter(
+               LegalContract.end_date.isnot(None),
+               LegalContract.end_date <= now + timedelta(days=30),
+               LegalContract.status.in_(
+                   [LegalContractStatus.active, LegalContractStatus.in_review, LegalContractStatus.expiring]
+               ),
+           )
+           .scalar()
+           or 0)
+    )
+    legal_last = _max_dt(
+        db.query(func.max(LegalComplianceTask.updated_at)).scalar(),
+        db.query(func.max(LegalContract.updated_at)).scalar(),
+        db.query(func.max(LegalDocument.updated_at)).scalar(),
+    )
+
     marketplace_tasks_today = (
         db.query(func.count(PluginPurchase.id))
         .filter(PluginPurchase.workspace_id == workspace_id, PluginPurchase.created_at >= today_start)
@@ -330,6 +423,13 @@ def get_dashboard_overview(db: Session, workspace_id: str = "default-workspace")
                 "last_activity": _time_ago(project_last),
             },
             {
+                "module": "⚖️ Legal",
+                "status": _status_from_alerts(legal_alerts),
+                "tasks_today": str(legal_tasks_today),
+                "alerts": str(legal_alerts),
+                "last_activity": _time_ago(legal_last),
+            },
+            {
                 "module": "📦 Marketplace",
                 "status": _status_from_alerts(marketplace_alerts),
                 "tasks_today": str(marketplace_tasks_today),
@@ -337,6 +437,589 @@ def get_dashboard_overview(db: Session, workspace_id: str = "default-workspace")
                 "last_activity": _time_ago(marketplace_last),
             },
         ],
+        "generated_at": now.isoformat() + "Z",
+    }
+
+
+def get_dashboard_command_center(db: Session, workspace_id: str = "default-workspace"):
+    overview = get_dashboard_overview(db, workspace_id=workspace_id)
+
+    now = datetime.utcnow()
+    month_start, next_month_start, _, _ = _month_bounds(now)
+    last_30_days = now - timedelta(days=30)
+    next_7_days = now + timedelta(days=7)
+    next_30_days = now + timedelta(days=30)
+
+    revenue_total = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.income)
+        .scalar()
+        or 0
+    )
+    expense_total = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.expense)
+        .scalar()
+        or 0
+    )
+    revenue_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.income,
+            Transaction.date >= month_start,
+            Transaction.date < next_month_start,
+        )
+        .scalar()
+        or 0
+    )
+    expense_month = (
+        db.query(func.sum(Transaction.amount))
+        .filter(
+            Transaction.type == TransactionType.expense,
+            Transaction.date >= month_start,
+            Transaction.date < next_month_start,
+        )
+        .scalar()
+        or 0
+    )
+    pending_receivables = (
+        db.query(func.sum(Invoice.amount))
+        .filter(Invoice.status.in_(["pending", "overdue"]))
+        .scalar()
+        or 0
+    )
+    income_mix_rows = (
+        db.query(Transaction.category, func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.income)
+        .group_by(Transaction.category)
+        .order_by(func.sum(Transaction.amount).desc(), Transaction.category.asc())
+        .limit(8)
+        .all()
+    )
+    expense_mix_rows = (
+        db.query(Transaction.category, func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.expense)
+        .group_by(Transaction.category)
+        .order_by(func.sum(Transaction.amount).desc(), Transaction.category.asc())
+        .limit(8)
+        .all()
+    )
+    overdue_invoice_count = (
+        db.query(func.count(Invoice.id))
+        .filter(
+            Invoice.due_date.isnot(None),
+            Invoice.due_date < now,
+            Invoice.status.in_(["pending", "overdue"]),
+        )
+        .scalar()
+        or 0
+    )
+    overdue_invoice_amount = (
+        db.query(func.sum(Invoice.amount))
+        .filter(
+            Invoice.due_date.isnot(None),
+            Invoice.due_date < now,
+            Invoice.status.in_(["pending", "overdue"]),
+        )
+        .scalar()
+        or 0
+    )
+
+    active_employees = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.status == EmployeeStatus.active)
+        .scalar()
+        or 0
+    )
+    on_leave_employees = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.status == EmployeeStatus.on_leave)
+        .scalar()
+        or 0
+    )
+    terminated_employees = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.status == EmployeeStatus.terminated)
+        .scalar()
+        or 0
+    )
+    hires_last_30_days = (
+        db.query(func.count(Employee.id))
+        .filter(Employee.created_at >= last_30_days)
+        .scalar()
+        or 0
+    )
+    average_salary = db.query(func.avg(Employee.salary)).filter(Employee.salary.isnot(None)).scalar() or 0
+    open_positions = (
+        db.query(func.count(Position.id))
+        .filter(Position.status == PositionStatus.open)
+        .scalar()
+        or 0
+    )
+    department_rows = (
+        db.query(
+            Employee.department,
+            func.count(Employee.id),
+            func.coalesce(func.sum(Employee.salary), 0),
+        )
+        .group_by(Employee.department)
+        .order_by(func.count(Employee.id).desc(), Employee.department.asc())
+        .limit(10)
+        .all()
+    )
+    department_breakdown = [
+        {
+            "department": (row[0] or "Unassigned"),
+            "headcount": int(row[1] or 0),
+            "payroll": round(float(row[2] or 0), 2),
+        }
+        for row in department_rows
+    ]
+
+    total_projects = db.query(func.count(Project.id)).scalar() or 0
+    active_projects = (
+        db.query(func.count(Project.id))
+        .filter(Project.status == ProjectStatus.active)
+        .scalar()
+        or 0
+    )
+    on_hold_projects = (
+        db.query(func.count(Project.id))
+        .filter(Project.status == ProjectStatus.on_hold)
+        .scalar()
+        or 0
+    )
+    completed_projects = (
+        db.query(func.count(Project.id))
+        .filter(Project.status == ProjectStatus.completed)
+        .scalar()
+        or 0
+    )
+    overdue_projects = (
+        db.query(func.count(Project.id))
+        .filter(
+            Project.due_date.isnot(None),
+            Project.due_date < now,
+            Project.status.in_([ProjectStatus.active, ProjectStatus.on_hold]),
+        )
+        .scalar()
+        or 0
+    )
+    kanban_total = db.query(func.count(KanbanTask.id)).scalar() or 0
+    kanban_due_week = (
+        db.query(func.count(KanbanTask.id))
+        .filter(KanbanTask.due_date.isnot(None), KanbanTask.due_date >= now, KanbanTask.due_date <= next_7_days)
+        .scalar()
+        or 0
+    )
+    kanban_overdue = (
+        db.query(func.count(KanbanTask.id))
+        .filter(KanbanTask.due_date.isnot(None), KanbanTask.due_date < now)
+        .scalar()
+        or 0
+    )
+    kanban_critical = (
+        db.query(func.count(KanbanTask.id))
+        .filter(KanbanTask.priority == TaskPriority.critical)
+        .scalar()
+        or 0
+    )
+
+    marketing_active = (
+        db.query(func.count(MarketingCampaign.id))
+        .filter(MarketingCampaign.status == MarketingCampaignStatus.active)
+        .scalar()
+        or 0
+    )
+    marketing_pipeline = (
+        db.query(func.count(MarketingLead.id))
+        .filter(MarketingLead.status.in_([MarketingLeadStatus.new, MarketingLeadStatus.mql, MarketingLeadStatus.sql]))
+        .scalar()
+        or 0
+    )
+    marketing_opportunities = (
+        db.query(func.count(MarketingLead.id))
+        .filter(MarketingLead.status == MarketingLeadStatus.opportunity)
+        .scalar()
+        or 0
+    )
+    marketing_customers = (
+        db.query(func.count(MarketingLead.id))
+        .filter(MarketingLead.status == MarketingLeadStatus.customer)
+        .scalar()
+        or 0
+    )
+    marketing_spend = db.query(func.sum(MarketingCampaign.spent)).scalar() or 0
+    marketing_revenue = db.query(func.sum(MarketingCampaign.revenue)).scalar() or 0
+    marketing_leads_total = db.query(func.sum(MarketingChannelMetric.leads)).scalar() or 0
+
+    legal_high_risk_contracts = (
+        db.query(func.count(LegalContract.id))
+        .filter(LegalContract.risk_level.in_([LegalRiskLevel.high, LegalRiskLevel.critical]))
+        .scalar()
+        or 0
+    )
+    legal_expiring_30d = (
+        db.query(func.count(LegalContract.id))
+        .filter(
+            LegalContract.end_date.isnot(None),
+            LegalContract.end_date <= next_30_days,
+            LegalContract.end_date >= now - timedelta(days=1),
+            LegalContract.status.in_([LegalContractStatus.active, LegalContractStatus.in_review, LegalContractStatus.expiring]),
+        )
+        .scalar()
+        or 0
+    )
+    legal_overdue_tasks = (
+        db.query(func.count(LegalComplianceTask.id))
+        .filter(
+            LegalComplianceTask.due_date.isnot(None),
+            LegalComplianceTask.due_date < now,
+            LegalComplianceTask.status != LegalTaskStatus.completed,
+        )
+        .scalar()
+        or 0
+    )
+    legal_open_tasks = (
+        db.query(func.count(LegalComplianceTask.id))
+        .filter(LegalComplianceTask.status.in_([LegalTaskStatus.open, LegalTaskStatus.in_progress, LegalTaskStatus.blocked]))
+        .scalar()
+        or 0
+    )
+    legal_review_due_docs = (
+        db.query(func.count(LegalDocument.id))
+        .filter(
+            LegalDocument.last_reviewed_at.isnot(None),
+            LegalDocument.last_reviewed_at < now - timedelta(days=365),
+            LegalDocument.status == LegalDocumentStatus.active,
+        )
+        .scalar()
+        or 0
+    )
+
+    net_total = float(revenue_total) - float(expense_total)
+    net_month = float(revenue_month) - float(expense_month)
+    gross_margin = _safe_div(net_total, float(revenue_total)) * 100
+    roi_marketing = _safe_div(float(marketing_revenue), float(marketing_spend)) if marketing_spend else 0.0
+    cost_per_lead = _safe_div(float(marketing_spend), float(marketing_leads_total)) if marketing_leads_total else 0.0
+    project_completion_rate = _safe_div(float(completed_projects), float(total_projects)) * 100 if total_projects else 0.0
+    invoice_collection_risk = _safe_div(float(overdue_invoice_amount), float(pending_receivables)) * 100 if pending_receivables else 0.0
+    income_mix_total = sum(float(row[1] or 0) for row in income_mix_rows)
+    expense_mix_total = sum(float(row[1] or 0) for row in expense_mix_rows)
+    income_mix = [
+        {
+            "category": (row[0] or "Uncategorized"),
+            "amount": round(float(row[1] or 0), 2),
+            "share_percent": round(_safe_div(float(row[1] or 0), income_mix_total) * 100, 1),
+        }
+        for row in income_mix_rows
+    ]
+    expense_mix = [
+        {
+            "category": (row[0] or "Uncategorized"),
+            "amount": round(float(row[1] or 0), 2),
+            "share_percent": round(_safe_div(float(row[1] or 0), expense_mix_total) * 100, 1),
+        }
+        for row in expense_mix_rows
+    ]
+
+    finance_alerts = overdue_invoice_count + (1 if net_month < 0 else 0)
+    people_alerts = on_leave_employees + terminated_employees
+    operations_alerts = overdue_projects + kanban_overdue + on_hold_projects
+    marketing_alerts = (1 if marketing_active == 0 else 0) + (1 if roi_marketing < 1.2 and marketing_spend > 0 else 0)
+    legal_alerts = legal_high_risk_contracts + legal_overdue_tasks + legal_expiring_30d
+
+    finance_score = max(0, 100 - finance_alerts * 12 - (12 if net_month < 0 else 0))
+    people_score = max(0, 100 - people_alerts * 8 + (4 if hires_last_30_days > 0 else 0))
+    operations_score = max(0, 100 - operations_alerts * 8)
+    marketing_score = max(0, 100 - marketing_alerts * 18 + (6 if marketing_customers > 0 else 0))
+    legal_score = max(0, 100 - legal_alerts * 9)
+
+    module_scores = [
+        {
+            "module": "Finance",
+            "score": int(finance_score),
+            "status": _status_from_score(int(finance_score)),
+            "summary": f"{overdue_invoice_count} overdue invoices, month net ${net_month:,.0f}",
+        },
+        {
+            "module": "People",
+            "score": int(people_score),
+            "status": _status_from_score(int(people_score)),
+            "summary": f"{active_employees} active, {open_positions} open positions",
+        },
+        {
+            "module": "Operations",
+            "score": int(operations_score),
+            "status": _status_from_score(int(operations_score)),
+            "summary": f"{kanban_overdue} overdue tasks, {on_hold_projects} on hold projects",
+        },
+        {
+            "module": "Marketing",
+            "score": int(marketing_score),
+            "status": _status_from_score(int(marketing_score)),
+            "summary": f"ROAS {roi_marketing:.2f}x, {marketing_pipeline} pipeline leads",
+        },
+        {
+            "module": "Legal",
+            "score": int(legal_score),
+            "status": _status_from_score(int(legal_score)),
+            "summary": f"{legal_high_risk_contracts} high-risk contracts, {legal_overdue_tasks} overdue tasks",
+        },
+    ]
+
+    priorities: list[dict] = []
+    if overdue_invoice_count > 0:
+        priorities.append(
+            {
+                "title": "Collect overdue invoices",
+                "owner": "Finance Lead",
+                "severity": "high" if overdue_invoice_count >= 3 else "medium",
+                "detail": f"{overdue_invoice_count} invoices overdue, ${float(overdue_invoice_amount):,.0f} at risk.",
+            }
+        )
+    if kanban_overdue > 0 or overdue_projects > 0:
+        priorities.append(
+            {
+                "title": "Recover delayed delivery",
+                "owner": "Operations Manager",
+                "severity": "high" if kanban_overdue >= 8 else "medium",
+                "detail": f"{kanban_overdue} overdue tasks across {overdue_projects} overdue projects.",
+            }
+        )
+    if legal_high_risk_contracts > 0 or legal_overdue_tasks > 0:
+        priorities.append(
+            {
+                "title": "Mitigate legal exposure",
+                "owner": "Legal Counsel",
+                "severity": "high" if legal_high_risk_contracts > 0 else "medium",
+                "detail": f"{legal_high_risk_contracts} high-risk contracts and {legal_overdue_tasks} overdue compliance tasks.",
+            }
+        )
+    if marketing_active == 0:
+        priorities.append(
+            {
+                "title": "Reactivate growth engine",
+                "owner": "Marketing Lead",
+                "severity": "medium",
+                "detail": "No active campaigns currently running.",
+            }
+        )
+    if not priorities:
+        priorities.append(
+            {
+                "title": "Maintain execution rhythm",
+                "owner": "Executive Team",
+                "severity": "low",
+                "detail": "No critical blockers detected. Focus on optimization and growth experiments.",
+            }
+        )
+
+    insights: list[str] = []
+    if net_total < 0:
+        insights.append("Company is operating at a cumulative net loss. Review burn drivers and pricing discipline.")
+    if invoice_collection_risk >= 35:
+        insights.append("Receivables concentration risk is elevated. Prioritize collection workflows this week.")
+    if project_completion_rate < 35 and total_projects > 0:
+        insights.append("Project completion ratio is low. Rebalance staffing and reduce WIP to improve throughput.")
+    if roi_marketing > 3 and marketing_spend > 0:
+        insights.append("Marketing efficiency is strong. Consider controlled budget expansion on winning channels.")
+    if legal_high_risk_contracts > 0:
+        insights.append("High-risk contracts detected. Fast-track redline and renegotiation cycle.")
+    if not insights:
+        insights.append("Performance is stable. Move from monitoring to strategic optimization across modules.")
+
+    recent_activity: list[dict] = []
+
+    latest_transactions = (
+        db.query(Transaction)
+        .order_by(Transaction.date.desc(), Transaction.id.desc())
+        .limit(4)
+        .all()
+    )
+    for row in latest_transactions:
+        ts = row.date or row.created_at
+        amount_sign = "+" if row.type == TransactionType.income else "-"
+        recent_activity.append(
+            {
+                "module": "Finance",
+                "title": f"{amount_sign}${float(row.amount):,.0f} {row.category}",
+                "detail": row.description,
+                "at": ts.isoformat() + "Z" if ts else None,
+                "ago": _time_ago(ts),
+            }
+        )
+
+    latest_projects = db.query(Project).order_by(Project.updated_at.desc(), Project.id.desc()).limit(4).all()
+    for row in latest_projects:
+        ts = row.updated_at or row.created_at
+        recent_activity.append(
+            {
+                "module": "Projects",
+                "title": f"{row.name} · {row.status.value if hasattr(row.status, 'value') else row.status}",
+                "detail": row.owner or "Owner not assigned",
+                "at": ts.isoformat() + "Z" if ts else None,
+                "ago": _time_ago(ts),
+            }
+        )
+
+    latest_employees = db.query(Employee).order_by(Employee.created_at.desc(), Employee.id.desc()).limit(3).all()
+    for row in latest_employees:
+        ts = row.created_at
+        recent_activity.append(
+            {
+                "module": "People",
+                "title": f"{row.full_name} joined {row.department}",
+                "detail": row.role,
+                "at": ts.isoformat() + "Z" if ts else None,
+                "ago": _time_ago(ts),
+            }
+        )
+
+    latest_legal_tasks = (
+        db.query(LegalComplianceTask)
+        .order_by(LegalComplianceTask.updated_at.desc(), LegalComplianceTask.id.desc())
+        .limit(3)
+        .all()
+    )
+    for row in latest_legal_tasks:
+        ts = row.updated_at or row.created_at
+        recent_activity.append(
+            {
+                "module": "Legal",
+                "title": row.title,
+                "detail": f"{row.status.value if hasattr(row.status, 'value') else row.status} · {row.risk_level.value if hasattr(row.risk_level, 'value') else row.risk_level}",
+                "at": ts.isoformat() + "Z" if ts else None,
+                "ago": _time_ago(ts),
+            }
+        )
+
+    latest_marketing = (
+        db.query(MarketingCampaign)
+        .order_by(MarketingCampaign.updated_at.desc(), MarketingCampaign.id.desc())
+        .limit(3)
+        .all()
+    )
+    for row in latest_marketing:
+        ts = row.updated_at or row.created_at
+        recent_activity.append(
+            {
+                "module": "Marketing",
+                "title": row.name,
+                "detail": f"{row.channel} · {row.status.value if hasattr(row.status, 'value') else row.status}",
+                "at": ts.isoformat() + "Z" if ts else None,
+                "ago": _time_ago(ts),
+            }
+        )
+
+    recent_activity.sort(key=lambda item: item.get("at") or "", reverse=True)
+    recent_activity = recent_activity[:14]
+
+    cashflow_trend: list[dict] = []
+    for offset in range(5, -1, -1):
+        month_anchor = datetime(now.year, now.month, 1)
+        month = month_anchor.month - offset
+        year = month_anchor.year
+        while month <= 0:
+            month += 12
+            year -= 1
+        start = datetime(year, month, 1)
+        start_window, end_window = _month_window(start)
+        month_income = (
+            db.query(func.sum(Transaction.amount))
+            .filter(
+                Transaction.type == TransactionType.income,
+                Transaction.date >= start_window,
+                Transaction.date < end_window,
+            )
+            .scalar()
+            or 0
+        )
+        month_expense = (
+            db.query(func.sum(Transaction.amount))
+            .filter(
+                Transaction.type == TransactionType.expense,
+                Transaction.date >= start_window,
+                Transaction.date < end_window,
+            )
+            .scalar()
+            or 0
+        )
+        cashflow_trend.append(
+            {
+                "month": start_window.strftime("%b %Y"),
+                "income": round(float(month_income), 2),
+                "expense": round(float(month_expense), 2),
+                "net": round(float(month_income) - float(month_expense), 2),
+            }
+        )
+
+    return {
+        "overview": overview,
+        "headline": [
+            {"label": "Revenue", "value": f"${float(revenue_total):,.0f}", "tone": "success"},
+            {"label": "Net Profit", "value": f"${net_total:,.0f}", "tone": "success" if net_total >= 0 else "danger"},
+            {"label": "Pending Receivables", "value": f"${float(pending_receivables):,.0f}", "tone": "warning"},
+            {"label": "Active Employees", "value": str(active_employees), "tone": "info"},
+            {"label": "Projects In Flight", "value": str(active_projects), "tone": "info"},
+            {"label": "Compliance Risk Items", "value": str(legal_high_risk_contracts + legal_overdue_tasks), "tone": "danger" if (legal_high_risk_contracts + legal_overdue_tasks) > 0 else "success"},
+        ],
+        "finance": {
+            "revenue_total": round(float(revenue_total), 2),
+            "expense_total": round(float(expense_total), 2),
+            "net_total": round(net_total, 2),
+            "revenue_month": round(float(revenue_month), 2),
+            "expense_month": round(float(expense_month), 2),
+            "net_month": round(net_month, 2),
+            "gross_margin_percent": round(gross_margin, 1),
+            "pending_receivables": round(float(pending_receivables), 2),
+            "overdue_invoice_count": int(overdue_invoice_count),
+            "overdue_invoice_amount": round(float(overdue_invoice_amount), 2),
+        },
+        "workforce": {
+            "active": int(active_employees),
+            "on_leave": int(on_leave_employees),
+            "terminated": int(terminated_employees),
+            "hires_last_30_days": int(hires_last_30_days),
+            "average_salary": round(float(average_salary), 2),
+            "open_positions": int(open_positions),
+        },
+        "department_breakdown": department_breakdown,
+        "operations": {
+            "projects_total": int(total_projects),
+            "projects_active": int(active_projects),
+            "projects_on_hold": int(on_hold_projects),
+            "projects_completed": int(completed_projects),
+            "projects_overdue": int(overdue_projects),
+            "tasks_total": int(kanban_total),
+            "tasks_due_7_days": int(kanban_due_week),
+            "tasks_overdue": int(kanban_overdue),
+            "tasks_critical_priority": int(kanban_critical),
+            "project_completion_percent": round(project_completion_rate, 1),
+        },
+        "marketing": {
+            "campaigns_active": int(marketing_active),
+            "pipeline_leads": int(marketing_pipeline),
+            "opportunities": int(marketing_opportunities),
+            "customers": int(marketing_customers),
+            "spend": round(float(marketing_spend), 2),
+            "revenue": round(float(marketing_revenue), 2),
+            "roas": round(float(roi_marketing), 2),
+            "cost_per_lead": round(float(cost_per_lead), 2),
+        },
+        "finance_mix": {"income": income_mix, "expenses": expense_mix},
+        "legal": {
+            "high_risk_contracts": int(legal_high_risk_contracts),
+            "expiring_contracts_30_days": int(legal_expiring_30d),
+            "open_compliance_tasks": int(legal_open_tasks),
+            "overdue_compliance_tasks": int(legal_overdue_tasks),
+            "review_due_documents": int(legal_review_due_docs),
+        },
+        "module_scores": module_scores,
+        "priority_actions": priorities[:6],
+        "insights": insights[:6],
+        "cashflow_trend": cashflow_trend,
+        "recent_activity": recent_activity,
         "generated_at": now.isoformat() + "Z",
     }
 
@@ -823,6 +1506,403 @@ def get_marketing_summary(db: Session):
         "cvr_gap_percent": round((cvr - cvr_target) * 100 / cvr_target, 2) if cvr_target else 0,
         "cac_gap_percent": round((cac_target - cac) * 100 / cac_target, 2) if cac_target and cac else 0,
     }
+
+
+# ── Legal ──────────────────────────────────────────────
+DEFAULT_LEGAL_BENCHMARKS = {
+    "contract_review_sla_days": 5,
+    "compliance_task_closure_days": 14,
+    "overdue_task_threshold_percent": 5,
+    "policy_review_cycle_days": 180,
+}
+
+
+def get_legal_documents(
+    db: Session,
+    skip: int = 0,
+    limit: int = 200,
+    jurisdiction: str | None = None,
+    category: str | None = None,
+    source: str | None = None,
+):
+    query = db.query(LegalDocument)
+    if jurisdiction:
+        query = query.filter(LegalDocument.jurisdiction.ilike(f"%{jurisdiction.strip()}%"))
+    if category:
+        query = query.filter(LegalDocument.category.ilike(f"%{category.strip()}%"))
+    if source:
+        try:
+            query = query.filter(LegalDocument.source == LegalDocumentSource(source.strip().lower()))
+        except ValueError:
+            pass
+    return (
+        query.order_by(LegalDocument.updated_at.desc(), LegalDocument.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_legal_document(db: Session, data: schemas.LegalDocumentCreate):
+    row = LegalDocument(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_legal_document(db: Session, id: int, data: schemas.LegalDocumentUpdate):
+    row = db.query(LegalDocument).filter(LegalDocument.id == id).first()
+    if not row:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_legal_document(db: Session, id: int):
+    row = db.query(LegalDocument).filter(LegalDocument.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_legal_contracts(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(LegalContract)
+        .order_by(LegalContract.updated_at.desc(), LegalContract.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_legal_contract(db: Session, data: schemas.LegalContractCreate):
+    row = LegalContract(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_legal_contract(db: Session, id: int, data: schemas.LegalContractUpdate):
+    row = db.query(LegalContract).filter(LegalContract.id == id).first()
+    if not row:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_legal_contract(db: Session, id: int):
+    row = db.query(LegalContract).filter(LegalContract.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_legal_compliance_tasks(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(LegalComplianceTask)
+        .order_by(LegalComplianceTask.updated_at.desc(), LegalComplianceTask.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_legal_compliance_task(db: Session, data: schemas.LegalComplianceTaskCreate):
+    row = LegalComplianceTask(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_legal_compliance_task(db: Session, id: int, data: schemas.LegalComplianceTaskUpdate):
+    row = db.query(LegalComplianceTask).filter(LegalComplianceTask.id == id).first()
+    if not row:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_legal_compliance_task(db: Session, id: int):
+    row = db.query(LegalComplianceTask).filter(LegalComplianceTask.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_legal_benchmarks():
+    return {
+        "source": "International legal operations benchmark profile (SaaS and enterprise legal teams)",
+        "contract_review_sla_days": DEFAULT_LEGAL_BENCHMARKS["contract_review_sla_days"],
+        "compliance_task_closure_days": DEFAULT_LEGAL_BENCHMARKS["compliance_task_closure_days"],
+        "overdue_task_threshold_percent": DEFAULT_LEGAL_BENCHMARKS["overdue_task_threshold_percent"],
+        "policy_review_cycle_days": DEFAULT_LEGAL_BENCHMARKS["policy_review_cycle_days"],
+    }
+
+
+def get_legal_summary(db: Session):
+    now = datetime.utcnow()
+    in_30_days = now + timedelta(days=30)
+    review_cutoff = now - timedelta(days=DEFAULT_LEGAL_BENCHMARKS["policy_review_cycle_days"])
+
+    documents_total = db.query(func.count(LegalDocument.id)).scalar() or 0
+    active_documents = (
+        db.query(func.count(LegalDocument.id))
+        .filter(LegalDocument.status == LegalDocumentStatus.active)
+        .scalar()
+        or 0
+    )
+    lex_documents = (
+        db.query(func.count(LegalDocument.id))
+        .filter(LegalDocument.source == LegalDocumentSource.lex_uz)
+        .scalar()
+        or 0
+    )
+    review_due_documents = (
+        db.query(func.count(LegalDocument.id))
+        .filter(
+            or_(
+                LegalDocument.last_reviewed_at.is_(None),
+                LegalDocument.last_reviewed_at < review_cutoff,
+            )
+        )
+        .scalar()
+        or 0
+    )
+
+    contracts_total = db.query(func.count(LegalContract.id)).scalar() or 0
+    active_contracts = (
+        db.query(func.count(LegalContract.id))
+        .filter(
+            LegalContract.status.in_(
+                [LegalContractStatus.active, LegalContractStatus.in_review, LegalContractStatus.expiring]
+            )
+        )
+        .scalar()
+        or 0
+    )
+    expiring_contracts = (
+        db.query(func.count(LegalContract.id))
+        .filter(
+            LegalContract.end_date.isnot(None),
+            LegalContract.end_date >= now,
+            LegalContract.end_date <= in_30_days,
+            LegalContract.status.in_(
+                [LegalContractStatus.active, LegalContractStatus.in_review, LegalContractStatus.expiring]
+            ),
+        )
+        .scalar()
+        or 0
+    )
+    high_risk_contracts = (
+        db.query(func.count(LegalContract.id))
+        .filter(
+            LegalContract.risk_level.in_([LegalRiskLevel.high, LegalRiskLevel.critical]),
+            LegalContract.status.in_(
+                [LegalContractStatus.active, LegalContractStatus.in_review, LegalContractStatus.expiring]
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
+    tasks_total = db.query(func.count(LegalComplianceTask.id)).scalar() or 0
+    open_tasks = (
+        db.query(func.count(LegalComplianceTask.id))
+        .filter(LegalComplianceTask.status.in_([LegalTaskStatus.open, LegalTaskStatus.in_progress, LegalTaskStatus.blocked]))
+        .scalar()
+        or 0
+    )
+    overdue_tasks = (
+        db.query(func.count(LegalComplianceTask.id))
+        .filter(
+            LegalComplianceTask.due_date.isnot(None),
+            LegalComplianceTask.due_date < now,
+            LegalComplianceTask.status != LegalTaskStatus.completed,
+        )
+        .scalar()
+        or 0
+    )
+    high_risk_tasks = (
+        db.query(func.count(LegalComplianceTask.id))
+        .filter(
+            LegalComplianceTask.risk_level.in_([LegalRiskLevel.high, LegalRiskLevel.critical]),
+            LegalComplianceTask.status != LegalTaskStatus.completed,
+        )
+        .scalar()
+        or 0
+    )
+
+    overdue_ratio = (float(overdue_tasks) / float(open_tasks) * 100) if open_tasks else 0.0
+
+    return {
+        "documents_total": documents_total,
+        "active_documents": active_documents,
+        "lex_documents": lex_documents,
+        "review_due_documents": review_due_documents,
+        "contracts_total": contracts_total,
+        "active_contracts": active_contracts,
+        "expiring_contracts_30d": expiring_contracts,
+        "high_risk_contracts": high_risk_contracts,
+        "tasks_total": tasks_total,
+        "open_tasks": open_tasks,
+        "overdue_tasks": overdue_tasks,
+        "high_risk_tasks": high_risk_tasks,
+        "overdue_ratio_percent": round(overdue_ratio, 2),
+    }
+
+
+def search_legal_documents(
+    db: Session,
+    query: str,
+    jurisdiction: str | None = None,
+    category: str | None = None,
+    source: str | None = None,
+    limit: int = 20,
+):
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return []
+
+    limit = max(1, min(limit, 100))
+    tokens = _tokenize_query(cleaned)[:12]
+    phrase = cleaned.lower()
+    like = f"%{cleaned}%"
+
+    db_query = db.query(LegalDocument).filter(
+        or_(
+            LegalDocument.title.ilike(like),
+            LegalDocument.document_number.ilike(like),
+            LegalDocument.summary.ilike(like),
+            LegalDocument.full_text.ilike(like),
+            LegalDocument.tags.ilike(like),
+        )
+    )
+    if jurisdiction:
+        db_query = db_query.filter(LegalDocument.jurisdiction.ilike(f"%{jurisdiction.strip()}%"))
+    if category:
+        db_query = db_query.filter(LegalDocument.category.ilike(f"%{category.strip()}%"))
+    if source:
+        try:
+            db_query = db_query.filter(LegalDocument.source == LegalDocumentSource(source.strip().lower()))
+        except ValueError:
+            pass
+
+    candidates = (
+        db_query.order_by(LegalDocument.updated_at.desc(), LegalDocument.id.desc())
+        .limit(max(limit * 4, 40))
+        .all()
+    )
+
+    ranked: list[dict] = []
+    for row in candidates:
+        title = (row.title or "").lower()
+        doc_no = (row.document_number or "").lower()
+        summary = (row.summary or "").lower()
+        full_text = (row.full_text or "").lower()
+        tags = (row.tags or "").lower()
+        source_value = row.source.value if isinstance(row.source, LegalDocumentSource) else str(row.source or "internal")
+        status_value = row.status.value if isinstance(row.status, LegalDocumentStatus) else str(row.status or "active")
+
+        score = 0.0
+        if phrase and phrase in title:
+            score += 4.0
+        if phrase and phrase in doc_no:
+            score += 2.0
+        for token in tokens:
+            if token in title:
+                score += 2.0
+            if token in doc_no:
+                score += 1.4
+            if token in summary:
+                score += 1.1
+            if token in tags:
+                score += 0.8
+            if token in full_text:
+                score += 0.35
+
+        if status_value == LegalDocumentStatus.active.value:
+            score += 0.3
+        if source_value == LegalDocumentSource.lex_uz.value:
+            score += 0.2
+        if score <= 0:
+            score = 0.1
+
+        excerpt_source = row.summary or row.full_text or ""
+        excerpt = _pick_excerpt(excerpt_source, cleaned, tokens)
+
+        ranked.append(
+            {
+                "id": row.id,
+                "title": row.title,
+                "document_number": row.document_number,
+                "jurisdiction": row.jurisdiction,
+                "category": row.category,
+                "source": source_value,
+                "source_url": row.source_url,
+                "published_at": row.published_at,
+                "excerpt": excerpt,
+                "relevance_score": round(score, 3),
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item["relevance_score"],
+            item["published_at"] or datetime.min,
+        ),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
+def create_legal_search_log(
+    db: Session,
+    query_text: str,
+    jurisdiction: str | None = None,
+    category: str | None = None,
+    source: str | None = None,
+    provider: str | None = None,
+    results_count: int = 0,
+):
+    row = LegalSearchLog(
+        query_text=(query_text or "").strip(),
+        jurisdiction=jurisdiction.strip() if jurisdiction else None,
+        category=category.strip() if category else None,
+        source=source.strip() if source else None,
+        provider=provider.strip() if provider else None,
+        results_count=max(0, int(results_count)),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_legal_search_logs(db: Session, limit: int = 20):
+    return (
+        db.query(LegalSearchLog)
+        .order_by(LegalSearchLog.created_at.desc(), LegalSearchLog.id.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
 
 
 # ── Projects & Kanban ─────────────────────────────────

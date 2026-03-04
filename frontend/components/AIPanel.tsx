@@ -55,6 +55,31 @@ interface PendingAttachment extends MessageAttachment {
   encoding?: "base64";
 }
 
+interface BrowserSpeechRecognitionResultEntry {
+  isFinal: boolean;
+  0?: {
+    transcript?: string;
+  };
+}
+
+interface BrowserSpeechRecognitionEvent {
+  resultIndex: number;
+  results: ArrayLike<BrowserSpeechRecognitionResultEntry>;
+}
+
+interface BrowserSpeechRecognition {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
 const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: string[] }> = {
   dashboard:    { label: "Dashboard",    icon: "⊞", prompts: ["Give me a business health summary", "Which module needs attention?", "What are the top risks this week?"] },
   projects:     { label: "Projects",     icon: "📋", prompts: ["Summarize tasks by status", "Which tasks are overdue?", "Who is assigned the most work?"] },
@@ -763,15 +788,14 @@ async function generateIncomeStatementPdfBlob(data: IncomeStatementData): Promis
   return doc.output("blob");
 }
 
-type ClaudeModelId =
-  | "claude-haiku-4-5-20251001"
-  | "claude-sonnet-4-5-20250929"
-  | "claude-opus-4-1-20250805";
+type ModelProvider = "anthropic" | "openai";
+type AssistantModelId = string;
 
-interface ClaudeModelOption {
-  id: ClaudeModelId;
+interface AssistantModelOption {
+  id: AssistantModelId;
   label: string;
   description: string;
+  provider: ModelProvider;
 }
 
 interface ChatThread {
@@ -780,31 +804,58 @@ interface ChatThread {
   sessionId: string;
   title: string;
   preview: string;
-  model: ClaudeModelId;
+  model: AssistantModelId;
   pinned: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-const CLAUDE_MODEL_OPTIONS: ClaudeModelOption[] = [
+const MODEL_OPTIONS: AssistantModelOption[] = [
   {
     id: "claude-haiku-4-5-20251001",
     label: "Claude Haiku 4.5",
     description: "Fastest responses for routine operational prompts.",
+    provider: "anthropic",
   },
   {
     id: "claude-sonnet-4-5-20250929",
     label: "Claude Sonnet 4.5",
     description: "Balanced depth and speed for most business analysis.",
+    provider: "anthropic",
   },
   {
     id: "claude-opus-4-1-20250805",
     label: "Claude Opus 4.1",
     description: "Highest reasoning depth for complex strategic tasks.",
+    provider: "anthropic",
+  },
+  {
+    id: "gpt-4.1-mini",
+    label: "GPT-4.1 Mini",
+    description: "Efficient OpenAI model for quick, cost-optimized responses.",
+    provider: "openai",
+  },
+  {
+    id: "gpt-4.1",
+    label: "GPT-4.1",
+    description: "High-quality OpenAI reasoning for complex enterprise workflows.",
+    provider: "openai",
+  },
+  {
+    id: "gpt-4o-mini",
+    label: "GPT-4o Mini",
+    description: "Fast multimodal OpenAI model for daily assistant tasks.",
+    provider: "openai",
+  },
+  {
+    id: "gpt-4o",
+    label: "GPT-4o",
+    description: "Flagship OpenAI model for advanced analysis and generation.",
+    provider: "openai",
   },
 ];
 
-const DEFAULT_CLAUDE_MODEL: ClaudeModelId = "claude-haiku-4-5-20251001";
+const DEFAULT_MODEL: AssistantModelId = "claude-haiku-4-5-20251001";
 const CHAT_SEED_STORAGE_KEY = "benela_ai_chat_seed_v1";
 const THREADS_STORAGE_PREFIX = "benela_ai_threads_v1";
 const ACTIVE_THREAD_STORAGE_PREFIX = "benela_ai_active_thread_v1";
@@ -817,6 +868,14 @@ const AUDIO_MIME_CANDIDATES = [
   "audio/webm",
   "audio/mp4",
 ];
+const getSpeechRecognitionConstructor = (): SpeechRecognitionConstructor | null => {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as Window & {
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    SpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+};
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "txt",
   "md",
@@ -878,7 +937,7 @@ const deriveThreadTitle = (input: string, fallback: string): string => {
   return normalized.length > 52 ? `${normalized.slice(0, 52)}...` : normalized;
 };
 
-const buildNewThread = (section: Section, model: ClaudeModelId): ChatThread => {
+const buildNewThread = (section: Section, model: AssistantModelId): ChatThread => {
   const id = makeThreadId();
   const now = new Date().toISOString();
   return {
@@ -993,9 +1052,9 @@ const readStoredThreads = (section: Section): ChatThread[] => {
       .map((thread) => ({
         ...thread,
         model:
-          CLAUDE_MODEL_OPTIONS.some((option) => option.id === thread.model)
+          MODEL_OPTIONS.some((option) => option.id === thread.model)
             ? thread.model
-            : DEFAULT_CLAUDE_MODEL,
+            : DEFAULT_MODEL,
         title: thread.title || defaultThreadTitle(section),
         preview: thread.preview || "",
       }));
@@ -1019,8 +1078,8 @@ const writeStoredActiveThreadId = (section: Section, threadId: string) => {
   localStorage.setItem(activeThreadStorageKey(section), threadId);
 };
 
-const findClaudeModel = (modelId: ClaudeModelId): ClaudeModelOption =>
-  CLAUDE_MODEL_OPTIONS.find((model) => model.id === modelId) ?? CLAUDE_MODEL_OPTIONS[0];
+const findModelOption = (modelId: AssistantModelId): AssistantModelOption =>
+  MODEL_OPTIONS.find((model) => model.id === modelId) ?? MODEL_OPTIONS[0];
 
 export default function AIPanel({ isOpen, section, onClose, onSectionChange }: Props) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -1029,7 +1088,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const [messages, setMessages] = useState<Message[]>([]);
   const [threadSearch, setThreadSearch] = useState("");
   const [input, setInput] = useState("");
-  const [model, setModel] = useState<ClaudeModelId>(DEFAULT_CLAUDE_MODEL);
+  const [model, setModel] = useState<AssistantModelId>(DEFAULT_MODEL);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1039,6 +1098,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const [pdfNotice, setPdfNotice] = useState("");
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
+  const [hasSpeechFallback, setHasSpeechFallback] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1048,9 +1108,12 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechTranscriptRef = useRef("");
+  const speechErrorRef = useRef<string | null>(null);
   const ctx = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
-  const selectedModel = findClaudeModel(model);
+  const selectedModel = findModelOption(model);
 
   const filteredThreads = useMemo(() => {
     const query = threadSearch.trim().toLowerCase();
@@ -1074,6 +1137,62 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         track.stop();
       }
       mediaStreamRef.current = null;
+    }
+  };
+
+  const stopSpeechRecognition = () => {
+    const recognition = speechRecognitionRef.current;
+    if (!recognition) return;
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    } catch {
+      // ignore stop errors from inactive recognition instances
+    } finally {
+      speechRecognitionRef.current = null;
+    }
+  };
+
+  const startSpeechRecognition = (): boolean => {
+    const RecognitionCtor = getSpeechRecognitionConstructor();
+    if (!RecognitionCtor) return false;
+
+    try {
+      const recognition = new RecognitionCtor();
+      recognition.lang = (typeof navigator !== "undefined" && navigator.language) || "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      speechTranscriptRef.current = "";
+      speechErrorRef.current = null;
+
+      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
+        let finalChunk = "";
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = (result[0]?.transcript || "").trim();
+          if (!transcript) continue;
+          if (result.isFinal) {
+            finalChunk += `${transcript} `;
+          }
+        }
+        if (finalChunk) {
+          speechTranscriptRef.current = `${speechTranscriptRef.current} ${finalChunk}`.trim();
+        }
+      };
+
+      recognition.onerror = (event: { error?: string }) => {
+        speechErrorRef.current = event.error || "speech-recognition-error";
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+      return true;
+    } catch {
+      speechRecognitionRef.current = null;
+      speechErrorRef.current = "speech-recognition-init-failed";
+      return false;
     }
   };
 
@@ -1243,8 +1362,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
   const createNewThread = () => {
     stopMediaStream();
+    stopSpeechRecognition();
     mediaRecorderRef.current = null;
     audioChunksRef.current = [];
+    speechTranscriptRef.current = "";
+    speechErrorRef.current = null;
     const created = buildNewThread(section, model);
     setThreads((prev) => sortThreads([created, ...prev]));
     setActiveThreadId(created.id);
@@ -1311,6 +1433,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
+      speechTranscriptRef.current = "";
+      speechErrorRef.current = null;
 
       const mimeType =
         AUDIO_MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
@@ -1330,6 +1454,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         const audioBlob = new Blob(chunk, {
           type: recorder.mimeType || "audio/webm",
         });
+        stopSpeechRecognition();
         stopMediaStream();
         setIsRecordingAudio(false);
 
@@ -1341,40 +1466,67 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         setIsTranscribingAudio(true);
         setAttachmentNotice("Transcribing audio...");
         void (async () => {
+          const fallbackTranscript = speechTranscriptRef.current.trim();
           try {
             const transcript = await transcribeAudioBlob(audioBlob);
             setAttachmentNotice("");
             setInput(transcript);
             await send(transcript);
           } catch (error) {
-            const message =
+            if (fallbackTranscript) {
+              setAttachmentNotice(
+                "Provider transcription unavailable. Used browser speech recognition fallback.",
+              );
+              setInput(fallbackTranscript);
+              await send(fallbackTranscript);
+              return;
+            }
+
+            const providerMessage =
               error instanceof Error
                 ? error.message
                 : "Audio transcription failed. Please try again.";
-            setAttachmentNotice(message);
+            if (speechErrorRef.current) {
+              setAttachmentNotice(
+                `${providerMessage} Browser fallback also failed (${speechErrorRef.current}).`,
+              );
+            } else {
+              setAttachmentNotice(providerMessage);
+            }
           } finally {
             setIsTranscribingAudio(false);
+            speechTranscriptRef.current = "";
+            speechErrorRef.current = null;
           }
         })();
       };
 
       recorder.onerror = () => {
         setIsRecordingAudio(false);
+        stopSpeechRecognition();
         stopMediaStream();
         setAttachmentNotice("Audio recording failed. Please try again.");
       };
 
       recorder.start();
-      setAttachmentNotice("Recording... click stop when finished.");
+      const speechFallbackEnabled = startSpeechRecognition();
+      setHasSpeechFallback(speechFallbackEnabled);
+      setAttachmentNotice(
+        speechFallbackEnabled
+          ? "Recording... click stop when finished. Browser speech fallback is active."
+          : "Recording... click stop when finished.",
+      );
       setIsRecordingAudio(true);
     } catch {
       setAttachmentNotice("Microphone permission denied or unavailable.");
       setIsRecordingAudio(false);
+      stopSpeechRecognition();
       stopMediaStream();
     }
   };
 
   const stopRecordingAudio = () => {
+    stopSpeechRecognition();
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
     if (recorder.state === "recording") {
@@ -1606,9 +1758,14 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   }, [threads]);
 
   useEffect(() => {
+    setHasSpeechFallback(Boolean(getSpeechRecognitionConstructor()));
+  }, []);
+
+  useEffect(() => {
     return () => {
       clearReportUrls();
       stopMediaStream();
+      stopSpeechRecognition();
       mediaRecorderRef.current = null;
       audioChunksRef.current = [];
     };
@@ -1630,14 +1787,17 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setIsRecordingAudio(false);
     setIsTranscribingAudio(false);
     stopMediaStream();
+    stopSpeechRecognition();
     mediaRecorderRef.current = null;
     audioChunksRef.current = [];
+    speechTranscriptRef.current = "";
+    speechErrorRef.current = null;
     clearReportUrls();
 
     const stored = sortThreads(readStoredThreads(section));
     const initialThreads = stored.length
       ? stored
-      : [buildNewThread(section, DEFAULT_CLAUDE_MODEL)];
+      : [buildNewThread(section, DEFAULT_MODEL)];
     const storedActiveId = readStoredActiveThreadId(section);
     const nextActiveId =
       storedActiveId && initialThreads.some((thread) => thread.id === storedActiveId)
@@ -1646,7 +1806,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
     setThreads(initialThreads);
     setActiveThreadId(nextActiveId);
-    setModel(initialThreads.find((thread) => thread.id === nextActiveId)?.model ?? DEFAULT_CLAUDE_MODEL);
+    setModel(initialThreads.find((thread) => thread.id === nextActiveId)?.model ?? DEFAULT_MODEL);
     setThreadsReady(true);
   }, [section, isOpen]);
 
@@ -1857,7 +2017,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                           background: "var(--bg-panel)",
                         }}
                       >
-                        {findClaudeModel(thread.model).label}
+                        {findModelOption(thread.model).label}
                       </span>
                       <div style={{ display: "inline-flex", gap: "4px" }}>
                         <span
@@ -1974,7 +2134,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 <select
                   value={model}
                   onChange={(event) => {
-                    const nextModel = event.target.value as ClaudeModelId;
+                    const nextModel = event.target.value as AssistantModelId;
                     setModel(nextModel);
                     if (activeThreadId) {
                       updateThread(activeThreadId, { model: nextModel });
@@ -1990,11 +2150,20 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     cursor: "pointer",
                   }}
                 >
-                  {CLAUDE_MODEL_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
+                  <optgroup label="Anthropic Claude">
+                    {MODEL_OPTIONS.filter((option) => option.provider === "anthropic").map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="OpenAI GPT">
+                    {MODEL_OPTIONS.filter((option) => option.provider === "openai").map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 
@@ -2587,7 +2756,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   <span style={{ fontFamily: "monospace" }}>ENTER send</span>
                   <span style={{ fontFamily: "monospace" }}>SHIFT+ENTER newline</span>
                   <span style={{ fontFamily: "monospace" }}>
-                    {isTranscribingAudio ? "transcribing audio..." : "voice prompts enabled"}
+                    {isTranscribingAudio
+                      ? "transcribing audio..."
+                      : hasSpeechFallback
+                        ? "voice prompts enabled (api+browser fallback)"
+                        : "voice prompts enabled"}
                   </span>
                   <span style={{ fontFamily: "monospace" }}>auto-report enabled</span>
                 </div>

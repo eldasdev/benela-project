@@ -11,6 +11,11 @@ from database.models import (
     MarketingContentType,
     MarketingContentStatus,
     MarketingLeadStatus,
+    LegalDocumentSource,
+    LegalDocumentStatus,
+    LegalContractStatus,
+    LegalRiskLevel,
+    LegalTaskStatus,
     ProjectStatus,
     TaskPriority,
     PluginCategory,
@@ -368,6 +373,229 @@ class MarketingChannelMetricOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Legal Schemas ──────────────────────────────────────
+class LegalDocumentCreate(BaseModel):
+    title: str
+    document_number: Optional[str] = None
+    jurisdiction: str = "Uzbekistan"
+    category: str = "general"
+    issuing_authority: Optional[str] = None
+    source: LegalDocumentSource = LegalDocumentSource.internal
+    status: LegalDocumentStatus = LegalDocumentStatus.active
+    source_url: Optional[str] = None
+    summary: Optional[str] = None
+    full_text: Optional[str] = None
+    tags: Optional[str] = None
+    published_at: Optional[datetime] = None
+    effective_from: Optional[datetime] = None
+    effective_to: Optional[datetime] = None
+    last_reviewed_at: Optional[datetime] = None
+
+
+class LegalDocumentUpdate(BaseModel):
+    title: Optional[str] = None
+    document_number: Optional[str] = None
+    jurisdiction: Optional[str] = None
+    category: Optional[str] = None
+    issuing_authority: Optional[str] = None
+    source: Optional[LegalDocumentSource] = None
+    status: Optional[LegalDocumentStatus] = None
+    source_url: Optional[str] = None
+    summary: Optional[str] = None
+    full_text: Optional[str] = None
+    tags: Optional[str] = None
+    published_at: Optional[datetime] = None
+    effective_from: Optional[datetime] = None
+    effective_to: Optional[datetime] = None
+    last_reviewed_at: Optional[datetime] = None
+
+
+class LegalDocumentOut(BaseModel):
+    id: int
+    title: str
+    document_number: Optional[str]
+    jurisdiction: str
+    category: str
+    issuing_authority: Optional[str]
+    source: LegalDocumentSource
+    status: LegalDocumentStatus
+    source_url: Optional[str]
+    summary: Optional[str]
+    full_text: Optional[str]
+    tags: Optional[str]
+    published_at: Optional[datetime]
+    effective_from: Optional[datetime]
+    effective_to: Optional[datetime]
+    last_reviewed_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LegalContractCreate(BaseModel):
+    contract_ref: Optional[str] = None
+    title: str
+    counterparty: str
+    owner: Optional[str] = None
+    status: LegalContractStatus = LegalContractStatus.draft
+    risk_level: LegalRiskLevel = LegalRiskLevel.medium
+    value_amount: float = 0
+    currency: str = "USD"
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    renewal_date: Optional[datetime] = None
+    governing_law: Optional[str] = None
+    document_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class LegalContractUpdate(BaseModel):
+    contract_ref: Optional[str] = None
+    title: Optional[str] = None
+    counterparty: Optional[str] = None
+    owner: Optional[str] = None
+    status: Optional[LegalContractStatus] = None
+    risk_level: Optional[LegalRiskLevel] = None
+    value_amount: Optional[float] = None
+    currency: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    renewal_date: Optional[datetime] = None
+    governing_law: Optional[str] = None
+    document_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class LegalContractOut(BaseModel):
+    id: int
+    contract_ref: Optional[str]
+    title: str
+    counterparty: str
+    owner: Optional[str]
+    status: LegalContractStatus
+    risk_level: LegalRiskLevel
+    value_amount: float
+    currency: str
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+    renewal_date: Optional[datetime]
+    governing_law: Optional[str]
+    document_id: Optional[int]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LegalComplianceTaskCreate(BaseModel):
+    title: str
+    framework: Optional[str] = None
+    owner: Optional[str] = None
+    status: LegalTaskStatus = LegalTaskStatus.open
+    risk_level: LegalRiskLevel = LegalRiskLevel.medium
+    due_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    related_document_id: Optional[int] = None
+    related_contract_id: Optional[int] = None
+    description: Optional[str] = None
+    remediation_plan: Optional[str] = None
+
+
+class LegalComplianceTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    framework: Optional[str] = None
+    owner: Optional[str] = None
+    status: Optional[LegalTaskStatus] = None
+    risk_level: Optional[LegalRiskLevel] = None
+    due_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    related_document_id: Optional[int] = None
+    related_contract_id: Optional[int] = None
+    description: Optional[str] = None
+    remediation_plan: Optional[str] = None
+
+
+class LegalComplianceTaskOut(BaseModel):
+    id: int
+    title: str
+    framework: Optional[str]
+    owner: Optional[str]
+    status: LegalTaskStatus
+    risk_level: LegalRiskLevel
+    due_date: Optional[datetime]
+    completed_at: Optional[datetime]
+    related_document_id: Optional[int]
+    related_contract_id: Optional[int]
+    description: Optional[str]
+    remediation_plan: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LegalSearchDocument(BaseModel):
+    id: Optional[int] = None
+    title: str
+    document_number: Optional[str] = None
+    jurisdiction: str
+    category: str
+    source: str
+    source_url: Optional[str] = None
+    published_at: Optional[datetime] = None
+    excerpt: Optional[str] = None
+    relevance_score: float = 0
+
+
+class LegalSearchResponse(BaseModel):
+    query: str
+    provider: str
+    total: int
+    documents: list[LegalSearchDocument]
+    generated_at: datetime
+
+
+class LegalRecommendationRequest(BaseModel):
+    query: str
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    jurisdiction: Optional[str] = None
+    category: Optional[str] = None
+    source: Optional[str] = None
+    top_k: int = 5
+    response_language: Optional[str] = "uz"
+    instructions: Optional[str] = None
+
+
+class LegalRecommendationResponse(BaseModel):
+    query: str
+    provider: str
+    recommendation: str
+    references: list[LegalSearchDocument]
+    model: Optional[str] = None
+    confidence: Optional[str] = None
+    disclaimer: Optional[str] = None
+    generated_at: datetime
+
+
+class LegalIntegrationStatusResponse(BaseModel):
+    configured: bool
+    api_key_configured: bool
+    live_fallback_enabled: bool
+    search_url: Optional[str] = None
+    advice_url: Optional[str] = None
+    ping_url: Optional[str] = None
+    reachable: bool
+    service: Optional[str] = None
+    checked_at: datetime
+    detail: str
 
 
 # ── Projects & Kanban Schemas ────────────────────────

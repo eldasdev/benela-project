@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowRight, Sparkles, BarChart3, Users, ShieldCheck, Zap, Globe, ChevronRight, Check } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowRight, Sparkles, BarChart3, Users, ShieldCheck, Zap, Globe, ChevronRight, Layers, Monitor, Building2 } from "lucide-react";
+import { PricingModule, type PricingPlan } from "@/components/ui/pricing-module";
+import {
+  DEFAULT_PRICING_PLANS,
+  PRICING_STORAGE_KEY,
+  normalizePricingPlan,
+  type PricingPlanDefinition,
+} from "@/lib/pricing-plans";
 
 const NAV_LINKS = ["Features", "Pricing", "About"];
 
@@ -15,26 +22,38 @@ const FEATURES = [
   { icon: Globe, title: "Multi-Region Deployment", desc: "Deploy in the region closest to your team. GDPR compliant. Data never leaves your region.", color: "#a78bfa" },
 ];
 
-const PRICING = [
-  {
-    name: "Starter", price: "$49", period: "/mo",
-    desc: "Perfect for small teams just getting started",
-    features: ["Up to 10 users", "Finance + HR modules", "AI Copilot (100 queries/mo)", "Email support"],
-    cta: "Start free trial", highlight: false,
-  },
-  {
-    name: "Pro", price: "$149", period: "/mo",
-    desc: "For growing companies that need more power",
-    features: ["Up to 50 users", "All 9 modules", "AI Copilot (unlimited)", "Priority support", "Custom integrations", "Advanced analytics"],
-    cta: "Start free trial", highlight: true,
-  },
-  {
-    name: "Enterprise", price: "Custom", period: "",
-    desc: "Tailored for large organizations",
-    features: ["Unlimited users", "All modules + custom", "Dedicated AI model", "24/7 support + SLA", "On-premise option", "SSO + SCIM"],
-    cta: "Contact sales", highlight: false,
-  },
-];
+const PLAN_ICONS: Record<string, ReactNode> = {
+  trial: <Layers className="w-8 h-8 text-primary" />,
+  starter: <Monitor className="w-8 h-8 text-primary" />,
+  pro: <Users className="w-8 h-8 text-primary" />,
+  enterprise: <Building2 className="w-8 h-8 text-primary" />,
+};
+
+function toMarketingPlans(plans: PricingPlanDefinition[]): PricingPlan[] {
+  return plans.map((plan) => ({
+    ...plan,
+    icon: PLAN_ICONS[plan.id] || <Layers className="w-8 h-8 text-primary" />,
+  }));
+}
+
+const INITIAL_MARKETING_PRICING_PLANS = toMarketingPlans(DEFAULT_PRICING_PLANS);
+
+function readStoredMarketingPlans(): PricingPlan[] {
+  if (typeof window === "undefined") return INITIAL_MARKETING_PRICING_PLANS;
+  const stored = window.localStorage.getItem(PRICING_STORAGE_KEY);
+  if (!stored) return INITIAL_MARKETING_PRICING_PLANS;
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return INITIAL_MARKETING_PRICING_PLANS;
+    const normalized = parsed
+      .map(normalizePricingPlan)
+      .filter((row): row is PricingPlanDefinition => Boolean(row));
+    if (!normalized.length) return INITIAL_MARKETING_PRICING_PLANS;
+    return toMarketingPlans(normalized);
+  } catch {
+    return INITIAL_MARKETING_PRICING_PLANS;
+  }
+}
 
 const TESTIMONIALS = [
   { name: "Sarah Chen", role: "CFO at Acme Corp", text: "Benela replaced three separate tools for us. The AI assistant in the Finance module alone saves our team 4 hours a week.", avatar: "SC" },
@@ -43,81 +62,155 @@ const TESTIMONIALS = [
 ];
 
 export default function LandingPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pricingPlans] = useState<PricingPlan[]>(() => readStoredMarketingPlans());
 
   return (
     <div style={{ background: "var(--bg-canvas)", color: "var(--text-primary)", fontFamily: "system-ui, -apple-system, sans-serif", minHeight: "100vh" }}>
 
       {/* Nav */}
-      <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(8,8,8,0.8)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+      <nav
+        className="marketing-nav"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          padding: "16px 40px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          backgroundColor: "var(--bg-panel)",
+          background: "var(--marketing-hero-nav-bg)",
+          backdropFilter: "blur(12px)",
+          borderBottom: "1px solid var(--marketing-hero-nav-border)",
+          boxShadow: "var(--marketing-hero-nav-shadow)",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 16px rgba(124,106,255,0.3)" }}>
+          <div
+            style={{
+              width: "34px",
+              height: "34px",
+              borderRadius: "10px",
+              background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 0 18px var(--brand-glow)",
+            }}
+          >
             <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
               <polygon points="9,2 16,6 16,12 9,16 2,12 2,6" stroke="white" strokeWidth="1.5" fill="none"/>
               <path d="M9 5 L12 9 L9 13 L6 9 Z" stroke="white" strokeWidth="1.5" fill="none"/>
               <circle cx="9" cy="9" r="1.5" fill="white"/>
             </svg>
           </div>
-          <span style={{ fontSize: "17px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "1px" }}>BENELA</span>
+          <span className="marketing-nav-brand" style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "1px" }}>
+            BENELA
+          </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "32px" }}>
+        <div className="marketing-nav-links" style={{ display: "flex", alignItems: "center", gap: "32px" }}>
           {NAV_LINKS.map(link => (
-            <a key={link} href={`#${link.toLowerCase()}`} style={{ fontSize: "14px", color: "var(--text-subtle)", textDecoration: "none", transition: "color 0.15s" }}
-              onMouseEnter={e => (e.target as HTMLElement).style.color = "var(--text-primary)"}
-              onMouseLeave={e => (e.target as HTMLElement).style.color = "var(--text-subtle)"}>
+            <a
+              key={link}
+              href={`#${link.toLowerCase()}`}
+              className="marketing-nav-link"
+              style={{ fontSize: "14px", textDecoration: "none", transition: "color 0.15s" }}
+            >
               {link}
             </a>
           ))}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Link href="/login" style={{ padding: "8px 18px", borderRadius: "9px", background: "transparent", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "14px", textDecoration: "none", transition: "all 0.15s" }}>
+        <div className="marketing-nav-actions" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Link href="/login" className="marketing-nav-btn marketing-nav-btn-secondary">
             Sign in
           </Link>
-          <Link href="/signup" style={{ padding: "8px 18px", borderRadius: "9px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", border: "none", color: "white", fontSize: "14px", fontWeight: 500, textDecoration: "none", boxShadow: "0 0 20px rgba(124,106,255,0.25)" }}>
+          <Link href="/signup" className="marketing-nav-btn marketing-nav-btn-primary">
             Get started
           </Link>
         </div>
       </nav>
 
       {/* Hero */}
-      <section style={{ paddingTop: "160px", paddingBottom: "100px", textAlign: "center", position: "relative", overflow: "hidden", padding: "160px 24px 100px" }}>
-        {/* Glow */}
-        <div style={{ position: "absolute", top: "10%", left: "50%", transform: "translateX(-50%)", width: "800px", height: "600px", background: "radial-gradient(ellipse, rgba(124,106,255,0.08) 0%, transparent 65%)", pointerEvents: "none" }} />
+      <section className="marketing-hero">
+        <div className="marketing-hero-grid" />
+        <div className="marketing-hero-glow marketing-hero-glow-a" />
+        <div className="marketing-hero-glow marketing-hero-glow-b" />
+        <div className="marketing-hero-orbit marketing-hero-orbit-outer" />
+        <div className="marketing-hero-orbit marketing-hero-orbit-inner" />
 
-        {/* Badge */}
-        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: "99px", background: "rgba(124,106,255,0.08)", border: "1px solid rgba(124,106,255,0.2)", fontSize: "12px", color: "#a89aff", marginBottom: "32px" }}>
-          <Sparkles size={12} />
-          AI-Native Enterprise ERP — Now in Beta
-          <ChevronRight size={12} />
+        <div className="marketing-hero-copy">
+          <div className="marketing-hero-badge">
+            <Sparkles size={12} />
+            Live AI ERP for finance, operations and growth
+            <ChevronRight size={12} />
+          </div>
+
+          <h1 className="marketing-hero-title">
+            Operate Beyond Spreadsheets.
+            <span>Command Your Entire Company with AI.</span>
+          </h1>
+
+          <p className="marketing-hero-subtitle">
+            Benela unifies Finance, HR, Sales, Legal, Support and more into one intelligent workspace.
+            Ask, analyze, automate, and act from a single operational command center.
+          </p>
+
+          <div className="marketing-hero-actions">
+            <Link href="/signup" className="marketing-hero-primary">
+              Start free trial <ArrowRight size={16} />
+            </Link>
+            <Link href="/login" className="marketing-hero-secondary">
+              Watch platform demo
+            </Link>
+          </div>
+
+          <p className="marketing-hero-note">No credit card required · 14-day free trial · Enterprise-ready security</p>
+
+          <div className="marketing-hero-stats">
+            <div className="marketing-hero-stat">
+              <strong>9</strong>
+              <span>Core business modules</span>
+            </div>
+            <div className="marketing-hero-stat">
+              <strong>99.95%</strong>
+              <span>Platform uptime target</span>
+            </div>
+            <div className="marketing-hero-stat">
+              <strong>4x faster</strong>
+              <span>Reporting and analysis cycles</span>
+            </div>
+            <div className="marketing-hero-stat">
+              <strong>24/7</strong>
+              <span>AI-assisted operations</span>
+            </div>
+          </div>
         </div>
 
-        <h1 style={{ fontSize: "clamp(40px, 6vw, 72px)", fontWeight: 800, lineHeight: 1.1, marginBottom: "24px", maxWidth: "900px", margin: "0 auto 24px", letterSpacing: "-1px" }}>
-          The ERP built for the
-          <span style={{ background: "linear-gradient(135deg, var(--accent), #a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", display: "block" }}>
-            AI era
-          </span>
-        </h1>
-
-        <p style={{ fontSize: "18px", color: "var(--text-subtle)", maxWidth: "600px", margin: "0 auto 48px", lineHeight: 1.7 }}>
-          Finance, HR, Sales, and 6 more modules — all with an AI copilot that understands your business data and helps you move faster.
-        </p>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "14px", flexWrap: "wrap" }}>
-          <Link href="/signup" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "14px 28px", borderRadius: "12px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", color: "white", fontSize: "15px", fontWeight: 600, textDecoration: "none", boxShadow: "0 0 30px rgba(124,106,255,0.35)" }}>
-            Start free trial <ArrowRight size={16} />
-          </Link>
-          <Link href="/login" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "14px 28px", borderRadius: "12px", background: "transparent", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "15px", textDecoration: "none" }}>
-            Sign in →
-          </Link>
+        <div className="marketing-hero-showcase">
+          <div className="marketing-hero-showcase-head">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+            <p>Benela AI Unified Workspace</p>
+          </div>
+          <img src="/dashboard-screenshot.png" alt="Benela AI platform command center dashboard" />
+          <div className="marketing-hero-chip marketing-hero-chip-a">Revenue forecast confidence: 93%</div>
+          <div className="marketing-hero-chip marketing-hero-chip-b">AI Copilot active in 9 modules</div>
         </div>
 
-        <p style={{ fontSize: "12px", color: "var(--text-quiet)", marginTop: "20px" }}>No credit card required · 14-day free trial</p>
-
-        {/* Dashboard screenshot */}
-        <div style={{ maxWidth: "1200px", margin: "80px auto 0", borderRadius: "20px", overflow: "hidden", boxShadow: "0 40px 100px rgba(124,106,255,0.15), 0 20px 60px rgba(0,0,0,0.5)", border: "1px solid rgba(124,106,255,0.2)" }}>
-          <img src="/dashboard-screenshot.png" alt="Benela AI Dashboard" style={{ width: "100%", height: "auto", display: "block" }} />
+        <div className="marketing-hero-partners">
+          <p>Trusted by modern operations teams worldwide</p>
+          <div className="marketing-hero-partner-row">
+            <span>NOVA SYSTEMS</span>
+            <span>FORGE CAPITAL</span>
+            <span>FLUX LOGISTICS</span>
+            <span>BEAM INDUSTRIES</span>
+            <span>ECHO HEALTH</span>
+          </div>
         </div>
       </section>
 
@@ -153,46 +246,17 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" style={{ padding: "100px 40px", background: "var(--bg-panel)", borderTop: "1px solid var(--bg-elevated)", borderBottom: "1px solid var(--bg-elevated)" }}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: "64px" }}>
-            <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.1em", fontFamily: "monospace", marginBottom: "12px" }}>PRICING</div>
-            <h2 style={{ fontSize: "42px", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "16px" }}>Simple, transparent pricing</h2>
-            <p style={{ fontSize: "16px", color: "var(--text-subtle)" }}>Start free. Scale as you grow. Cancel anytime.</p>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px", alignItems: "start" }}>
-            {PRICING.map((plan) => (
-              <div key={plan.name} style={{ background: plan.highlight ? "linear-gradient(135deg, rgba(124,106,255,0.08), rgba(79,61,232,0.04))" : "var(--bg-surface)", border: plan.highlight ? "1px solid rgba(124,106,255,0.3)" : "1px solid var(--border-default)", borderRadius: "20px", padding: "32px", position: "relative", overflow: "hidden" }}>
-                {plan.highlight && (
-                  <div style={{ position: "absolute", top: "16px", right: "16px", padding: "4px 10px", borderRadius: "99px", background: "rgba(124,106,255,0.15)", border: "1px solid rgba(124,106,255,0.3)", fontSize: "11px", color: "#a89aff" }}>
-                    Most popular
-                  </div>
-                )}
-                <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "8px" }}>{plan.name}</h3>
-                <p style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "20px" }}>{plan.desc}</p>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "24px" }}>
-                  <span style={{ fontSize: "40px", fontWeight: 700, color: "var(--text-primary)" }}>{plan.price}</span>
-                  <span style={{ fontSize: "14px", color: "var(--text-subtle)" }}>{plan.period}</span>
-                </div>
-                <Link href="/signup" style={{ display: "block", textAlign: "center", padding: "11px", borderRadius: "10px", background: plan.highlight ? "linear-gradient(135deg, var(--accent), var(--accent-2))" : "var(--bg-elevated)", border: plan.highlight ? "none" : "1px solid var(--border-default)", color: plan.highlight ? "white" : "var(--text-muted)", fontSize: "14px", fontWeight: 500, textDecoration: "none", marginBottom: "24px" }}>
-                  {plan.cta}
-                </Link>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {plan.features.map(f => (
-                    <div key={f} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "rgba(52,211,153,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <Check size={10} color="#34d399" />
-                      </div>
-                      <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{f}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <div id="pricing">
+        <PricingModule
+          title="Simple, Transparent Pricing"
+          subtitle="Choose monthly or annual billing and scale Benela with your operations."
+          annualBillingLabel="Pay annually and save"
+          buttonLabel="Start free trial"
+          plans={pricingPlans}
+          defaultAnnual={false}
+          className="py-24 px-10 border-y border-[var(--bg-elevated)]"
+        />
+      </div>
 
       {/* Testimonials */}
       <section style={{ padding: "100px 40px", maxWidth: "1100px", margin: "0 auto" }}>
@@ -204,7 +268,7 @@ export default function LandingPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px" }}>
           {TESTIMONIALS.map((t) => (
             <div key={t.name} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px" }}>
-              <div style={{ fontSize: "32px", color: "var(--accent)", marginBottom: "16px", lineHeight: 1 }}>"</div>
+              <div style={{ fontSize: "32px", color: "var(--accent)", marginBottom: "16px", lineHeight: 1 }}>&ldquo;</div>
               <p style={{ fontSize: "14px", color: "var(--text-muted)", lineHeight: 1.7, marginBottom: "24px" }}>{t.text}</p>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "white", flexShrink: 0 }}>
@@ -255,6 +319,456 @@ export default function LandingPage() {
         </div>
         <span style={{ fontSize: "12px", color: "var(--border-soft)" }}>© 2025 Benela AI. All rights reserved.</span>
       </footer>
+      <style jsx global>{`
+        .marketing-nav-brand {
+          color: var(--marketing-hero-nav-brand);
+        }
+
+        .marketing-nav-link {
+          color: var(--marketing-hero-nav-link);
+        }
+
+        .marketing-nav-link:hover {
+          color: var(--marketing-hero-nav-link-hover);
+        }
+
+        .marketing-nav-btn {
+          padding: 8px 18px;
+          border-radius: 9px;
+          font-size: 14px;
+          text-decoration: none;
+          transition: all 0.15s;
+        }
+
+        .marketing-nav-btn-secondary {
+          background: var(--marketing-hero-nav-secondary-bg);
+          border: 1px solid var(--marketing-hero-nav-secondary-border);
+          color: var(--marketing-hero-nav-secondary-text);
+        }
+
+        .marketing-nav-btn-primary {
+          background: var(--marketing-hero-nav-primary-bg);
+          border: 1px solid var(--marketing-hero-nav-primary-border);
+          color: var(--marketing-hero-nav-primary-text);
+          font-weight: 600;
+          box-shadow: var(--marketing-hero-nav-primary-shadow);
+        }
+
+        .marketing-hero {
+          position: relative;
+          overflow: hidden;
+          padding: 168px 24px 88px;
+          width: 100%;
+          margin: 0;
+          isolation: isolate;
+          background: var(--marketing-hero-bg);
+          border-bottom: 1px solid var(--marketing-hero-divider);
+        }
+
+        .marketing-hero-grid {
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(to right, var(--marketing-hero-grid-line-x) 1px, transparent 1px),
+            linear-gradient(to bottom, var(--marketing-hero-grid-line-y) 1px, transparent 1px);
+          background-size: 82px 82px;
+          mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.84), rgba(0, 0, 0, 0.42) 62%, transparent 100%);
+          pointer-events: none;
+          z-index: -4;
+        }
+
+        .marketing-hero-glow {
+          position: absolute;
+          border-radius: 999px;
+          pointer-events: none;
+          z-index: -3;
+        }
+
+        .marketing-hero-glow-a {
+          width: 1060px;
+          height: 760px;
+          top: -310px;
+          right: -240px;
+          background: var(--marketing-hero-glow-a);
+          filter: blur(2px);
+        }
+
+        .marketing-hero-glow-b {
+          width: 920px;
+          height: 620px;
+          top: -160px;
+          left: -340px;
+          background: var(--marketing-hero-glow-b);
+        }
+
+        .marketing-hero-orbit {
+          position: absolute;
+          border-radius: 999px;
+          pointer-events: none;
+          z-index: -2;
+        }
+
+        .marketing-hero-orbit-outer {
+          width: 2850px;
+          height: 2850px;
+          top: -2480px;
+          left: -370px;
+          border: 3px solid var(--marketing-hero-orbit-outer);
+          box-shadow: var(--marketing-hero-orbit-outer-glow);
+        }
+
+        .marketing-hero-orbit-inner {
+          width: 2360px;
+          height: 2360px;
+          top: -2058px;
+          left: 32px;
+          border: 1px solid var(--marketing-hero-orbit-inner);
+        }
+
+        .marketing-hero-copy {
+          position: relative;
+          max-width: 980px;
+          margin: 0 auto;
+          text-align: center;
+        }
+
+        .marketing-hero-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 14px;
+          border-radius: 999px;
+          margin-bottom: 34px;
+          font-size: 12px;
+          letter-spacing: 0.03em;
+          color: var(--marketing-hero-badge-text);
+          border: 1px solid var(--marketing-hero-badge-border);
+          background: var(--marketing-hero-badge-bg);
+          backdrop-filter: blur(8px);
+        }
+
+        .marketing-hero-title {
+          font-family: "Georgia", "Times New Roman", serif;
+          font-size: clamp(34px, 5.2vw, 72px);
+          line-height: 1.02;
+          letter-spacing: -0.02em;
+          margin-bottom: 24px;
+          font-weight: 500;
+          color: var(--marketing-hero-title);
+          text-wrap: balance;
+          text-shadow: var(--marketing-hero-title-shadow);
+        }
+
+        .marketing-hero-title span {
+          display: block;
+          margin-top: 8px;
+          background: var(--marketing-hero-title-accent);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+
+        .marketing-hero-subtitle {
+          max-width: 820px;
+          margin: 0 auto 34px;
+          font-size: clamp(14px, 1.6vw, 22px);
+          line-height: 1.52;
+          color: var(--marketing-hero-subtitle);
+          text-wrap: pretty;
+        }
+
+        .marketing-hero-actions {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+
+        .marketing-hero-primary,
+        .marketing-hero-secondary {
+          display: inline-flex;
+          align-items: center;
+          gap: 9px;
+          text-decoration: none;
+          border-radius: 999px;
+          transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .marketing-hero-primary {
+          padding: 14px 28px;
+          color: var(--marketing-hero-primary-text);
+          font-size: 15px;
+          font-weight: 700;
+          border: 1px solid var(--marketing-hero-primary-border);
+          background: var(--marketing-hero-primary-bg);
+          box-shadow: var(--marketing-hero-primary-shadow);
+        }
+
+        .marketing-hero-secondary {
+          padding: 14px 24px;
+          color: var(--marketing-hero-secondary-text);
+          font-size: 15px;
+          border: 1px solid var(--marketing-hero-secondary-border);
+          background: var(--marketing-hero-secondary-bg);
+        }
+
+        .marketing-hero-primary:hover,
+        .marketing-hero-secondary:hover {
+          transform: translateY(-1px);
+          border-color: color-mix(in srgb, var(--marketing-hero-secondary-border) 72%, white);
+          box-shadow: var(--marketing-hero-primary-shadow);
+        }
+
+        .marketing-hero-note {
+          margin-top: 16px;
+          font-size: 12px;
+          color: var(--marketing-hero-note);
+        }
+
+        .marketing-hero-stats {
+          margin-top: 30px;
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 11px;
+        }
+
+        .marketing-hero-stat {
+          padding: 14px 15px;
+          border-radius: 14px;
+          border: 1px solid var(--marketing-hero-stat-border);
+          background: var(--marketing-hero-stat-bg);
+          backdrop-filter: blur(8px);
+        }
+
+        .marketing-hero-stat strong {
+          display: block;
+          font-size: 20px;
+          color: var(--marketing-hero-stat-title);
+          margin-bottom: 5px;
+          letter-spacing: -0.02em;
+        }
+
+        .marketing-hero-stat span {
+          font-size: 11px;
+          color: var(--marketing-hero-stat-caption);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .marketing-hero-showcase {
+          position: relative;
+          margin: 60px auto 0;
+          max-width: 1160px;
+          border-radius: 24px;
+          border: 1px solid var(--marketing-hero-showcase-border);
+          background: var(--marketing-hero-showcase-bg);
+          box-shadow: var(--marketing-hero-showcase-shadow);
+          overflow: hidden;
+        }
+
+        .marketing-hero-showcase-head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 11px 14px;
+          border-bottom: 1px solid var(--marketing-hero-showcase-head-border);
+          background: var(--marketing-hero-showcase-head-bg);
+        }
+
+        .marketing-hero-showcase-head .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--marketing-hero-showcase-dot);
+        }
+
+        .marketing-hero-showcase-head p {
+          margin-left: 6px;
+          font-size: 11px;
+          font-family: "Geist Mono", monospace;
+          color: var(--marketing-hero-showcase-label);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .marketing-hero-showcase img {
+          width: 100%;
+          height: auto;
+          display: block;
+          filter: var(--marketing-hero-showcase-image-filter);
+        }
+
+        .marketing-hero-chip {
+          position: absolute;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          border-radius: 999px;
+          border: 1px solid var(--marketing-hero-chip-border);
+          background: var(--marketing-hero-chip-bg);
+          backdrop-filter: blur(8px);
+          color: var(--marketing-hero-chip-text);
+          font-size: 12px;
+          box-shadow: var(--marketing-hero-chip-shadow);
+        }
+
+        .marketing-hero-chip-a {
+          top: 80px;
+          right: 18px;
+          animation: heroFloat 5.2s ease-in-out infinite;
+        }
+
+        .marketing-hero-chip-b {
+          bottom: 22px;
+          left: 20px;
+          animation: heroFloat 6s ease-in-out infinite reverse;
+        }
+
+        .marketing-hero-partners {
+          margin: 28px auto 0;
+          max-width: 980px;
+          text-align: center;
+        }
+
+        .marketing-hero-partners p {
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.16em;
+          color: var(--marketing-hero-partner-caption);
+          margin-bottom: 12px;
+        }
+
+        .marketing-hero-partner-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 10px 24px;
+        }
+
+        .marketing-hero-partner-row span {
+          font-size: 13px;
+          color: var(--marketing-hero-partner-text);
+          letter-spacing: 0.13em;
+        }
+
+        @keyframes heroFloat {
+          0%,
+          100% {
+            transform: translateY(0px);
+          }
+          50% {
+            transform: translateY(-6px);
+          }
+        }
+
+        @media (max-width: 980px) {
+          .marketing-nav {
+            padding: 14px 18px !important;
+          }
+
+          .marketing-nav-links {
+            display: none !important;
+          }
+
+          .marketing-nav-actions a {
+            padding: 7px 14px !important;
+            font-size: 13px !important;
+          }
+
+          .marketing-hero {
+            padding-top: 128px;
+          }
+
+          .marketing-hero-title {
+            font-size: clamp(34px, 6vw, 62px);
+          }
+
+          .marketing-hero-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .marketing-hero-orbit-outer {
+            width: 2250px;
+            height: 2250px;
+            top: -1960px;
+            left: -560px;
+          }
+
+          .marketing-hero-orbit-inner {
+            width: 1860px;
+            height: 1860px;
+            top: -1630px;
+            left: -320px;
+          }
+        }
+
+        @media (max-width: 680px) {
+          .marketing-hero {
+            padding: 118px 16px 54px;
+          }
+
+          .marketing-hero-title {
+            font-size: clamp(30px, 8.6vw, 46px);
+            line-height: 1.06;
+          }
+
+          .marketing-hero-orbit-outer {
+            width: 1680px;
+            height: 1680px;
+            top: -1450px;
+            left: -520px;
+          }
+
+          .marketing-hero-orbit-inner {
+            width: 1400px;
+            height: 1400px;
+            top: -1200px;
+            left: -400px;
+          }
+
+          .marketing-hero-badge {
+            font-size: 11px;
+            padding: 7px 11px;
+          }
+
+          .marketing-hero-subtitle {
+            margin-bottom: 24px;
+            font-size: 15px;
+          }
+
+          .marketing-hero-actions {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .marketing-hero-primary,
+          .marketing-hero-secondary {
+            justify-content: center;
+            width: 100%;
+          }
+
+          .marketing-hero-stats {
+            grid-template-columns: 1fr;
+          }
+
+          .marketing-hero-chip {
+            position: static;
+            margin: 10px 12px 0;
+          }
+
+          .marketing-hero-partner-row {
+            gap: 8px 12px;
+          }
+
+          .marketing-hero-partner-row span {
+            font-size: 11px;
+            letter-spacing: 0.08em;
+          }
+        }
+      `}</style>
     </div>
   );
 }

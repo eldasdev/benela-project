@@ -226,6 +226,72 @@ Channel Metrics:
         db.close()
 
 
+def get_legal_context() -> str:
+    """Fetch live legal operations and compliance data."""
+    db = SessionLocal()
+    try:
+        summary = crud.get_legal_summary(db)
+        documents = crud.get_legal_documents(db, limit=20)
+        contracts = crud.get_legal_contracts(db, limit=20)
+        tasks = crud.get_legal_compliance_tasks(db, limit=20)
+
+        doc_lines = []
+        for item in documents[:12]:
+            source = item.source.value if hasattr(item.source, "value") else str(item.source)
+            status = item.status.value if hasattr(item.status, "value") else str(item.status)
+            doc_lines.append(
+                f"  - {item.title} | #{item.document_number or 'N/A'} | {item.category} | "
+                f"{item.jurisdiction} | {source} | {status}"
+            )
+
+        contract_lines = []
+        for item in contracts[:12]:
+            status = item.status.value if hasattr(item.status, "value") else str(item.status)
+            risk_level = item.risk_level.value if hasattr(item.risk_level, "value") else str(item.risk_level)
+            contract_lines.append(
+                f"  - {item.title} | {item.counterparty} | {status} | Risk: {risk_level} | "
+                f"End: {_fmt_date(item.end_date)} | Value: {_fmt_money(item.value_amount)} {item.currency}"
+            )
+
+        task_lines = []
+        for item in tasks[:12]:
+            status = item.status.value if hasattr(item.status, "value") else str(item.status)
+            risk_level = item.risk_level.value if hasattr(item.risk_level, "value") else str(item.risk_level)
+            task_lines.append(
+                f"  - {item.title} | {status} | Risk: {risk_level} | "
+                f"Owner: {item.owner or 'Unassigned'} | Due: {_fmt_date(item.due_date)}"
+            )
+
+        return f"""
+REAL LEGAL DATA (live from database):
+
+Summary:
+  Documents Total:              {summary.get('documents_total', 0)}
+  Active Documents:             {summary.get('active_documents', 0)}
+  Lex.uz Source Documents:      {summary.get('lex_documents', 0)}
+  Review Due Documents:         {summary.get('review_due_documents', 0)}
+  Contracts Total:              {summary.get('contracts_total', 0)}
+  Active Contracts:             {summary.get('active_contracts', 0)}
+  Expiring Contracts (30d):     {summary.get('expiring_contracts_30d', 0)}
+  High-Risk Contracts:          {summary.get('high_risk_contracts', 0)}
+  Compliance Tasks Open:        {summary.get('open_tasks', 0)}
+  Compliance Tasks Overdue:     {summary.get('overdue_tasks', 0)}
+  High-Risk Compliance Tasks:   {summary.get('high_risk_tasks', 0)}
+  Overdue Ratio:                {summary.get('overdue_ratio_percent', 0)}%
+
+Document Library:
+{chr(10).join(doc_lines) if doc_lines else "  No legal documents found."}
+
+Contract Registry:
+{chr(10).join(contract_lines) if contract_lines else "  No contracts found."}
+
+Compliance Tasks:
+{chr(10).join(task_lines) if task_lines else "  No compliance tasks found."}
+""".strip()
+    finally:
+        db.close()
+
+
 def get_admin_context() -> str:
     """Fetch platform-wide admin data."""
     db = SessionLocal()
@@ -286,6 +352,7 @@ def get_context_for_section(section: str) -> str:
         "hr": get_hr_context,
         "projects": get_projects_context,
         "marketing": get_marketing_context,
+        "legal": get_legal_context,
         "admin": get_admin_context,
     }
 

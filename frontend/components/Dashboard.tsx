@@ -1,14 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Section } from "@/types";
-import { Sparkles, Bell, TrendingUp, TrendingDown, RefreshCcw } from "lucide-react";
+import {
+  Sparkles,
+  Bell,
+  TrendingUp,
+  TrendingDown,
+  RefreshCcw,
+  Users,
+  BriefcaseBusiness,
+  Gavel,
+  Megaphone,
+  DollarSign,
+  Activity,
+  Clock3,
+} from "lucide-react";
 import FinancePage from "./FinancePage";
 import HRPage from "./HRPage";
 import ProjectsPage from "./ProjectsPage";
 import MarketplacePage from "./MarketplacePage";
 import MarketingPage from "./MarketingPage";
+import LegalPage from "./LegalPage";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 
@@ -39,6 +53,118 @@ type DashboardRow = {
 type DashboardOverview = {
   cards: DashboardCard[];
   modules: DashboardRow[];
+  generated_at: string;
+};
+
+type DashboardHeadlineItem = {
+  label: string;
+  value: string;
+  tone: "success" | "warning" | "danger" | "info";
+};
+
+type ModuleScore = {
+  module: string;
+  score: number;
+  status: "Healthy" | "Warning" | "Critical";
+  summary: string;
+};
+
+type PriorityAction = {
+  title: string;
+  owner: string;
+  severity: "low" | "medium" | "high";
+  detail: string;
+};
+
+type CashflowPoint = {
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+};
+
+type ActivityItem = {
+  module: string;
+  title: string;
+  detail: string;
+  at?: string | null;
+  ago: string;
+};
+
+type DepartmentBreakdownItem = {
+  department: string;
+  headcount: number;
+  payroll: number;
+};
+
+type FinanceMixItem = {
+  category: string;
+  amount: number;
+  share_percent: number;
+};
+
+type DashboardCommandCenter = {
+  overview: DashboardOverview;
+  headline: DashboardHeadlineItem[];
+  finance: {
+    revenue_total: number;
+    expense_total: number;
+    net_total: number;
+    revenue_month: number;
+    expense_month: number;
+    net_month: number;
+    gross_margin_percent: number;
+    pending_receivables: number;
+    overdue_invoice_count: number;
+    overdue_invoice_amount: number;
+  };
+  workforce: {
+    active: number;
+    on_leave: number;
+    terminated: number;
+    hires_last_30_days: number;
+    average_salary: number;
+    open_positions: number;
+  };
+  department_breakdown: DepartmentBreakdownItem[];
+  operations: {
+    projects_total: number;
+    projects_active: number;
+    projects_on_hold: number;
+    projects_completed: number;
+    projects_overdue: number;
+    tasks_total: number;
+    tasks_due_7_days: number;
+    tasks_overdue: number;
+    tasks_critical_priority: number;
+    project_completion_percent: number;
+  };
+  marketing: {
+    campaigns_active: number;
+    pipeline_leads: number;
+    opportunities: number;
+    customers: number;
+    spend: number;
+    revenue: number;
+    roas: number;
+    cost_per_lead: number;
+  };
+  finance_mix: {
+    income: FinanceMixItem[];
+    expenses: FinanceMixItem[];
+  };
+  legal: {
+    high_risk_contracts: number;
+    expiring_contracts_30_days: number;
+    open_compliance_tasks: number;
+    overdue_compliance_tasks: number;
+    review_due_documents: number;
+  };
+  module_scores: ModuleScore[];
+  priority_actions: PriorityAction[];
+  insights: string[];
+  cashflow_trend: CashflowPoint[];
+  recent_activity: ActivityItem[];
   generated_at: string;
 };
 
@@ -102,17 +228,48 @@ const STATUS_COLORS: Record<string, string> = {
   Pending: "#fbbf24",
   Paid: "#34d399",
   Received: "#34d399",
+  high: "#f87171",
+  medium: "#fbbf24",
+  low: "#34d399",
 };
 
 const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string }>> = {
-  dashboard: { title: "Dashboard", subtitle: "Business overview across all modules" },
+  dashboard: { title: "Dashboard", subtitle: "Executive command center for your company" },
   finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
   hr: { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
   projects: { title: "Projects", subtitle: "Kanban boards, tasks and team collaboration" },
   marketing: { title: "Marketing", subtitle: "Campaigns, content, leads, attribution and benchmark analytics" },
   settings: { title: "Settings", subtitle: "Account, workspace and preferences" },
   marketplace: { title: "Marketplace", subtitle: "Integrations and add-ons" },
+  legal: { title: "Legal", subtitle: "Legal research, contracts and compliance workflows" },
 };
+
+const toneStyles: Record<DashboardHeadlineItem["tone"], { fg: string; bg: string; border: string }> = {
+  success: {
+    fg: "#34d399",
+    bg: "color-mix(in srgb, #34d399 12%, var(--bg-surface))",
+    border: "color-mix(in srgb, #34d399 30%, var(--border-default))",
+  },
+  warning: {
+    fg: "#fbbf24",
+    bg: "color-mix(in srgb, #fbbf24 12%, var(--bg-surface))",
+    border: "color-mix(in srgb, #fbbf24 30%, var(--border-default))",
+  },
+  danger: {
+    fg: "#f87171",
+    bg: "color-mix(in srgb, #f87171 12%, var(--bg-surface))",
+    border: "color-mix(in srgb, #f87171 30%, var(--border-default))",
+  },
+  info: {
+    fg: "#60a5fa",
+    bg: "color-mix(in srgb, #60a5fa 12%, var(--bg-surface))",
+    border: "color-mix(in srgb, #60a5fa 30%, var(--border-default))",
+  },
+};
+
+function formatMoney(value: number) {
+  return `$${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
 
 export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Props) {
   const router = useRouter();
@@ -120,32 +277,53 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
   const overrideTitle = SECTION_TITLES[activeSection];
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [overviewError, setOverviewError] = useState("");
+  const [commandCenter, setCommandCenter] = useState<DashboardCommandCenter | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
+  const dashboardHasData = Boolean(commandCenter || overview);
+  const showInitialDashboardLoading =
+    activeSection === "dashboard" && !dashboardHasData && !dashboardError;
 
-  const loadOverview = useCallback(async () => {
-    setOverviewLoading(true);
-    setOverviewError("");
+  const loadDashboard = useCallback(async () => {
+    setDashboardLoading(true);
+    setDashboardError("");
     try {
       const workspaceId = getClientWorkspaceId();
-      const res = await fetch(
-        `${API}/dashboard/overview?workspace_id=${encodeURIComponent(workspaceId)}`
-      );
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        setOverviewError(payload?.detail || "Failed to load live dashboard data.");
+      const [overviewRes, commandRes] = await Promise.all([
+        fetch(`${API}/dashboard/overview?workspace_id=${encodeURIComponent(workspaceId)}`),
+        fetch(`${API}/dashboard/command-center?workspace_id=${encodeURIComponent(workspaceId)}`),
+      ]);
+
+      if (!overviewRes.ok && !commandRes.ok) {
+        const payload = await commandRes.json().catch(() => null);
+        setDashboardError(payload?.detail || "Failed to load company dashboard.");
         setOverview(null);
+        setCommandCenter(null);
         return;
       }
-      const payload = (await res.json()) as DashboardOverview;
-      setOverview(payload);
+
+      if (overviewRes.ok) {
+        setOverview((await overviewRes.json()) as DashboardOverview);
+      } else {
+        setOverview(null);
+      }
+
+      if (commandRes.ok) {
+        setCommandCenter((await commandRes.json()) as DashboardCommandCenter);
+      } else {
+        setCommandCenter(null);
+        if (!overviewRes.ok) {
+          setDashboardError("Could not load command center data.");
+        }
+      }
     } catch (e) {
-      console.error("Failed to load dashboard overview", e);
-      setOverviewError("Could not connect to the backend service.");
+      console.error("Failed to load dashboard", e);
+      setDashboardError("Could not connect to the backend service.");
       setOverview(null);
+      setCommandCenter(null);
     } finally {
-      setOverviewLoading(false);
+      setDashboardLoading(false);
     }
   }, []);
 
@@ -169,11 +347,8 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
 
   useEffect(() => {
     if (activeSection !== "dashboard") return;
-    const t = setTimeout(() => {
-      void loadOverview();
-    }, 0);
-    return () => clearTimeout(t);
-  }, [activeSection, loadOverview]);
+    void loadDashboard();
+  }, [activeSection, loadDashboard]);
 
   useEffect(() => {
     void loadUnreadNotifications();
@@ -221,7 +396,7 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           {activeSection === "dashboard" && (
             <button
-              onClick={() => void loadOverview()}
+              onClick={() => void loadDashboard()}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -236,7 +411,7 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
               }}
             >
               <RefreshCcw size={12} />
-              {overviewLoading ? "Loading..." : "Refresh"}
+              {dashboardLoading ? "Loading..." : "Refresh"}
             </button>
           )}
           <button
@@ -316,14 +491,468 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           <ProjectsPage />
         ) : activeSection === "marketing" ? (
           <MarketingPage />
+        ) : activeSection === "legal" ? (
+          <LegalPage />
         ) : activeSection === "marketplace" ? (
           <MarketplacePage />
         ) : activeSection === "dashboard" ? (
-          <DashboardOverviewPanel overview={overview} fallback={data} error={overviewError} />
+          showInitialDashboardLoading ? (
+            <DashboardLoadingPanel />
+          ) : commandCenter ? (
+            <DashboardCommandCenterPanel data={commandCenter} error={dashboardError} />
+          ) : overview ? (
+            <DashboardOverviewPanel overview={overview} fallback={data} error={dashboardError} />
+          ) : dashboardError ? (
+            <DashboardOverviewPanel overview={null} fallback={data} error={dashboardError} />
+          ) : (
+            <DashboardLoadingPanel />
+          )
         ) : (
           <GenericPanel activeSection={activeSection} data={data} />
         )}
       </div>
+    </div>
+  );
+}
+
+function DashboardCommandCenterPanel({
+  data,
+  error,
+}: {
+  data: DashboardCommandCenter;
+  error?: string;
+}) {
+  const maxAbsNet = useMemo(() => {
+    const values = data.cashflow_trend.map((point) => Math.abs(point.net));
+    return Math.max(...values, 1);
+  }, [data.cashflow_trend]);
+  const maxDeptHeadcount = useMemo(() => {
+    const values = data.department_breakdown.map((item) => item.headcount);
+    return Math.max(...values, 1);
+  }, [data.department_breakdown]);
+  const maxFinanceMixAmount = useMemo(() => {
+    const values = [...data.finance_mix.income, ...data.finance_mix.expenses].map((item) => item.amount);
+    return Math.max(...values, 1);
+  }, [data.finance_mix.expenses, data.finance_mix.income]);
+  const generatedAtLabel = useMemo(() => {
+    if (!data.generated_at) return "—";
+    const ts = new Date(data.generated_at);
+    return Number.isNaN(ts.getTime()) ? "—" : ts.toLocaleString();
+  }, [data.generated_at]);
+  const healthyModules = useMemo(
+    () => data.module_scores.filter((item) => item.status === "Healthy").length,
+    [data.module_scores]
+  );
+
+  const moduleRows = data.overview.modules.map((row) => ({
+    module: row.module,
+    status: row.status,
+    tasks: row.tasks_today,
+    alerts: row.alerts,
+    last: row.last_activity,
+  }));
+
+  return (
+    <div style={{ padding: "24px", display: "grid", gap: "12px" }}>
+      {error ? (
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: "10px",
+            border: "1px solid var(--danger-soft-border)",
+            background: "var(--danger-soft-bg)",
+            color: "var(--danger)",
+            fontSize: "12px",
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px" }}>
+        {data.headline.map((item, index) => {
+          const tone = toneStyles[item.tone] || toneStyles.info;
+          return (
+            <div
+              key={`${item.label}-${index}`}
+              style={{
+                border: `1px solid ${tone.border}`,
+                background: tone.bg,
+                borderRadius: "12px",
+                padding: "12px 14px",
+                display: "grid",
+                gap: "6px",
+              }}
+            >
+              <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{item.label}</span>
+              <span style={{ fontSize: "24px", fontWeight: 600, color: tone.fg, lineHeight: 1 }}>{item.value}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+          flexWrap: "wrap",
+          border: "1px solid var(--border-soft)",
+          borderRadius: "10px",
+          padding: "8px 12px",
+          background: "var(--bg-surface)",
+        }}
+      >
+        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
+          Data refreshed: <span style={{ color: "var(--text-primary)" }}>{generatedAtLabel}</span>
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
+          Module health:{" "}
+          <span style={{ color: "var(--success)" }}>{healthyModules}</span> healthy /{" "}
+          <span style={{ color: "var(--text-primary)" }}>{data.module_scores.length}</span> tracked
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
+        <Card title="Executive Snapshot" subtitle="Finance, people, operations, legal and growth at a glance.">
+          <div style={{ display: "grid", gap: "8px" }}>
+            <MetricRow
+              icon={<DollarSign size={13} color="#34d399" />}
+              label="Finance"
+              value={`${formatMoney(data.finance.revenue_month)} in · ${formatMoney(data.finance.expense_month)} out · margin ${data.finance.gross_margin_percent}%`}
+            />
+            <MetricRow
+              icon={<Users size={13} color="#60a5fa" />}
+              label="People"
+              value={`${data.workforce.active} active · ${data.workforce.open_positions} open roles · ${data.workforce.hires_last_30_days} hires (30d)`}
+            />
+            <MetricRow
+              icon={<BriefcaseBusiness size={13} color="#fbbf24" />}
+              label="Operations"
+              value={`${data.operations.projects_active} active projects · ${data.operations.tasks_overdue} overdue tasks · ${data.operations.project_completion_percent}% completion`}
+            />
+            <MetricRow
+              icon={<Gavel size={13} color="#f87171" />}
+              label="Legal"
+              value={`${data.legal.high_risk_contracts} high-risk contracts · ${data.legal.overdue_compliance_tasks} overdue compliance tasks`}
+            />
+            <MetricRow
+              icon={<Megaphone size={13} color="#a78bfa" />}
+              label="Growth"
+              value={`${data.marketing.campaigns_active} active campaigns · ROAS ${data.marketing.roas}x · CPL ${formatMoney(data.marketing.cost_per_lead)}`}
+            />
+          </div>
+        </Card>
+
+        <Card title="Module Health" subtitle="Performance score and operational risk by module.">
+          <div style={{ display: "grid", gap: "10px" }}>
+            {data.module_scores.map((score) => {
+              const statusColor = STATUS_COLORS[score.status] || "var(--text-muted)";
+              return (
+                <div key={score.module} style={{ display: "grid", gap: "4px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{score.module}</span>
+                    <span style={{ fontSize: "11px", color: statusColor }}>{score.score}/100 · {score.status}</span>
+                  </div>
+                  <div style={{ height: "7px", borderRadius: "999px", background: "var(--bg-panel)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${Math.max(0, Math.min(score.score, 100))}%`,
+                        height: "100%",
+                        borderRadius: "999px",
+                        background: statusColor,
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{score.summary}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
+        <Card title="Department Footprint" subtitle="Headcount and payroll concentration by department.">
+          <div style={{ display: "grid", gap: "8px" }}>
+            {data.department_breakdown.length ? (
+              data.department_breakdown.map((item) => (
+                <div key={item.department} style={{ display: "grid", gap: "4px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{item.department}</span>
+                    <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
+                      {item.headcount} employees · {formatMoney(item.payroll)}
+                    </span>
+                  </div>
+                  <div style={{ height: "7px", borderRadius: "999px", background: "var(--bg-panel)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${Math.max(8, Math.round((item.headcount / maxDeptHeadcount) * 100))}%`,
+                        height: "100%",
+                        borderRadius: "999px",
+                        background: "linear-gradient(90deg, #60a5fa, #34d399)",
+                      }}
+                    />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No workforce records yet.</span>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Revenue & Expense Mix" subtitle="Top finance categories shaping cash movement.">
+          <div style={{ display: "grid", gap: "12px" }}>
+            <div style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "11px", color: "var(--success)", fontWeight: 600 }}>Revenue Mix</span>
+              {data.finance_mix.income.length ? (
+                data.finance_mix.income.map((item) => (
+                  <MixRow key={`income-${item.category}`} item={item} maxAmount={maxFinanceMixAmount} tone="income" />
+                ))
+              ) : (
+                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No income transactions yet.</span>
+              )}
+            </div>
+            <div style={{ borderTop: "1px solid var(--border-soft)" }} />
+            <div style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "11px", color: "var(--danger)", fontWeight: 600 }}>Expense Mix</span>
+              {data.finance_mix.expenses.length ? (
+                data.finance_mix.expenses.map((item) => (
+                  <MixRow key={`expense-${item.category}`} item={item} maxAmount={maxFinanceMixAmount} tone="expense" />
+                ))
+              ) : (
+                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No expense transactions yet.</span>
+              )}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
+        <Card title="Cashflow Trend (6 months)" subtitle="Net movement per month with income and expense context.">
+          <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ display: "flex", alignItems: "end", gap: "8px", minHeight: "120px" }}>
+              {data.cashflow_trend.map((point) => {
+                const normalized = Math.max(8, Math.round((Math.abs(point.net) / maxAbsNet) * 90));
+                const positive = point.net >= 0;
+                return (
+                  <div key={point.month} style={{ flex: 1, display: "grid", justifyItems: "center", gap: "6px" }}>
+                    <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "end", minHeight: "96px" }}>
+                      <div
+                        style={{
+                          width: "75%",
+                          height: `${normalized}px`,
+                          borderRadius: "8px",
+                          background: positive
+                            ? "linear-gradient(180deg, #34d399, color-mix(in srgb, #34d399 35%, #0b1118))"
+                            : "linear-gradient(180deg, #f87171, color-mix(in srgb, #f87171 35%, #0b1118))",
+                          opacity: 0.92,
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>{point.month.split(" ")[0]}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px" }}>
+              {data.cashflow_trend.slice(-3).map((point) => (
+                <div key={`${point.month}-meta`} style={{ border: "1px solid var(--border-soft)", borderRadius: "9px", padding: "8px" }}>
+                  <div style={{ fontSize: "10px", color: "var(--text-quiet)", marginBottom: "4px" }}>{point.month}</div>
+                  <div style={{ fontSize: "12px", color: "var(--success)" }}>In {formatMoney(point.income)}</div>
+                  <div style={{ fontSize: "12px", color: "var(--danger)" }}>Out {formatMoney(point.expense)}</div>
+                  <div style={{ fontSize: "12px", color: point.net >= 0 ? "var(--success)" : "var(--danger)" }}>
+                    Net {formatMoney(point.net)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Priority Actions" subtitle="Immediate cross-functional actions for leadership and teams.">
+          <div style={{ display: "grid", gap: "8px" }}>
+            {data.priority_actions.map((action, idx) => {
+              const badgeColor = STATUS_COLORS[action.severity] || "var(--text-muted)";
+              return (
+                <div
+                  key={`${action.title}-${idx}`}
+                  style={{
+                    border: "1px solid var(--border-soft)",
+                    borderRadius: "10px",
+                    padding: "9px 10px",
+                    display: "grid",
+                    gap: "4px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{action.title}</span>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        color: badgeColor,
+                        border: `1px solid ${badgeColor}55`,
+                        borderRadius: "999px",
+                        padding: "1px 7px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      {action.severity}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{action.detail}</span>
+                  <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>Owner: {action.owner}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
+        <Card title="Strategic Insights" subtitle="Key observations generated from live module data.">
+          <div style={{ display: "grid", gap: "8px" }}>
+            {data.insights.map((insight, idx) => (
+              <div
+                key={`${insight}-${idx}`}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "8px",
+                  border: "1px solid var(--border-soft)",
+                  borderRadius: "10px",
+                  padding: "8px 10px",
+                }}
+              >
+                <Activity size={12} color="var(--accent)" style={{ marginTop: "2px", flexShrink: 0 }} />
+                <span style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.5 }}>{insight}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card title="Recent Activity" subtitle="Latest events across company modules.">
+          <div style={{ display: "grid", gap: "6px", maxHeight: "280px", overflowY: "auto", paddingRight: "2px" }}>
+            {data.recent_activity.length ? (
+              data.recent_activity.map((event, idx) => (
+                <div
+                  key={`${event.module}-${event.title}-${idx}`}
+                  style={{
+                    border: "1px solid var(--border-soft)",
+                    borderRadius: "10px",
+                    padding: "8px 10px",
+                    display: "grid",
+                    gap: "4px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--accent)" }}>{event.module}</span>
+                    <span style={{ fontSize: "10px", color: "var(--text-quiet)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Clock3 size={10} />
+                      {event.ago}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{event.title}</span>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{event.detail}</span>
+                </div>
+              ))
+            ) : (
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No activity recorded yet.</span>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <DataTable
+        title="Module Overview"
+        columns={["Module", "Status", "Tasks Today", "Alerts", "Last Activity"]}
+        rows={moduleRows}
+      />
+    </div>
+  );
+}
+
+function DashboardLoadingPanel() {
+  return (
+    <div style={{ padding: "24px", display: "grid", gap: "12px" }}>
+      <div
+        style={{
+          border: "1px solid var(--border-default)",
+          borderRadius: "12px",
+          padding: "12px 14px",
+          background: "var(--bg-surface)",
+          color: "var(--text-subtle)",
+          fontSize: "12px",
+        }}
+      >
+        Loading company dashboard...
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+        {Array.from({ length: 6 }).map((_, idx) => (
+          <div
+            key={idx}
+            style={{
+              height: "96px",
+              borderRadius: "12px",
+              border: "1px solid var(--border-default)",
+              background: "color-mix(in srgb, var(--bg-elevated) 86%, var(--bg-surface))",
+            }}
+          />
+        ))}
+      </div>
+      <div
+        style={{
+          height: "300px",
+          borderRadius: "12px",
+          border: "1px solid var(--border-default)",
+          background: "color-mix(in srgb, var(--bg-elevated) 86%, var(--bg-surface))",
+        }}
+      />
+    </div>
+  );
+}
+
+function Card({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-default)", display: "grid", gap: "4px" }}>
+        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{title}</span>
+        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{subtitle}</span>
+      </div>
+      <div style={{ padding: "12px" }}>{children}</div>
+    </div>
+  );
+}
+
+function MetricRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={{ border: "1px solid var(--border-soft)", borderRadius: "9px", padding: "8px 10px", display: "grid", gap: "3px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        {icon}
+        <span style={{ fontSize: "11px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          {label}
+        </span>
+      </div>
+      <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{value}</span>
     </div>
   );
 }
@@ -365,7 +994,7 @@ function DashboardOverviewPanel({
           {error}
         </div>
       ) : null}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "24px" }}>
         {cards.map((card, i) => (
           <div
             key={i}
@@ -417,7 +1046,7 @@ function GenericPanel({
 }) {
   return (
     <div style={{ padding: "24px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "24px" }}>
         {data.cards.map((card, i) => (
           <div
             key={i}
@@ -571,6 +1200,40 @@ function DataTable({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function MixRow({
+  item,
+  maxAmount,
+  tone,
+}: {
+  item: FinanceMixItem;
+  maxAmount: number;
+  tone: "income" | "expense";
+}) {
+  const color = tone === "income" ? "#34d399" : "#f87171";
+  const width = Math.max(8, Math.round((item.amount / Math.max(maxAmount, 1)) * 100));
+
+  return (
+    <div style={{ display: "grid", gap: "4px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{item.category}</span>
+        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
+          {formatMoney(item.amount)} · {item.share_percent}%
+        </span>
+      </div>
+      <div style={{ height: "7px", borderRadius: "999px", background: "var(--bg-panel)", overflow: "hidden" }}>
+        <div
+          style={{
+            width: `${width}%`,
+            height: "100%",
+            borderRadius: "999px",
+            background: color,
+          }}
+        />
+      </div>
     </div>
   );
 }

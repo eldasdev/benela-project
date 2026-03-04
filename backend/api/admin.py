@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,13 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 class SendNotificationBody(BaseModel):
     recipient_count: int
+
+
+class AITrainerContextPreviewBody(BaseModel):
+    section: str
+    message: str
+    max_context_chars: Optional[int] = 12000
+    max_chunks: Optional[int] = 8
 
 
 # ── Overview ──────────────────────────────────────────
@@ -289,3 +296,122 @@ def rotate_api_key(db: Session = Depends(get_db)):
 @router.post("/settings/rotate-webhook-secret")
 def rotate_webhook_secret(db: Session = Depends(get_db)):
     return {"webhook_signing_secret": crud.rotate_webhook_signing_secret(db)}
+
+
+# ── AI Trainer ────────────────────────────────────────
+@router.get("/ai-trainer/profiles", response_model=List[admin_schemas.AITrainerProfileOut])
+def list_ai_trainer_profiles(db: Session = Depends(get_db)):
+    return crud.get_ai_trainer_profiles(db)
+
+
+@router.get("/ai-trainer/profile/{section}", response_model=admin_schemas.AITrainerProfileOut)
+def get_ai_trainer_profile(section: str, db: Session = Depends(get_db)):
+    try:
+        profile = crud.get_ai_trainer_profile(db, section)
+        sources = crud.list_ai_trainer_sources(db, section, limit=1000)
+        chunks_total = sum(item.chunk_count for item in sources)
+        ready_total = sum(1 for item in sources if item.status == "ready")
+        payload = admin_schemas.AITrainerProfileOut.model_validate(profile).model_dump()
+        payload["sources_total"] = len(sources)
+        payload["sources_ready"] = ready_total
+        payload["chunks_total"] = chunks_total
+        return payload
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/ai-trainer/profile/{section}", response_model=admin_schemas.AITrainerProfileOut)
+def update_ai_trainer_profile(
+    section: str,
+    data: admin_schemas.AITrainerProfileUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        profile = crud.update_ai_trainer_profile(db, section, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return profile
+
+
+@router.get("/ai-trainer/sources", response_model=List[admin_schemas.AITrainerSourceOut])
+def list_ai_trainer_sources(
+    section: str = Query(...),
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    try:
+        return crud.list_ai_trainer_sources(db, section, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ai-trainer/sources/url", response_model=admin_schemas.AITrainerSourceOut)
+def add_ai_trainer_source_url(
+    data: admin_schemas.AITrainerSourceCreateURL,
+    db: Session = Depends(get_db),
+):
+    try:
+        return crud.create_ai_trainer_source_from_url(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ai-trainer/sources/text", response_model=admin_schemas.AITrainerSourceOut)
+def add_ai_trainer_source_text(
+    data: admin_schemas.AITrainerSourceCreateText,
+    db: Session = Depends(get_db),
+):
+    try:
+        return crud.create_ai_trainer_source_from_text(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ai-trainer/sources/file", response_model=admin_schemas.AITrainerSourceOut)
+async def add_ai_trainer_source_file(
+    section: str = Form(...),
+    title: Optional[str] = Form(default=None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        return crud.create_ai_trainer_source_from_file(
+            db,
+            section=section,
+            file_name=file.filename or "source.bin",
+            mime_type=file.content_type,
+            payload=payload,
+            title=title,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ai-trainer/sources/{source_id}/reindex", response_model=admin_schemas.AITrainerSourceOut)
+def reindex_ai_trainer_source(source_id: int, db: Session = Depends(get_db)):
+    source = crud.reindex_ai_trainer_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+@router.delete("/ai-trainer/sources/{source_id}")
+def delete_ai_trainer_source(source_id: int, db: Session = Depends(get_db)):
+    if not crud.delete_ai_trainer_source(db, source_id):
+        raise HTTPException(status_code=404, detail="Source not found")
+    return {"ok": True}
+
+
+@router.post("/ai-trainer/context-preview")
+def ai_trainer_context_preview(body: AITrainerContextPreviewBody, db: Session = Depends(get_db)):
+    context = crud.get_ai_trainer_training_context(
+        db=db,
+        section=body.section,
+        query=body.message,
+        max_context_chars=body.max_context_chars or 12000,
+        max_chunks=body.max_chunks or 8,
+    )
+    return {"context": context}

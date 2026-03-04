@@ -11,6 +11,7 @@ import {
   Bell,
   TrendingUp,
   Store,
+  BrainCircuit,
   Settings,
   LogOut,
   ArrowLeft,
@@ -27,6 +28,7 @@ const NAV = [
   { href: "/admin/notifications", label: "Notifications", icon: Bell },
   { href: "/admin/marketplace", label: "Marketplace", icon: Store },
   { href: "/admin/analytics", label: "Analytics", icon: TrendingUp },
+  { href: "/admin/ai-trainer", label: "AI Trainer", icon: BrainCircuit },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
 

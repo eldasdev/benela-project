@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, CreditCard, RefreshCcw } from "lucide-react";
+import {
+  DEFAULT_PRICING_PLANS,
+  PRICING_STORAGE_KEY,
+  clonePricingPlans,
+  normalizePricingPlan,
+  type PricingPlanDefinition,
+} from "@/lib/pricing-plans";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -71,6 +78,16 @@ type PaymentForm = {
   transaction_id: string;
 };
 
+type PricingPlanForm = {
+  id: string;
+  name: string;
+  description: string;
+  price_monthly: string;
+  price_yearly: string;
+  users: string;
+  recommended: boolean;
+};
+
 const EMPTY_METHOD_FORM: MethodForm = {
   name: "",
   provider: "",
@@ -112,8 +129,12 @@ export default function AdminPaymentsPage() {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState<PaymentForm>(EMPTY_PAYMENT_FORM);
+  const [pricingPlans, setPricingPlans] = useState<PricingPlanDefinition[]>(() => clonePricingPlans(DEFAULT_PRICING_PLANS));
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [planForm, setPlanForm] = useState<PricingPlanForm | null>(null);
 
   const activeMethods = useMemo(() => methods.filter((m) => m.is_active), [methods]);
+  const paymentMethodTableColumns = "minmax(180px, 1.1fr) 0.8fr 0.8fr 0.8fr minmax(220px, 1fr)";
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -148,6 +169,29 @@ export default function AdminPaymentsPage() {
     }, 0);
     return () => clearTimeout(t);
   }, [loadData]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(PRICING_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return;
+      const normalized = parsed
+        .map(normalizePricingPlan)
+        .filter((row): row is PricingPlanDefinition => Boolean(row));
+      if (normalized.length) {
+        setPricingPlans(normalized);
+      }
+    } catch (e) {
+      console.warn("Could not load pricing plan configuration from local storage", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(pricingPlans));
+  }, [pricingPlans]);
 
   const submitMethod = async () => {
     setSaving(true);
@@ -316,6 +360,52 @@ export default function AdminPaymentsPage() {
     setShowPaymentModal(true);
   };
 
+  const openEditPricingPlan = (plan: PricingPlanDefinition) => {
+    setPlanForm({
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      price_monthly: String(plan.priceMonthly),
+      price_yearly: String(plan.priceYearly),
+      users: plan.users,
+      recommended: Boolean(plan.recommended),
+    });
+    setShowPlanModal(true);
+  };
+
+  const submitPricingPlan = () => {
+    if (!planForm) return;
+    const monthly = Number(planForm.price_monthly);
+    const yearly = Number(planForm.price_yearly);
+    if (!Number.isFinite(monthly) || monthly < 0) {
+      setError("Monthly price must be 0 or greater.");
+      return;
+    }
+    if (!Number.isFinite(yearly) || yearly < 0) {
+      setError("Yearly price must be 0 or greater.");
+      return;
+    }
+    setPricingPlans((prev) =>
+      prev.map((plan) =>
+        plan.id === planForm.id
+          ? {
+              ...plan,
+              name: planForm.name.trim() || plan.name,
+              description: planForm.description.trim() || plan.description,
+              users: planForm.users.trim() || plan.users,
+              priceMonthly: monthly,
+              priceYearly: yearly,
+              recommended: planForm.recommended,
+            }
+          : { ...plan, recommended: planForm.recommended ? false : plan.recommended },
+      ),
+    );
+    setNotice("Pricing plan updated for platform pricing views.");
+    setError("");
+    setShowPlanModal(false);
+    setPlanForm(null);
+  };
+
   return (
     <div style={{ padding: "24px", maxWidth: "1450px", margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
@@ -376,7 +466,7 @@ export default function AdminPaymentsPage() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
         <section style={panelStyle}>
           <div style={panelHeader}>Payment Methods</div>
-          <div style={tableHead("1.1fr 0.8fr 0.8fr 0.8fr 140px")}>
+          <div style={tableHead(paymentMethodTableColumns)}>
             {["Method", "Type", "Fees", "Status", "Actions"].map((h) => (
               <span key={h} style={thStyle}>
                 {h}
@@ -384,7 +474,7 @@ export default function AdminPaymentsPage() {
             ))}
           </div>
           {methods.map((method) => (
-            <div key={method.id} style={tableRow("1.1fr 0.8fr 0.8fr 0.8fr 140px")}>
+            <div key={method.id} style={tableRow(paymentMethodTableColumns)}>
               <span style={{ fontSize: "12px", color: "var(--text-primary)", display: "inline-flex", alignItems: "center", gap: "6px" }}>
                 {method.name}
                 {method.is_default && (
@@ -400,7 +490,7 @@ export default function AdminPaymentsPage() {
               <span style={{ fontSize: "12px", color: method.is_active ? "#34d399" : "var(--text-muted)" }}>
                 {method.is_active ? "Active" : "Inactive"}
               </span>
-              <div style={{ display: "flex", gap: "6px" }}>
+              <div style={methodActionCellStyle}>
                 <button
                   type="button"
                   onClick={() => openEditMethod(method)}
@@ -485,6 +575,59 @@ export default function AdminPaymentsPage() {
           )}
         </section>
       </div>
+
+      <section style={{ ...panelStyle, marginBottom: "16px" }}>
+        <div style={panelHeader}>Pricing Plans</div>
+        <div
+          style={{
+            padding: "10px 12px",
+            borderBottom: "1px solid #1a1a24",
+            fontSize: "12px",
+            color: "var(--text-subtle)",
+          }}
+        >
+          Update public plan names, pricing, and seat limits used by the platform pricing presentation.
+        </div>
+        <div style={tableHead("1.2fr 0.7fr 0.7fr 0.8fr 130px")}>
+          {["Plan", "Monthly", "Yearly", "Seats", "Actions"].map((h) => (
+            <span key={h} style={thStyle}>
+              {h}
+            </span>
+          ))}
+        </div>
+        {pricingPlans.map((plan) => (
+          <div key={plan.id} style={tableRow("1.2fr 0.7fr 0.7fr 0.8fr 130px")}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>
+                {plan.name}
+                {plan.recommended ? (
+                  <span
+                    style={{
+                      marginLeft: "6px",
+                      fontSize: "10px",
+                      color: "#60a5fa",
+                      border: "1px solid rgba(96,165,250,0.35)",
+                      borderRadius: "999px",
+                      padding: "1px 6px",
+                    }}
+                  >
+                    Recommended
+                  </span>
+                ) : null}
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{plan.description}</span>
+            </div>
+            <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>${plan.priceMonthly}</span>
+            <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>${plan.priceYearly}</span>
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{plan.users}</span>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => openEditPricingPlan(plan)} style={miniBtn}>
+                Edit Plan
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
 
       {showMethodModal && (
         <Modal title={editingMethodId ? "Edit Payment Method" : "Add Payment Method"} onClose={() => setShowMethodModal(false)}>
@@ -572,6 +715,68 @@ export default function AdminPaymentsPage() {
             </button>
             <button type="button" onClick={() => void submitMethod()} disabled={saving} style={primaryBtn}>
               {saving ? "Saving..." : "Save Method"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {showPlanModal && planForm && (
+        <Modal title={`Edit ${planForm.name} Plan`} onClose={() => setShowPlanModal(false)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+            <input
+              placeholder="Plan name"
+              value={planForm.name}
+              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+              style={inputStyle}
+            />
+            <input
+              placeholder="Seat limit summary"
+              value={planForm.users}
+              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, users: e.target.value } : prev))}
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+            <input
+              type="number"
+              min={0}
+              step="1"
+              placeholder="Monthly price"
+              value={planForm.price_monthly}
+              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, price_monthly: e.target.value } : prev))}
+              style={inputStyle}
+            />
+            <input
+              type="number"
+              min={0}
+              step="1"
+              placeholder="Yearly price"
+              value={planForm.price_yearly}
+              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, price_yearly: e.target.value } : prev))}
+              style={inputStyle}
+            />
+          </div>
+          <textarea
+            rows={3}
+            placeholder="Plan description"
+            value={planForm.description}
+            onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+            style={{ ...inputStyle, height: "auto", padding: "8px 10px", marginBottom: "12px", resize: "vertical" }}
+          />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px" }}>
+            <input
+              type="checkbox"
+              checked={planForm.recommended}
+              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, recommended: e.target.checked } : prev))}
+            />
+            Mark as recommended
+          </label>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <button type="button" onClick={() => setShowPlanModal(false)} style={secondaryBtn}>
+              Cancel
+            </button>
+            <button type="button" onClick={submitPricingPlan} style={primaryBtn}>
+              Save Plan
             </button>
           </div>
         </Modal>
@@ -831,4 +1036,11 @@ const miniBtn: React.CSSProperties = {
   justifyContent: "center",
   padding: "0 8px",
   cursor: "pointer",
+};
+
+const methodActionCellStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+  gap: "6px",
 };

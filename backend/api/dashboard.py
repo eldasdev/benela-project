@@ -14,3 +14,11 @@ def dashboard_overview(
     db: Session = Depends(get_db),
 ):
     return crud.get_dashboard_overview(db, workspace_id=workspace_id)
+
+
+@router.get("/command-center")
+def dashboard_command_center(
+    workspace_id: str = Query(default="default-workspace"),
+    db: Session = Depends(get_db),
+):
+    return crud.get_dashboard_command_center(db, workspace_id=workspace_id)

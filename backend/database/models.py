@@ -72,6 +72,43 @@ class MarketingLeadStatus(str, enum.Enum):
     disqualified = "disqualified"
 
 
+class LegalDocumentSource(str, enum.Enum):
+    internal = "internal"
+    lex_uz = "lex_uz"
+    uploaded = "uploaded"
+    external = "external"
+
+
+class LegalDocumentStatus(str, enum.Enum):
+    draft = "draft"
+    active = "active"
+    superseded = "superseded"
+    archived = "archived"
+
+
+class LegalContractStatus(str, enum.Enum):
+    draft = "draft"
+    in_review = "in_review"
+    active = "active"
+    expiring = "expiring"
+    expired = "expired"
+    terminated = "terminated"
+
+
+class LegalRiskLevel(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class LegalTaskStatus(str, enum.Enum):
+    open = "open"
+    in_progress = "in_progress"
+    blocked = "blocked"
+    completed = "completed"
+
+
 class ProjectStatus(str, enum.Enum):
     active = "active"
     on_hold = "on_hold"
@@ -226,6 +263,84 @@ class MarketingChannelMetric(Base):
     benchmark_ctr  = Column(Float, nullable=False, default=1.8)
     created_at     = Column(DateTime, default=func.now())
     updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Legal Models ───────────────────────────────────────
+class LegalDocument(Base):
+    __tablename__ = "legal_documents"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    title             = Column(String(255), nullable=False)
+    document_number   = Column(String(120), nullable=True, index=True)
+    jurisdiction      = Column(String(120), nullable=False, default="Uzbekistan")
+    category          = Column(String(120), nullable=False, default="general")
+    issuing_authority = Column(String(180), nullable=True)
+    source            = Column(Enum(LegalDocumentSource), default=LegalDocumentSource.internal, nullable=False)
+    status            = Column(Enum(LegalDocumentStatus), default=LegalDocumentStatus.active, nullable=False)
+    source_url        = Column(String(700), nullable=True)
+    summary           = Column(Text, nullable=True)
+    full_text         = Column(Text, nullable=True)
+    tags              = Column(String(500), nullable=True)
+    published_at      = Column(DateTime, nullable=True)
+    effective_from    = Column(DateTime, nullable=True)
+    effective_to      = Column(DateTime, nullable=True)
+    last_reviewed_at  = Column(DateTime, nullable=True)
+    created_at        = Column(DateTime, default=func.now())
+    updated_at        = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class LegalContract(Base):
+    __tablename__ = "legal_contracts"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    contract_ref  = Column(String(120), nullable=True, index=True)
+    title         = Column(String(255), nullable=False)
+    counterparty  = Column(String(255), nullable=False)
+    owner         = Column(String(120), nullable=True)
+    status        = Column(Enum(LegalContractStatus), default=LegalContractStatus.draft, nullable=False)
+    risk_level    = Column(Enum(LegalRiskLevel), default=LegalRiskLevel.medium, nullable=False)
+    value_amount  = Column(Float, nullable=False, default=0)
+    currency      = Column(String(10), nullable=False, default="USD")
+    start_date    = Column(DateTime, nullable=True)
+    end_date      = Column(DateTime, nullable=True)
+    renewal_date  = Column(DateTime, nullable=True)
+    governing_law = Column(String(180), nullable=True)
+    document_id   = Column(Integer, ForeignKey("legal_documents.id", ondelete="SET NULL"), nullable=True)
+    notes         = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class LegalComplianceTask(Base):
+    __tablename__ = "legal_compliance_tasks"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    title               = Column(String(255), nullable=False)
+    framework           = Column(String(180), nullable=True)
+    owner               = Column(String(120), nullable=True)
+    status              = Column(Enum(LegalTaskStatus), default=LegalTaskStatus.open, nullable=False)
+    risk_level          = Column(Enum(LegalRiskLevel), default=LegalRiskLevel.medium, nullable=False)
+    due_date            = Column(DateTime, nullable=True)
+    completed_at        = Column(DateTime, nullable=True)
+    related_document_id = Column(Integer, ForeignKey("legal_documents.id", ondelete="SET NULL"), nullable=True)
+    related_contract_id = Column(Integer, ForeignKey("legal_contracts.id", ondelete="SET NULL"), nullable=True)
+    description         = Column(Text, nullable=True)
+    remediation_plan    = Column(Text, nullable=True)
+    created_at          = Column(DateTime, default=func.now())
+    updated_at          = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class LegalSearchLog(Base):
+    __tablename__ = "legal_search_logs"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    query_text   = Column(Text, nullable=False)
+    jurisdiction = Column(String(120), nullable=True)
+    category     = Column(String(120), nullable=True)
+    source       = Column(String(120), nullable=True)
+    provider     = Column(String(120), nullable=True)
+    results_count = Column(Integer, nullable=False, default=0)
+    created_at   = Column(DateTime, default=func.now())
 
 
 # ── Projects & Kanban Models ─────────────────────────
@@ -431,6 +546,65 @@ class PlatformSettings(Base):
     platform_api_key          = Column(String(255), nullable=True)
     created_at                = Column(DateTime, default=func.now())
     updated_at                = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── AI Trainer Models ────────────────────────────────
+class AITrainerProfile(Base):
+    __tablename__ = "ai_trainer_profiles"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    section            = Column(String(50), nullable=False, unique=True, index=True)
+    provider           = Column(String(20), nullable=False, default="anthropic")
+    model              = Column(String(120), nullable=True)
+    system_instructions = Column(Text, nullable=True)
+    temperature        = Column(Float, nullable=False, default=0.2)
+    max_context_chars  = Column(Integer, nullable=False, default=12000)
+    is_enabled         = Column(Boolean, nullable=False, default=True)
+    last_trained_at    = Column(DateTime, nullable=True)
+    created_at         = Column(DateTime, default=func.now())
+    updated_at         = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class AITrainerSource(Base):
+    __tablename__ = "ai_trainer_sources"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    section       = Column(String(50), nullable=False, index=True)
+    source_type   = Column(String(20), nullable=False)  # url | file | text
+    title         = Column(String(255), nullable=False)
+    source_url    = Column(String(1000), nullable=True)
+    file_name     = Column(String(255), nullable=True)
+    mime_type     = Column(String(120), nullable=True)
+    status        = Column(String(20), nullable=False, default="processing")  # processing | ready | failed
+    summary       = Column(Text, nullable=True)
+    raw_text      = Column(Text, nullable=True)
+    content_hash  = Column(String(64), nullable=True, index=True)
+    word_count    = Column(Integer, nullable=False, default=0)
+    chunk_count   = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+    chunks        = relationship(
+        "AITrainerChunk",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class AITrainerChunk(Base):
+    __tablename__ = "ai_trainer_chunks"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    source_id     = Column(Integer, ForeignKey("ai_trainer_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    section       = Column(String(50), nullable=False, index=True)
+    chunk_index   = Column(Integer, nullable=False, default=0)
+    content       = Column(Text, nullable=False)
+    keywords      = Column(String(1000), nullable=True)
+    token_estimate = Column(Integer, nullable=False, default=0)
+    created_at    = Column(DateTime, default=func.now())
+    source        = relationship("AITrainerSource", back_populates="chunks")
 
 
 # ── Chat Models ───────────────────────────────────────

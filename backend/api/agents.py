@@ -1,18 +1,30 @@
 import base64
+import logging
 import os
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from openai import OpenAI
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    AuthenticationError,
+    BadRequestError,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import BaseModel, Field
 
 from agents.base_agent import BaseAgent
 from agents.data_fetcher import get_context_for_section
 from agents.finance_agent import FinanceAgent
 from core.config import settings
+from database import admin_crud
+from database.connection import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 MAX_ATTACHMENT_TEXT_CHARS = 12000
@@ -21,6 +33,7 @@ MAX_ATTACHMENTS = 5
 MAX_BASE64_CHARS = 16000000
 MAX_AUDIO_FILE_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe").strip() or "gpt-4o-mini-transcribe"
+AGENT_PROVIDER_FAILOVER_ENABLED = os.getenv("AGENT_PROVIDER_FAILOVER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class AgentAttachment(BaseModel):
@@ -66,6 +79,30 @@ def get_agent(section: str) -> BaseAgent:
             f"5. Give direct answers, never ask clarifying questions first."
         ),
     )
+
+
+def _provider_is_configured(provider: str) -> bool:
+    if provider == "openai":
+        return bool(settings.OPENAI_API_KEY)
+    if provider == "anthropic":
+        return bool(settings.ANTHROPIC_API_KEY)
+    return False
+
+
+def _pick_first_available_provider(preferred: str) -> str:
+    if _provider_is_configured(preferred):
+        return preferred
+    alternate = "openai" if preferred == "anthropic" else "anthropic"
+    if _provider_is_configured(alternate):
+        return alternate
+    return preferred
+
+
+def _alternate_provider(provider: str) -> str | None:
+    alt = "openai" if provider == "anthropic" else "anthropic"
+    if _provider_is_configured(alt):
+        return alt
+    return None
 
 
 def _get_openai_client() -> OpenAI:
@@ -230,7 +267,42 @@ async def transcribe_audio(file: UploadFile = File(...)):
         )
     except HTTPException:
         raise
+    except RateLimitError as exc:
+        message = str(exc).lower()
+        if "insufficient_quota" in message or "exceeded your current quota" in message:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Transcription provider quota is exhausted. "
+                    "Add billing/credits to OPENAI_API_KEY or configure a fallback transcription provider."
+                ),
+            )
+        raise HTTPException(
+            status_code=429,
+            detail="Transcription rate limit reached. Please retry in a few seconds.",
+        )
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription authentication failed. Verify OPENAI_API_KEY.",
+        )
+    except APIConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription provider is unreachable. Check outbound network/DNS from backend.",
+        )
+    except BadRequestError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Audio could not be processed: {str(exc)}",
+        )
+    except APIStatusError:
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription provider returned an unexpected error.",
+        )
     except Exception:
+        logger.exception("Unexpected transcription failure")
         raise HTTPException(status_code=503, detail="Audio transcription service is temporarily unavailable.")
 
     if not text:
@@ -240,7 +312,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 @router.post("/{section}", response_model=TaskResponse)
-def run_agent(section: str, request: TaskRequest):
+def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db)):
     """Send a message to the AI agent with real data context."""
 
     if not request.message.strip():
@@ -252,17 +324,94 @@ def run_agent(section: str, request: TaskRequest):
 
         # 2) Pull live context for this section
         context = get_context_for_section(section)
+        runtime_provider = _pick_first_available_provider("anthropic")
+        runtime_model = request.model
+        runtime_temperature: float | None = None
+        runtime_instructions = ""
+
+        trainer_profile = admin_crud.get_ai_trainer_runtime_profile(db, section)
+        if trainer_profile and trainer_profile.is_enabled:
+            runtime_instructions = (trainer_profile.system_instructions or "").strip()
+            runtime_temperature = float(trainer_profile.temperature or 0.2)
+            if trainer_profile.model:
+                runtime_model = trainer_profile.model
+
+            preferred_provider = (trainer_profile.provider or "auto").strip().lower()
+            if preferred_provider in {"anthropic", "openai"}:
+                runtime_provider = preferred_provider
+            else:
+                model_hint = (runtime_model or "").strip().lower()
+                runtime_provider = "openai" if model_hint.startswith("gpt-") else "anthropic"
+
+            trained_context = admin_crud.get_ai_trainer_training_context(
+                db=db,
+                section=section,
+                query=request.message,
+                max_context_chars=int(trainer_profile.max_context_chars or 12000),
+                max_chunks=8,
+            )
+            if trained_context:
+                context = f"{context}\n\n{trained_context}".strip()
+
         attachment_context, multimodal_blocks = _build_attachment_context(request.attachments)
         if attachment_context:
             context = f"{context}\n\n{attachment_context}"
 
         # 3) Run model with injected context
-        response = agent.run(
-            request.message,
-            context=context,
-            model=request.model,
-            user_blocks=multimodal_blocks,
-        )
+        providers_to_try: list[str] = []
+        if _provider_is_configured(runtime_provider):
+            providers_to_try.append(runtime_provider)
+        fallback_provider = _alternate_provider(runtime_provider) if AGENT_PROVIDER_FAILOVER_ENABLED else None
+        if fallback_provider and fallback_provider not in providers_to_try:
+            providers_to_try.append(fallback_provider)
+        if not providers_to_try:
+            raise HTTPException(
+                status_code=503,
+                detail="No AI provider is configured. Add ANTHROPIC_API_KEY and/or OPENAI_API_KEY.",
+            )
+        if providers_to_try[0] != runtime_provider:
+            logger.warning(
+                "Primary AI provider is not configured for section=%s: requested=%s using=%s",
+                section,
+                runtime_provider,
+                providers_to_try[0],
+            )
+
+        response: str | None = None
+        last_error: Exception | None = None
+        for provider_name in providers_to_try:
+            try:
+                response = agent.run(
+                    request.message,
+                    context=context,
+                    model=runtime_model,
+                    provider=provider_name,
+                    temperature=runtime_temperature,
+                    extra_system_instructions=runtime_instructions,
+                    user_blocks=multimodal_blocks,
+                )
+                if provider_name != runtime_provider:
+                    logger.warning(
+                        "AI provider failover used for section=%s: primary=%s fallback=%s",
+                        section,
+                        runtime_provider,
+                        provider_name,
+                    )
+                break
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "AI provider call failed for section=%s provider=%s error=%s",
+                    section,
+                    provider_name,
+                    str(exc),
+                )
+                continue
+
+        if response is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No AI response produced.")
 
         return TaskResponse(
             agent=agent.name,
@@ -270,6 +419,8 @@ def run_agent(section: str, request: TaskRequest):
             response=response,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         error_msg = str(e)
 

@@ -14,6 +14,7 @@ from api.finance import router as finance_router
 from api.hr import router as hr_router
 from api.projects import router as projects_router
 from api.marketing import router as marketing_router
+from api.legal import router as legal_router
 from api.admin import router as admin_router
 from api.marketplace import router as marketplace_router
 from api.dashboard import router as dashboard_router
@@ -25,8 +26,15 @@ from database.models import (
     MarketingContentItem,
     MarketingLead,
     MarketingChannelMetric,
+    LegalDocument,
+    LegalContract,
+    LegalComplianceTask,
+    LegalSearchLog,
     ChatMessage,
     ChatAttachment,
+    AITrainerProfile,
+    AITrainerSource,
+    AITrainerChunk,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -63,6 +71,21 @@ def _ensure_marketing_schema():
     MarketingChannelMetric.__table__.create(bind=engine, checkfirst=True)
 
 
+def _should_auto_create_legal_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_LEGAL_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_LEGAL_TABLES", True)
+    # Keep legal module usable by default even when full create_all is disabled.
+    return True
+
+
+def _ensure_legal_schema():
+    LegalDocument.__table__.create(bind=engine, checkfirst=True)
+    LegalContract.__table__.create(bind=engine, checkfirst=True)
+    LegalComplianceTask.__table__.create(bind=engine, checkfirst=True)
+    LegalSearchLog.__table__.create(bind=engine, checkfirst=True)
+
+
 def _should_auto_create_chat_tables() -> bool:
     raw = os.getenv("AUTO_CREATE_CHAT_TABLES")
     if raw is not None:
@@ -74,6 +97,20 @@ def _should_auto_create_chat_tables() -> bool:
 def _ensure_chat_schema():
     ChatMessage.__table__.create(bind=engine, checkfirst=True)
     ChatAttachment.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_ai_trainer_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_AI_TRAINER_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_AI_TRAINER_TABLES", True)
+    # Keep super-admin AI Trainer module usable by default.
+    return True
+
+
+def _ensure_ai_trainer_schema():
+    AITrainerProfile.__table__.create(bind=engine, checkfirst=True)
+    AITrainerSource.__table__.create(bind=engine, checkfirst=True)
+    AITrainerChunk.__table__.create(bind=engine, checkfirst=True)
 
 
 app = FastAPI(
@@ -102,6 +139,7 @@ app.include_router(finance_router, tags=["Finance"])
 app.include_router(hr_router, tags=["HR"])
 app.include_router(projects_router, tags=["Projects"])
 app.include_router(marketing_router)
+app.include_router(legal_router)
 app.include_router(admin_router)
 app.include_router(marketplace_router)
 app.include_router(dashboard_router)
@@ -128,10 +166,20 @@ def bootstrap_database():
         else:
             logger.info("AUTO_CREATE_MARKETING_TABLES disabled; skipping marketing schema checks")
 
+        if _should_auto_create_legal_tables():
+            targeted_bootstraps.append(("legal", _ensure_legal_schema))
+        else:
+            logger.info("AUTO_CREATE_LEGAL_TABLES disabled; skipping legal schema checks")
+
         if _should_auto_create_chat_tables():
             targeted_bootstraps.append(("chat", _ensure_chat_schema))
         else:
             logger.info("AUTO_CREATE_CHAT_TABLES disabled; skipping chat schema checks")
+
+        if _should_auto_create_ai_trainer_tables():
+            targeted_bootstraps.append(("ai_trainer", _ensure_ai_trainer_schema))
+        else:
+            logger.info("AUTO_CREATE_AI_TRAINER_TABLES disabled; skipping AI trainer schema checks")
 
         if not targeted_bootstraps:
             return

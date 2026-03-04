@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel
 
@@ -285,3 +285,65 @@ class PlatformSettingsOut(BaseModel):
 
 class MaintenanceModeBody(BaseModel):
     enabled: bool
+
+
+# ── AI Trainer ────────────────────────────────────────
+class AITrainerProfileUpdate(BaseModel):
+    provider: Optional[Literal["auto", "anthropic", "openai"]] = None
+    model: Optional[str] = None
+    system_instructions: Optional[str] = None
+    temperature: Optional[float] = None
+    max_context_chars: Optional[int] = None
+    is_enabled: Optional[bool] = None
+
+
+class AITrainerProfileOut(BaseModel):
+    id: int
+    section: str
+    provider: str
+    model: Optional[str]
+    system_instructions: Optional[str]
+    temperature: float
+    max_context_chars: int
+    is_enabled: bool
+    last_trained_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    sources_total: int = 0
+    sources_ready: int = 0
+    chunks_total: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class AITrainerSourceCreateURL(BaseModel):
+    section: str
+    url: str
+    title: Optional[str] = None
+
+
+class AITrainerSourceCreateText(BaseModel):
+    section: str
+    title: str
+    text: str
+
+
+class AITrainerSourceOut(BaseModel):
+    id: int
+    section: str
+    source_type: str
+    title: str
+    source_url: Optional[str]
+    file_name: Optional[str]
+    mime_type: Optional[str]
+    status: str
+    summary: Optional[str]
+    word_count: int
+    chunk_count: int
+    error_message: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
