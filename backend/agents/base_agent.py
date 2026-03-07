@@ -3,6 +3,8 @@ import certifi
 import urllib.request
 import urllib.error
 import json
+import os
+import socket
 from openai import OpenAI
 from core.config import settings
 
@@ -21,6 +23,7 @@ class BaseAgent:
         self.anthropic_api_url = "https://api.anthropic.com/v1/messages"
         self.default_model     = "claude-haiku-4-5-20251001"
         self.default_openai_model = "gpt-4.1-mini"
+        self.provider_timeout_seconds = float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "20"))
         self.allowed_models = {
             "claude-haiku-4-5-20251001",
             "claude-sonnet-4-5-20250929",
@@ -93,7 +96,11 @@ class BaseAgent:
         if provider_name == "openai":
             if not self.openai_api_key:
                 raise Exception("OpenAI API key is not configured.")
-            client = OpenAI(api_key=self.openai_api_key)
+            client = OpenAI(
+                api_key=self.openai_api_key,
+                timeout=self.provider_timeout_seconds,
+                max_retries=1,
+            )
             user_text = user_message.strip()
             if not user_text:
                 user_text = "Use the available context and provide a concise answer."
@@ -107,6 +114,9 @@ class BaseAgent:
                 ],
             )
             return (completion.choices[0].message.content or "").strip()
+
+        if not self.anthropic_api_key:
+            raise Exception("Anthropic API key is not configured.")
 
         payload = {
             "model":      selected_model,
@@ -133,7 +143,8 @@ class BaseAgent:
         try:
             with urllib.request.urlopen(
                 req,
-                context=ssl.create_default_context(cafile=certifi.where())
+                context=ssl.create_default_context(cafile=certifi.where()),
+                timeout=self.provider_timeout_seconds,
             ) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 return result["content"][0]["text"]
@@ -141,3 +152,7 @@ class BaseAgent:
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8")
             raise Exception(f"Claude API error {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            raise Exception(f"Claude API connection error: {e.reason}")
+        except socket.timeout:
+            raise Exception("Claude API request timed out.")

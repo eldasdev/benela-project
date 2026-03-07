@@ -1579,6 +1579,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       text || "Please analyze the attached files and provide clear, practical insights.";
     const thread = ensureThread();
     const selectedModelId = model;
+    const selectedModel = MODEL_OPTIONS.find((option) => option.id === selectedModelId);
     const wantsReport = isReportRequest(effectiveMessage);
     const wantsIncomeStatement = isIncomeStatementRequest(effectiveMessage, section);
 
@@ -1610,6 +1611,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         body: JSON.stringify({
           message: effectiveMessage,
           model: selectedModelId,
+          provider: selectedModel?.provider,
           attachments: attachmentsForSend.map((attachment) => ({
             file_name: attachment.file_name,
             mime_type: attachment.mime_type || null,
@@ -1626,7 +1628,15 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         detail?: string;
       };
       if (!res.ok) {
-        throw new Error(payload.detail || "Assistant request failed.");
+        let fallback = payload.detail || "";
+        if (!fallback && res.status === 504) {
+          fallback = "AI backend timed out in cloud. Check backend health and provider connectivity.";
+        } else if (!fallback && (res.status === 502 || res.status === 503)) {
+          fallback = "AI backend is temporarily unavailable. Please retry shortly.";
+        } else if (!fallback) {
+          fallback = `Assistant request failed (HTTP ${res.status}).`;
+        }
+        throw new Error(fallback);
       }
 
       let assistantText = payload.response ?? payload.detail ?? "Something went wrong.";

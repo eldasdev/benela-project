@@ -48,6 +48,7 @@ class AgentAttachment(BaseModel):
 class TaskRequest(BaseModel):
     message: str
     model: str | None = None
+    provider: str | None = None
     attachments: list[AgentAttachment] = Field(default_factory=list)
 
 
@@ -96,6 +97,19 @@ def _pick_first_available_provider(preferred: str) -> str:
     if _provider_is_configured(alternate):
         return alternate
     return preferred
+
+
+def _infer_provider_from_model(model: str | None) -> str | None:
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    if not normalized:
+        return None
+    if normalized.startswith("gpt-"):
+        return "openai"
+    if normalized.startswith("claude-"):
+        return "anthropic"
+    return None
 
 
 def _alternate_provider(provider: str) -> str | None:
@@ -324,7 +338,11 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
 
         # 2) Pull live context for this section
         context = get_context_for_section(section)
-        runtime_provider = _pick_first_available_provider("anthropic")
+        requested_provider = (request.provider or "").strip().lower()
+        if requested_provider in {"anthropic", "openai"}:
+            runtime_provider = requested_provider
+        else:
+            runtime_provider = _infer_provider_from_model(request.model) or _pick_first_available_provider("anthropic")
         runtime_model = request.model
         runtime_temperature: float | None = None
         runtime_instructions = ""
@@ -423,20 +441,45 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
         raise
     except Exception as e:
         error_msg = str(e)
+        lower_error = error_msg.lower()
 
-        if "529" in error_msg or "overloaded" in error_msg.lower():
+        if "not configured" in lower_error and ("api key" in lower_error or "provider" in lower_error):
+            raise HTTPException(
+                status_code=503,
+                detail="AI provider is not configured. Add ANTHROPIC_API_KEY and/or OPENAI_API_KEY.",
+            )
+
+        if "timeout" in lower_error or "timed out" in lower_error:
+            raise HTTPException(
+                status_code=503,
+                detail="AI provider timeout. Please retry in a few seconds.",
+            )
+
+        if "connection" in lower_error and ("failed" in lower_error or "error" in lower_error):
+            raise HTTPException(
+                status_code=503,
+                detail="AI provider is unreachable from backend. Verify outbound network and DNS.",
+            )
+
+        if "insufficient_quota" in lower_error or "quota" in lower_error:
+            raise HTTPException(
+                status_code=503,
+                detail="AI provider quota is exhausted. Add billing/credits for the selected provider.",
+            )
+
+        if "529" in error_msg or "overloaded" in lower_error:
             raise HTTPException(
                 status_code=503,
                 detail="AI is temporarily busy. Please try again in a moment.",
             )
 
-        if "401" in error_msg or "authentication" in error_msg.lower():
+        if "401" in error_msg or "authentication" in lower_error:
             raise HTTPException(
                 status_code=401,
                 detail="AI authentication failed. Check your API key.",
             )
 
-        if "429" in error_msg or "rate limit" in error_msg.lower():
+        if "429" in error_msg or "rate limit" in lower_error:
             raise HTTPException(
                 status_code=429,
                 detail="Too many requests. Please wait a moment.",
