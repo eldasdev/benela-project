@@ -1605,6 +1605,35 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const readAgentDiagnostics = async () => {
+        try {
+          const healthRes = await fetch(`${apiUrl}/agents/health`);
+          if (!healthRes.ok) return "";
+          const health = (await healthRes.json().catch(() => null)) as
+            | {
+                providers?: {
+                  openai?: { configured?: boolean; https_reachable?: boolean };
+                  anthropic?: { configured?: boolean; https_reachable?: boolean };
+                };
+              }
+            | null;
+          const openai = health?.providers?.openai;
+          const anthropic = health?.providers?.anthropic;
+          if (!openai && !anthropic) return "";
+
+          const toLabel = (item?: { configured?: boolean; https_reachable?: boolean }) => {
+            if (!item) return "unknown";
+            const configured = item.configured ? "configured" : "not configured";
+            const reachability = item.https_reachable ? "reachable" : "unreachable";
+            return `${configured}, ${reachability}`;
+          };
+
+          return `Diagnostics: OpenAI ${toLabel(openai)} | Anthropic ${toLabel(anthropic)}.`;
+        } catch {
+          return "";
+        }
+      };
+
       const res = await fetch(`${apiUrl}/agents/${section}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1635,6 +1664,13 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
           fallback = "AI backend is temporarily unavailable. Please retry shortly.";
         } else if (!fallback) {
           fallback = `Assistant request failed (HTTP ${res.status}).`;
+        }
+
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          const diagnostics = await readAgentDiagnostics();
+          if (diagnostics) {
+            fallback = `${fallback}\n${diagnostics}`;
+          }
         }
         throw new Error(fallback);
       }

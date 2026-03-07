@@ -1,6 +1,8 @@
 import base64
 import logging
 import os
+import socket
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from io import BytesIO
 from pathlib import Path
 
@@ -34,6 +36,7 @@ MAX_BASE64_CHARS = 16000000
 MAX_AUDIO_FILE_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe").strip() or "gpt-4o-mini-transcribe"
 AGENT_PROVIDER_FAILOVER_ENABLED = os.getenv("AGENT_PROVIDER_FAILOVER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+AGENT_CONTEXT_TIMEOUT_SECONDS = max(1.0, float(os.getenv("AGENT_CONTEXT_TIMEOUT_SECONDS", "6")))
 
 
 class AgentAttachment(BaseModel):
@@ -60,6 +63,14 @@ class TaskResponse(BaseModel):
 
 class TranscriptionResponse(BaseModel):
     text: str
+
+
+def _probe_https_host(host: str, timeout_seconds: float = 2.5) -> tuple[bool, str]:
+    try:
+        with socket.create_connection((host, 443), timeout=timeout_seconds):
+            return True, "reachable"
+    except Exception as exc:
+        return False, str(exc)
 
 
 def get_agent(section: str) -> BaseAgent:
@@ -110,6 +121,23 @@ def _infer_provider_from_model(model: str | None) -> str | None:
     if normalized.startswith("claude-"):
         return "anthropic"
     return None
+
+
+def _safe_get_section_context(section: str) -> str:
+    """Protect agent requests from slow/stuck DB context fetches."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(get_context_for_section, section)
+        try:
+            return future.result(timeout=AGENT_CONTEXT_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            logger.warning("Context fetch timed out for section=%s after %.1fs", section, AGENT_CONTEXT_TIMEOUT_SECONDS)
+            return (
+                "Note: Live context fetch timed out. "
+                "Provide a concise answer based on available message and attachments."
+            )
+        except Exception as exc:
+            logger.warning("Context fetch failed for section=%s: %s", section, str(exc))
+            return f"Note: Live context fetch failed ({str(exc)}). Provide a concise fallback answer."
 
 
 def _alternate_provider(provider: str) -> str | None:
@@ -267,6 +295,37 @@ def _build_attachment_context(attachments: list[AgentAttachment]) -> tuple[str, 
     return "\n".join(lines).strip(), multimodal_blocks
 
 
+@router.get("/health")
+def agents_health():
+    openai_configured = bool(settings.OPENAI_API_KEY)
+    anthropic_configured = bool(settings.ANTHROPIC_API_KEY)
+    openai_reachable, openai_note = _probe_https_host("api.openai.com")
+    anthropic_reachable, anthropic_note = _probe_https_host("api.anthropic.com")
+    return {
+        "status": "ok",
+        "providers": {
+            "openai": {
+                "configured": openai_configured,
+                "https_reachable": openai_reachable,
+                "network_note": openai_note,
+            },
+            "anthropic": {
+                "configured": anthropic_configured,
+                "https_reachable": anthropic_reachable,
+                "network_note": anthropic_note,
+            },
+        },
+        "timeouts": {
+            "provider_timeout_seconds": float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "20")),
+            "context_timeout_seconds": AGENT_CONTEXT_TIMEOUT_SECONDS,
+        },
+        "advice": (
+            "At least one provider must be configured and reachable. "
+            "If configured=true but https_reachable=false, check outbound network/DNS in cloud runtime."
+        ),
+    }
+
+
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(file: UploadFile = File(...)):
     payload = await file.read()
@@ -337,7 +396,7 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
         agent = get_agent(section)
 
         # 2) Pull live context for this section
-        context = get_context_for_section(section)
+        context = _safe_get_section_context(section)
         requested_provider = (request.provider or "").strip().lower()
         if requested_provider in {"anthropic", "openai"}:
             runtime_provider = requested_provider
@@ -485,6 +544,7 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
                 detail="Too many requests. Please wait a moment.",
             )
 
+        logger.exception("Unhandled agent error for section=%s", section)
         raise HTTPException(
             status_code=500,
             detail="Something went wrong. Please try again.",
