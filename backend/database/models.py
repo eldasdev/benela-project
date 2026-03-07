@@ -29,6 +29,100 @@ class PositionStatus(str, enum.Enum):
     on_hold = "on_hold"
 
 
+class SalesProductStatus(str, enum.Enum):
+    active = "active"
+    low_stock = "low_stock"
+    out_of_stock = "out_of_stock"
+    discontinued = "discontinued"
+    archived = "archived"
+
+
+class SalesOrderStatus(str, enum.Enum):
+    draft = "draft"
+    pending = "pending"
+    paid = "paid"
+    fulfilled = "fulfilled"
+    cancelled = "cancelled"
+    refunded = "refunded"
+
+
+class SalesOrderChannel(str, enum.Enum):
+    direct = "direct"
+    online = "online"
+    marketplace = "marketplace"
+    partner = "partner"
+    wholesale = "wholesale"
+    retail = "retail"
+
+
+class SupportTicketStatus(str, enum.Enum):
+    open = "open"
+    in_progress = "in_progress"
+    waiting_customer = "waiting_customer"
+    resolved = "resolved"
+    closed = "closed"
+
+
+class SupportTicketPriority(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    urgent = "urgent"
+
+
+class SupportTicketChannel(str, enum.Enum):
+    email = "email"
+    chat = "chat"
+    phone = "phone"
+    portal = "portal"
+    social = "social"
+
+
+class SupplyChainItemStatus(str, enum.Enum):
+    healthy = "healthy"
+    low_stock = "low_stock"
+    out_of_stock = "out_of_stock"
+    discontinued = "discontinued"
+
+
+class SupplyChainShipmentDirection(str, enum.Enum):
+    inbound = "inbound"
+    outbound = "outbound"
+
+
+class SupplyChainShipmentStatus(str, enum.Enum):
+    planned = "planned"
+    in_transit = "in_transit"
+    delivered = "delivered"
+    delayed = "delayed"
+    cancelled = "cancelled"
+
+
+class ProcurementRequestStatus(str, enum.Enum):
+    draft = "draft"
+    submitted = "submitted"
+    approved = "approved"
+    rejected = "rejected"
+    ordered = "ordered"
+    partially_received = "partially_received"
+    received = "received"
+    cancelled = "cancelled"
+
+
+class ProcurementRequestPriority(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class InsightReportStatus(str, enum.Enum):
+    draft = "draft"
+    active = "active"
+    paused = "paused"
+    error = "error"
+
+
 class MarketingCampaignStatus(str, enum.Enum):
     draft = "draft"
     scheduled = "scheduled"
@@ -185,6 +279,204 @@ class Position(Base):
     status       = Column(Enum(PositionStatus), default=PositionStatus.open)
     opened_date  = Column(DateTime, default=func.now())
     created_at   = Column(DateTime, default=func.now())
+
+
+# ── Sales Models ──────────────────────────────────────
+class SalesProduct(Base):
+    __tablename__ = "sales_products"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    sku                 = Column(String(80), nullable=False, unique=True, index=True)
+    name                = Column(String(255), nullable=False)
+    category            = Column(String(120), nullable=False, default="general")
+    brand               = Column(String(120), nullable=True)
+    description         = Column(Text, nullable=True)
+    status              = Column(Enum(SalesProductStatus), nullable=False, default=SalesProductStatus.active)
+    is_current          = Column(Boolean, nullable=False, default=True)
+    unit_price          = Column(Float, nullable=False, default=0)
+    unit_cost           = Column(Float, nullable=False, default=0)
+    stock_qty           = Column(Integer, nullable=False, default=0)
+    reorder_level       = Column(Integer, nullable=False, default=0)
+    location            = Column(String(120), nullable=True)
+    image_url           = Column(String(500), nullable=True)
+    tags                = Column(String(500), nullable=True)
+    total_sold_units    = Column(Integer, nullable=False, default=0)
+    total_revenue       = Column(Float, nullable=False, default=0)
+    last_sold_at        = Column(DateTime, nullable=True)
+    created_at          = Column(DateTime, default=func.now())
+    updated_at          = Column(DateTime, default=func.now(), onupdate=func.now())
+    order_items         = relationship("SalesOrderItem", back_populates="product")
+    inventory_movements = relationship("SalesInventoryAdjustment", back_populates="product")
+
+
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    order_number   = Column(String(120), nullable=False, unique=True, index=True)
+    customer_name  = Column(String(255), nullable=False)
+    customer_email = Column(String(255), nullable=True)
+    customer_phone = Column(String(80), nullable=True)
+    channel        = Column(Enum(SalesOrderChannel), nullable=False, default=SalesOrderChannel.online)
+    status         = Column(Enum(SalesOrderStatus), nullable=False, default=SalesOrderStatus.pending)
+    currency       = Column(String(10), nullable=False, default="USD")
+    subtotal       = Column(Float, nullable=False, default=0)
+    discount_total = Column(Float, nullable=False, default=0)
+    tax_total      = Column(Float, nullable=False, default=0)
+    shipping_total = Column(Float, nullable=False, default=0)
+    total          = Column(Float, nullable=False, default=0)
+    order_date     = Column(DateTime, nullable=False, default=func.now())
+    due_date       = Column(DateTime, nullable=True)
+    fulfilled_at   = Column(DateTime, nullable=True)
+    notes          = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
+    items          = relationship(
+        "SalesOrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class SalesOrderItem(Base):
+    __tablename__ = "sales_order_items"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    order_id     = Column(Integer, ForeignKey("sales_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id   = Column(Integer, ForeignKey("sales_products.id", ondelete="SET NULL"), nullable=True, index=True)
+    sku          = Column(String(80), nullable=False)
+    product_name = Column(String(255), nullable=False)
+    quantity     = Column(Integer, nullable=False, default=1)
+    unit_price   = Column(Float, nullable=False, default=0)
+    unit_cost    = Column(Float, nullable=False, default=0)
+    line_discount = Column(Float, nullable=False, default=0)
+    line_total   = Column(Float, nullable=False, default=0)
+    created_at   = Column(DateTime, default=func.now())
+    order        = relationship("SalesOrder", back_populates="items")
+    product      = relationship("SalesProduct", back_populates="order_items")
+
+
+class SalesInventoryAdjustment(Base):
+    __tablename__ = "sales_inventory_adjustments"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("sales_products.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id   = Column(Integer, ForeignKey("sales_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    change_qty = Column(Integer, nullable=False)
+    reason     = Column(String(120), nullable=False, default="manual_adjustment")
+    reference  = Column(String(255), nullable=True)
+    notes      = Column(Text, nullable=True)
+    actor      = Column(String(120), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    product    = relationship("SalesProduct", back_populates="inventory_movements")
+
+
+# ── Support Models ────────────────────────────────────
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    ticket_number      = Column(String(120), nullable=False, unique=True, index=True)
+    subject            = Column(String(255), nullable=False)
+    customer_name      = Column(String(255), nullable=False)
+    customer_email     = Column(String(255), nullable=True)
+    channel            = Column(Enum(SupportTicketChannel), nullable=False, default=SupportTicketChannel.portal)
+    module             = Column(String(120), nullable=True)
+    priority           = Column(Enum(SupportTicketPriority), nullable=False, default=SupportTicketPriority.medium)
+    status             = Column(Enum(SupportTicketStatus), nullable=False, default=SupportTicketStatus.open)
+    assignee           = Column(String(120), nullable=True)
+    first_response_at  = Column(DateTime, nullable=True)
+    sla_due_at         = Column(DateTime, nullable=True)
+    resolved_at        = Column(DateTime, nullable=True)
+    satisfaction_score = Column(Integer, nullable=True)
+    notes              = Column(Text, nullable=True)
+    created_at         = Column(DateTime, default=func.now())
+    updated_at         = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Supply Chain Models ───────────────────────────────
+class SupplyChainItem(Base):
+    __tablename__ = "supply_chain_items"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    sku            = Column(String(120), nullable=False, unique=True, index=True)
+    name           = Column(String(255), nullable=False)
+    category       = Column(String(120), nullable=False, default="general")
+    supplier       = Column(String(255), nullable=True)
+    warehouse      = Column(String(120), nullable=True)
+    status         = Column(Enum(SupplyChainItemStatus), nullable=False, default=SupplyChainItemStatus.healthy)
+    on_hand_qty    = Column(Integer, nullable=False, default=0)
+    reserved_qty   = Column(Integer, nullable=False, default=0)
+    safety_stock   = Column(Integer, nullable=False, default=0)
+    reorder_point  = Column(Integer, nullable=False, default=0)
+    lead_time_days = Column(Integer, nullable=False, default=0)
+    unit_cost      = Column(Float, nullable=False, default=0)
+    last_received_at = Column(DateTime, nullable=True)
+    notes          = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class SupplyChainShipment(Base):
+    __tablename__ = "supply_chain_shipments"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    shipment_ref  = Column(String(120), nullable=False, unique=True, index=True)
+    direction     = Column(Enum(SupplyChainShipmentDirection), nullable=False, default=SupplyChainShipmentDirection.inbound)
+    status        = Column(Enum(SupplyChainShipmentStatus), nullable=False, default=SupplyChainShipmentStatus.planned)
+    partner       = Column(String(255), nullable=True)
+    origin        = Column(String(180), nullable=True)
+    destination   = Column(String(180), nullable=True)
+    eta           = Column(DateTime, nullable=True)
+    shipped_at    = Column(DateTime, nullable=True)
+    delivered_at  = Column(DateTime, nullable=True)
+    freight_cost  = Column(Float, nullable=False, default=0)
+    notes         = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Procurement Models ────────────────────────────────
+class ProcurementRequest(Base):
+    __tablename__ = "procurement_requests"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    request_number = Column(String(120), nullable=False, unique=True, index=True)
+    title         = Column(String(255), nullable=False)
+    department    = Column(String(120), nullable=True)
+    requester     = Column(String(120), nullable=True)
+    supplier      = Column(String(255), nullable=True)
+    status        = Column(Enum(ProcurementRequestStatus), nullable=False, default=ProcurementRequestStatus.draft)
+    priority      = Column(Enum(ProcurementRequestPriority), nullable=False, default=ProcurementRequestPriority.medium)
+    amount        = Column(Float, nullable=False, default=0)
+    currency      = Column(String(10), nullable=False, default="USD")
+    due_date      = Column(DateTime, nullable=True)
+    approved_by   = Column(String(120), nullable=True)
+    ordered_at    = Column(DateTime, nullable=True)
+    received_at   = Column(DateTime, nullable=True)
+    notes         = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Insights Models ───────────────────────────────────
+class InsightReport(Base):
+    __tablename__ = "insight_reports"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    name           = Column(String(255), nullable=False)
+    report_type    = Column(String(120), nullable=False, default="executive")
+    owner          = Column(String(120), nullable=True)
+    status         = Column(Enum(InsightReportStatus), nullable=False, default=InsightReportStatus.draft)
+    schedule       = Column(String(80), nullable=True)  # daily | weekly | monthly
+    kpi_target     = Column(String(120), nullable=True)
+    last_run_at    = Column(DateTime, nullable=True)
+    next_run_at    = Column(DateTime, nullable=True)
+    summary        = Column(Text, nullable=True)
+    config_json    = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 # ── Marketing Models ──────────────────────────────────

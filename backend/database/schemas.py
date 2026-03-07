@@ -6,6 +6,18 @@ from database.models import (
     TransactionStatus,
     EmployeeStatus,
     PositionStatus,
+    SalesProductStatus,
+    SalesOrderStatus,
+    SalesOrderChannel,
+    SupportTicketStatus,
+    SupportTicketPriority,
+    SupportTicketChannel,
+    SupplyChainItemStatus,
+    SupplyChainShipmentDirection,
+    SupplyChainShipmentStatus,
+    ProcurementRequestStatus,
+    ProcurementRequestPriority,
+    InsightReportStatus,
     MarketingCampaignStatus,
     MarketingObjective,
     MarketingContentType,
@@ -174,6 +186,447 @@ class DepartmentOut(BaseModel):
     id: int
     name: str
     head: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Sales Schemas ─────────────────────────────────────
+class SalesProductCreate(BaseModel):
+    sku: str
+    name: str
+    category: str = "general"
+    brand: Optional[str] = None
+    description: Optional[str] = None
+    status: SalesProductStatus = SalesProductStatus.active
+    is_current: bool = True
+    unit_price: float = 0
+    unit_cost: float = 0
+    stock_qty: int = 0
+    reorder_level: int = 0
+    location: Optional[str] = None
+    image_url: Optional[str] = None
+    tags: Optional[str] = None
+
+
+class SalesProductUpdate(BaseModel):
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[SalesProductStatus] = None
+    is_current: Optional[bool] = None
+    unit_price: Optional[float] = None
+    unit_cost: Optional[float] = None
+    stock_qty: Optional[int] = None
+    reorder_level: Optional[int] = None
+    location: Optional[str] = None
+    image_url: Optional[str] = None
+    tags: Optional[str] = None
+
+
+class SalesProductOut(BaseModel):
+    id: int
+    sku: str
+    name: str
+    category: str
+    brand: Optional[str]
+    description: Optional[str]
+    status: SalesProductStatus
+    is_current: bool
+    unit_price: float
+    unit_cost: float
+    stock_qty: int
+    reorder_level: int
+    location: Optional[str]
+    image_url: Optional[str]
+    tags: Optional[str]
+    total_sold_units: int
+    total_revenue: float
+    last_sold_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SalesOrderItemIn(BaseModel):
+    product_id: Optional[int] = None
+    sku: Optional[str] = None
+    product_name: Optional[str] = None
+    quantity: int = Field(default=1, ge=1)
+    unit_price: Optional[float] = None
+    unit_cost: Optional[float] = None
+    line_discount: float = 0
+
+
+class SalesOrderItemOut(BaseModel):
+    id: int
+    order_id: int
+    product_id: Optional[int]
+    sku: str
+    product_name: str
+    quantity: int
+    unit_price: float
+    unit_cost: float
+    line_discount: float
+    line_total: float
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SalesOrderCreate(BaseModel):
+    order_number: str
+    customer_name: str
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    channel: SalesOrderChannel = SalesOrderChannel.online
+    status: SalesOrderStatus = SalesOrderStatus.pending
+    currency: str = "USD"
+    discount_total: float = 0
+    tax_total: float = 0
+    shipping_total: float = 0
+    order_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    items: list[SalesOrderItemIn] = Field(default_factory=list)
+
+
+class SalesOrderUpdate(BaseModel):
+    order_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    channel: Optional[SalesOrderChannel] = None
+    status: Optional[SalesOrderStatus] = None
+    currency: Optional[str] = None
+    discount_total: Optional[float] = None
+    tax_total: Optional[float] = None
+    shipping_total: Optional[float] = None
+    order_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    fulfilled_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    items: Optional[list[SalesOrderItemIn]] = None
+
+
+class SalesOrderOut(BaseModel):
+    id: int
+    order_number: str
+    customer_name: str
+    customer_email: Optional[str]
+    customer_phone: Optional[str]
+    channel: SalesOrderChannel
+    status: SalesOrderStatus
+    currency: str
+    subtotal: float
+    discount_total: float
+    tax_total: float
+    shipping_total: float
+    total: float
+    order_date: datetime
+    due_date: Optional[datetime]
+    fulfilled_at: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    items: list[SalesOrderItemOut]
+
+    class Config:
+        from_attributes = True
+
+
+class SalesInventoryAdjustmentCreate(BaseModel):
+    product_id: int
+    change_qty: int
+    reason: str = "manual_adjustment"
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    actor: Optional[str] = None
+
+
+class SalesInventoryAdjustmentOut(BaseModel):
+    id: int
+    product_id: int
+    order_id: Optional[int]
+    change_qty: int
+    reason: str
+    reference: Optional[str]
+    notes: Optional[str]
+    actor: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Support Schemas ───────────────────────────────────
+class SupportTicketCreate(BaseModel):
+    ticket_number: str
+    subject: str
+    customer_name: str
+    customer_email: Optional[str] = None
+    channel: SupportTicketChannel = SupportTicketChannel.portal
+    module: Optional[str] = None
+    priority: SupportTicketPriority = SupportTicketPriority.medium
+    status: SupportTicketStatus = SupportTicketStatus.open
+    assignee: Optional[str] = None
+    first_response_at: Optional[datetime] = None
+    sla_due_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    satisfaction_score: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class SupportTicketUpdate(BaseModel):
+    ticket_number: Optional[str] = None
+    subject: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    channel: Optional[SupportTicketChannel] = None
+    module: Optional[str] = None
+    priority: Optional[SupportTicketPriority] = None
+    status: Optional[SupportTicketStatus] = None
+    assignee: Optional[str] = None
+    first_response_at: Optional[datetime] = None
+    sla_due_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    satisfaction_score: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class SupportTicketOut(BaseModel):
+    id: int
+    ticket_number: str
+    subject: str
+    customer_name: str
+    customer_email: Optional[str]
+    channel: SupportTicketChannel
+    module: Optional[str]
+    priority: SupportTicketPriority
+    status: SupportTicketStatus
+    assignee: Optional[str]
+    first_response_at: Optional[datetime]
+    sla_due_at: Optional[datetime]
+    resolved_at: Optional[datetime]
+    satisfaction_score: Optional[int]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Supply Chain Schemas ──────────────────────────────
+class SupplyChainItemCreate(BaseModel):
+    sku: str
+    name: str
+    category: str = "general"
+    supplier: Optional[str] = None
+    warehouse: Optional[str] = None
+    status: SupplyChainItemStatus = SupplyChainItemStatus.healthy
+    on_hand_qty: int = 0
+    reserved_qty: int = 0
+    safety_stock: int = 0
+    reorder_point: int = 0
+    lead_time_days: int = 0
+    unit_cost: float = 0
+    last_received_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class SupplyChainItemUpdate(BaseModel):
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    category: Optional[str] = None
+    supplier: Optional[str] = None
+    warehouse: Optional[str] = None
+    status: Optional[SupplyChainItemStatus] = None
+    on_hand_qty: Optional[int] = None
+    reserved_qty: Optional[int] = None
+    safety_stock: Optional[int] = None
+    reorder_point: Optional[int] = None
+    lead_time_days: Optional[int] = None
+    unit_cost: Optional[float] = None
+    last_received_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class SupplyChainItemOut(BaseModel):
+    id: int
+    sku: str
+    name: str
+    category: str
+    supplier: Optional[str]
+    warehouse: Optional[str]
+    status: SupplyChainItemStatus
+    on_hand_qty: int
+    reserved_qty: int
+    safety_stock: int
+    reorder_point: int
+    lead_time_days: int
+    unit_cost: float
+    last_received_at: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SupplyChainShipmentCreate(BaseModel):
+    shipment_ref: str
+    direction: SupplyChainShipmentDirection = SupplyChainShipmentDirection.inbound
+    status: SupplyChainShipmentStatus = SupplyChainShipmentStatus.planned
+    partner: Optional[str] = None
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    eta: Optional[datetime] = None
+    shipped_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    freight_cost: float = 0
+    notes: Optional[str] = None
+
+
+class SupplyChainShipmentUpdate(BaseModel):
+    shipment_ref: Optional[str] = None
+    direction: Optional[SupplyChainShipmentDirection] = None
+    status: Optional[SupplyChainShipmentStatus] = None
+    partner: Optional[str] = None
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    eta: Optional[datetime] = None
+    shipped_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    freight_cost: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class SupplyChainShipmentOut(BaseModel):
+    id: int
+    shipment_ref: str
+    direction: SupplyChainShipmentDirection
+    status: SupplyChainShipmentStatus
+    partner: Optional[str]
+    origin: Optional[str]
+    destination: Optional[str]
+    eta: Optional[datetime]
+    shipped_at: Optional[datetime]
+    delivered_at: Optional[datetime]
+    freight_cost: float
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Procurement Schemas ───────────────────────────────
+class ProcurementRequestCreate(BaseModel):
+    request_number: str
+    title: str
+    department: Optional[str] = None
+    requester: Optional[str] = None
+    supplier: Optional[str] = None
+    status: ProcurementRequestStatus = ProcurementRequestStatus.draft
+    priority: ProcurementRequestPriority = ProcurementRequestPriority.medium
+    amount: float = 0
+    currency: str = "USD"
+    due_date: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    ordered_at: Optional[datetime] = None
+    received_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class ProcurementRequestUpdate(BaseModel):
+    request_number: Optional[str] = None
+    title: Optional[str] = None
+    department: Optional[str] = None
+    requester: Optional[str] = None
+    supplier: Optional[str] = None
+    status: Optional[ProcurementRequestStatus] = None
+    priority: Optional[ProcurementRequestPriority] = None
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+    due_date: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    ordered_at: Optional[datetime] = None
+    received_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class ProcurementRequestOut(BaseModel):
+    id: int
+    request_number: str
+    title: str
+    department: Optional[str]
+    requester: Optional[str]
+    supplier: Optional[str]
+    status: ProcurementRequestStatus
+    priority: ProcurementRequestPriority
+    amount: float
+    currency: str
+    due_date: Optional[datetime]
+    approved_by: Optional[str]
+    ordered_at: Optional[datetime]
+    received_at: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Insights Schemas ──────────────────────────────────
+class InsightReportCreate(BaseModel):
+    name: str
+    report_type: str = "executive"
+    owner: Optional[str] = None
+    status: InsightReportStatus = InsightReportStatus.draft
+    schedule: Optional[str] = None
+    kpi_target: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    summary: Optional[str] = None
+    config_json: Optional[str] = None
+
+
+class InsightReportUpdate(BaseModel):
+    name: Optional[str] = None
+    report_type: Optional[str] = None
+    owner: Optional[str] = None
+    status: Optional[InsightReportStatus] = None
+    schedule: Optional[str] = None
+    kpi_target: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    summary: Optional[str] = None
+    config_json: Optional[str] = None
+
+
+class InsightReportOut(BaseModel):
+    id: int
+    name: str
+    report_type: str
+    owner: Optional[str]
+    status: InsightReportStatus
+    schedule: Optional[str]
+    kpi_target: Optional[str]
+    last_run_at: Optional[datetime]
+    next_run_at: Optional[datetime]
+    summary: Optional[str]
+    config_json: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

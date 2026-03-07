@@ -12,6 +12,25 @@ from database.models import (
     TransactionType,
     EmployeeStatus,
     PositionStatus,
+    SalesProduct,
+    SalesOrder,
+    SalesOrderItem,
+    SalesInventoryAdjustment,
+    SalesProductStatus,
+    SalesOrderStatus,
+    SupportTicket,
+    SupportTicketStatus,
+    SupportTicketPriority,
+    SupplyChainItem,
+    SupplyChainShipment,
+    SupplyChainItemStatus,
+    SupplyChainShipmentStatus,
+    SupplyChainShipmentDirection,
+    ProcurementRequest,
+    ProcurementRequestStatus,
+    ProcurementRequestPriority,
+    InsightReport,
+    InsightReportStatus,
     MarketingCampaign,
     MarketingContentItem,
     MarketingLead,
@@ -128,6 +147,182 @@ def _safe_div(numerator: float, denominator: float):
     if denominator == 0:
         return 0.0
     return float(numerator) / float(denominator)
+
+
+SALES_INVENTORY_IMPACT_STATUSES = {
+    SalesOrderStatus.pending,
+    SalesOrderStatus.paid,
+    SalesOrderStatus.fulfilled,
+}
+SALES_CLOSED_STATUSES = {SalesOrderStatus.paid, SalesOrderStatus.fulfilled}
+SALES_NON_CURRENT_STATUSES = {SalesProductStatus.discontinued, SalesProductStatus.archived}
+
+
+def _sales_order_impacts_inventory(status: SalesOrderStatus | str | None) -> bool:
+    if status is None:
+        return False
+    if isinstance(status, SalesOrderStatus):
+        return status in SALES_INVENTORY_IMPACT_STATUSES
+    try:
+        return SalesOrderStatus(status) in SALES_INVENTORY_IMPACT_STATUSES
+    except ValueError:
+        return False
+
+
+def _derive_sales_product_status(
+    stock_qty: int,
+    reorder_level: int,
+    is_current: bool,
+    current_status: SalesProductStatus,
+) -> SalesProductStatus:
+    if current_status in SALES_NON_CURRENT_STATUSES:
+        return current_status
+    if not is_current:
+        return SalesProductStatus.discontinued
+    if stock_qty <= 0:
+        return SalesProductStatus.out_of_stock
+    threshold = max(reorder_level, 0)
+    if stock_qty <= threshold:
+        return SalesProductStatus.low_stock
+    return SalesProductStatus.active
+
+
+def _update_product_operational_status(product: SalesProduct):
+    if product.status in SALES_NON_CURRENT_STATUSES:
+        product.is_current = False
+        return
+    product.status = _derive_sales_product_status(
+        stock_qty=int(product.stock_qty or 0),
+        reorder_level=int(product.reorder_level or 0),
+        is_current=bool(product.is_current),
+        current_status=product.status,
+    )
+
+
+def _derive_supply_chain_item_status(
+    on_hand_qty: int,
+    reorder_point: int,
+    current_status: SupplyChainItemStatus,
+) -> SupplyChainItemStatus:
+    if current_status == SupplyChainItemStatus.discontinued:
+        return current_status
+    if on_hand_qty <= 0:
+        return SupplyChainItemStatus.out_of_stock
+    threshold = max(reorder_point, 0)
+    if on_hand_qty <= threshold:
+        return SupplyChainItemStatus.low_stock
+    return SupplyChainItemStatus.healthy
+
+
+def _refresh_supply_chain_item_status(item: SupplyChainItem):
+    item.status = _derive_supply_chain_item_status(
+        on_hand_qty=int(item.on_hand_qty or 0),
+        reorder_point=int(item.reorder_point or 0),
+        current_status=item.status,
+    )
+
+
+def _prepare_sales_order_items(db: Session, items: list[schemas.SalesOrderItemIn]):
+    prepared: list[dict] = []
+    for idx, item in enumerate(items):
+        product: SalesProduct | None = None
+        if item.product_id is not None:
+            product = db.query(SalesProduct).filter(SalesProduct.id == item.product_id).first()
+            if not product:
+                raise ValueError(f"Product {item.product_id} was not found.")
+
+        sku = item.sku or (product.sku if product else None)
+        product_name = item.product_name or (product.name if product else None)
+        if not sku:
+            raise ValueError(f"Order item #{idx + 1} is missing SKU.")
+        if not product_name:
+            raise ValueError(f"Order item #{idx + 1} is missing product name.")
+
+        quantity = int(item.quantity)
+        if quantity <= 0:
+            raise ValueError(f"Order item '{product_name}' must have quantity above zero.")
+
+        unit_price = float(item.unit_price if item.unit_price is not None else (product.unit_price if product else 0))
+        unit_cost = float(item.unit_cost if item.unit_cost is not None else (product.unit_cost if product else 0))
+        line_discount = max(float(item.line_discount or 0), 0.0)
+        line_base = max(quantity * unit_price, 0.0)
+        line_total = max(line_base - line_discount, 0.0)
+
+        prepared.append(
+            {
+                "product": product,
+                "product_id": product.id if product else None,
+                "sku": sku,
+                "product_name": product_name,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "unit_cost": unit_cost,
+                "line_discount": line_discount,
+                "line_total": line_total,
+            }
+        )
+    return prepared
+
+
+def _compute_sales_order_totals(
+    prepared_items: list[dict],
+    discount_total: float,
+    tax_total: float,
+    shipping_total: float,
+):
+    subtotal = sum(float(item["line_total"]) for item in prepared_items)
+    total = max(subtotal - max(discount_total, 0.0) + max(tax_total, 0.0) + max(shipping_total, 0.0), 0.0)
+    return round(subtotal, 2), round(total, 2)
+
+
+def _apply_sales_order_inventory_effect(
+    db: Session,
+    order: SalesOrder,
+    items: list[SalesOrderItem],
+    consume: bool,
+):
+    movement_reason = "order_sale" if consume else "order_reversal"
+    movement_sign = -1 if consume else 1
+    now = datetime.utcnow()
+
+    for item in items:
+        if item.product_id is None:
+            continue
+
+        product = db.query(SalesProduct).filter(SalesProduct.id == item.product_id).first()
+        if not product:
+            continue
+
+        quantity = int(item.quantity or 0)
+        if quantity <= 0:
+            continue
+
+        if consume and product.stock_qty < quantity:
+            raise ValueError(
+                f"Insufficient stock for {product.name} ({product.sku}). Available {product.stock_qty}, requested {quantity}."
+            )
+
+        product.stock_qty = int(product.stock_qty or 0) + (movement_sign * quantity)
+        if consume:
+            product.total_sold_units = int(product.total_sold_units or 0) + quantity
+            product.total_revenue = round(float(product.total_revenue or 0) + float(item.line_total or 0), 2)
+            product.last_sold_at = now
+        else:
+            product.total_sold_units = max(int(product.total_sold_units or 0) - quantity, 0)
+            product.total_revenue = max(round(float(product.total_revenue or 0) - float(item.line_total or 0), 2), 0.0)
+
+        _update_product_operational_status(product)
+        db.add(
+            SalesInventoryAdjustment(
+                product_id=product.id,
+                order_id=order.id,
+                change_qty=movement_sign * quantity,
+                reason=movement_reason,
+                reference=order.order_number,
+                notes=f"Inventory movement for order {order.order_number}",
+                actor="system",
+            )
+        )
 
 
 def _tokenize_query(value: str) -> list[str]:
@@ -1208,6 +1403,1248 @@ def create_department(db: Session, data: schemas.DepartmentCreate):
     db.commit()
     db.refresh(dept)
     return dept
+
+
+# ── Sales ─────────────────────────────────────────────
+def get_sales_products(
+    db: Session,
+    skip: int = 0,
+    limit: int = 200,
+    include_archived: bool = False,
+):
+    query = db.query(SalesProduct)
+    if not include_archived:
+        query = query.filter(SalesProduct.status != SalesProductStatus.archived)
+    return (
+        query.order_by(SalesProduct.updated_at.desc(), SalesProduct.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_sales_product(db: Session, data: schemas.SalesProductCreate):
+    duplicate = db.query(SalesProduct).filter(func.lower(SalesProduct.sku) == data.sku.strip().lower()).first()
+    if duplicate:
+        raise ValueError(f"SKU '{data.sku}' already exists.")
+
+    payload = data.model_dump()
+    payload["sku"] = payload["sku"].strip().upper()
+    product = SalesProduct(**payload)
+    _update_product_operational_status(product)
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+def update_sales_product(db: Session, id: int, data: schemas.SalesProductUpdate):
+    product = db.query(SalesProduct).filter(SalesProduct.id == id).first()
+    if not product:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    if "sku" in updates and updates["sku"]:
+        normalized_sku = updates["sku"].strip().upper()
+        duplicate = (
+            db.query(SalesProduct)
+            .filter(func.lower(SalesProduct.sku) == normalized_sku.lower(), SalesProduct.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"SKU '{normalized_sku}' already exists.")
+        updates["sku"] = normalized_sku
+
+    for key, value in updates.items():
+        setattr(product, key, value)
+
+    if product.status in SALES_NON_CURRENT_STATUSES:
+        product.is_current = False
+
+    _update_product_operational_status(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+def delete_sales_product(db: Session, id: int):
+    product = db.query(SalesProduct).filter(SalesProduct.id == id).first()
+    if not product:
+        return False
+    db.delete(product)
+    db.commit()
+    return True
+
+
+def get_sales_orders(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(SalesOrder)
+        .options(selectinload(SalesOrder.items))
+        .order_by(SalesOrder.order_date.desc(), SalesOrder.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_sales_order(db: Session, data: schemas.SalesOrderCreate):
+    duplicate = (
+        db.query(SalesOrder)
+        .filter(func.lower(SalesOrder.order_number) == data.order_number.strip().lower())
+        .first()
+    )
+    if duplicate:
+        raise ValueError(f"Order number '{data.order_number}' already exists.")
+
+    prepared_items = _prepare_sales_order_items(db, data.items)
+    payload = data.model_dump(exclude={"items"})
+    payload["order_number"] = payload["order_number"].strip().upper()
+    if payload.get("order_date") is None:
+        payload["order_date"] = datetime.utcnow()
+
+    discount_total = float(payload.get("discount_total") or 0)
+    tax_total = float(payload.get("tax_total") or 0)
+    shipping_total = float(payload.get("shipping_total") or 0)
+    subtotal, total = _compute_sales_order_totals(prepared_items, discount_total, tax_total, shipping_total)
+    payload["subtotal"] = subtotal
+    payload["total"] = total
+
+    order = SalesOrder(**payload)
+    db.add(order)
+    db.flush()
+
+    order_items: list[SalesOrderItem] = []
+    for item in prepared_items:
+        row = SalesOrderItem(order_id=order.id, **{k: item[k] for k in item if k != "product"})
+        db.add(row)
+        order_items.append(row)
+    db.flush()
+
+    if _sales_order_impacts_inventory(order.status):
+        _apply_sales_order_inventory_effect(db, order, order_items, consume=True)
+
+    if order.status == SalesOrderStatus.fulfilled and not order.fulfilled_at:
+        order.fulfilled_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(order)
+    return (
+        db.query(SalesOrder)
+        .options(selectinload(SalesOrder.items))
+        .filter(SalesOrder.id == order.id)
+        .first()
+    )
+
+
+def update_sales_order(db: Session, id: int, data: schemas.SalesOrderUpdate):
+    order = (
+        db.query(SalesOrder)
+        .options(selectinload(SalesOrder.items))
+        .filter(SalesOrder.id == id)
+        .first()
+    )
+    if not order:
+        return None
+
+    updates = data.model_dump(exclude_unset=True, exclude={"items"})
+    new_items_payload = data.items if "items" in data.model_fields_set else None
+
+    if "order_number" in updates and updates["order_number"]:
+        normalized_order_number = updates["order_number"].strip().upper()
+        duplicate = (
+            db.query(SalesOrder)
+            .filter(func.lower(SalesOrder.order_number) == normalized_order_number.lower(), SalesOrder.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"Order number '{normalized_order_number}' already exists.")
+        updates["order_number"] = normalized_order_number
+
+    had_inventory_impact = _sales_order_impacts_inventory(order.status)
+    old_items = list(order.items)
+    if had_inventory_impact:
+        _apply_sales_order_inventory_effect(db, order, old_items, consume=False)
+
+    for key, value in updates.items():
+        setattr(order, key, value)
+
+    prepared_items: list[dict]
+    if new_items_payload is not None:
+        prepared_items = _prepare_sales_order_items(db, new_items_payload)
+        for item in old_items:
+            db.delete(item)
+        db.flush()
+
+        current_items: list[SalesOrderItem] = []
+        for prepared in prepared_items:
+            row = SalesOrderItem(order_id=order.id, **{k: prepared[k] for k in prepared if k != "product"})
+            db.add(row)
+            current_items.append(row)
+        db.flush()
+    else:
+        prepared_items = [
+            {
+                "product_id": item.product_id,
+                "sku": item.sku,
+                "product_name": item.product_name,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "unit_cost": item.unit_cost,
+                "line_discount": item.line_discount,
+                "line_total": item.line_total,
+            }
+            for item in order.items
+        ]
+
+    discount_total = float(order.discount_total or 0)
+    tax_total = float(order.tax_total or 0)
+    shipping_total = float(order.shipping_total or 0)
+    subtotal, total = _compute_sales_order_totals(prepared_items, discount_total, tax_total, shipping_total)
+    order.subtotal = subtotal
+    order.total = total
+
+    if order.status == SalesOrderStatus.fulfilled and not order.fulfilled_at:
+        order.fulfilled_at = datetime.utcnow()
+    elif order.status != SalesOrderStatus.fulfilled and "fulfilled_at" not in updates:
+        order.fulfilled_at = None
+
+    db.flush()
+    current_items = list(order.items)
+    if _sales_order_impacts_inventory(order.status):
+        _apply_sales_order_inventory_effect(db, order, current_items, consume=True)
+
+    db.commit()
+    db.refresh(order)
+    return (
+        db.query(SalesOrder)
+        .options(selectinload(SalesOrder.items))
+        .filter(SalesOrder.id == order.id)
+        .first()
+    )
+
+
+def delete_sales_order(db: Session, id: int):
+    order = (
+        db.query(SalesOrder)
+        .options(selectinload(SalesOrder.items))
+        .filter(SalesOrder.id == id)
+        .first()
+    )
+    if not order:
+        return False
+
+    if _sales_order_impacts_inventory(order.status):
+        _apply_sales_order_inventory_effect(db, order, list(order.items), consume=False)
+
+    db.delete(order)
+    db.commit()
+    return True
+
+
+def get_sales_inventory_adjustments(db: Session, skip: int = 0, limit: int = 300):
+    return (
+        db.query(SalesInventoryAdjustment)
+        .order_by(SalesInventoryAdjustment.created_at.desc(), SalesInventoryAdjustment.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_sales_inventory_adjustment(db: Session, data: schemas.SalesInventoryAdjustmentCreate):
+    product = db.query(SalesProduct).filter(SalesProduct.id == data.product_id).first()
+    if not product:
+        raise ValueError("Product not found.")
+
+    change_qty = int(data.change_qty)
+    if change_qty == 0:
+        raise ValueError("Inventory adjustment must be non-zero.")
+
+    resulting_stock = int(product.stock_qty or 0) + change_qty
+    if resulting_stock < 0:
+        raise ValueError(f"Adjustment would make {product.name} stock negative.")
+
+    product.stock_qty = resulting_stock
+    _update_product_operational_status(product)
+
+    row = SalesInventoryAdjustment(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_sales_summary(db: Session):
+    total_products = db.query(func.count(SalesProduct.id)).scalar() or 0
+    current_products = (
+        db.query(func.count(SalesProduct.id))
+        .filter(SalesProduct.is_current.is_(True), SalesProduct.status != SalesProductStatus.archived)
+        .scalar()
+        or 0
+    )
+    non_current_products = (
+        db.query(func.count(SalesProduct.id))
+        .filter(or_(SalesProduct.is_current.is_(False), SalesProduct.status.in_(list(SALES_NON_CURRENT_STATUSES))))
+        .scalar()
+        or 0
+    )
+    low_stock_products = (
+        db.query(func.count(SalesProduct.id))
+        .filter(
+            SalesProduct.is_current.is_(True),
+            SalesProduct.status.notin_(list(SALES_NON_CURRENT_STATUSES)),
+            SalesProduct.stock_qty > 0,
+            SalesProduct.stock_qty <= SalesProduct.reorder_level,
+        )
+        .scalar()
+        or 0
+    )
+    out_of_stock_products = (
+        db.query(func.count(SalesProduct.id))
+        .filter(SalesProduct.is_current.is_(True), SalesProduct.stock_qty <= 0)
+        .scalar()
+        or 0
+    )
+
+    inventory_units = db.query(func.sum(SalesProduct.stock_qty)).scalar() or 0
+    inventory_cost_value = (
+        db.query(func.sum(SalesProduct.stock_qty * SalesProduct.unit_cost))
+        .filter(SalesProduct.status != SalesProductStatus.archived)
+        .scalar()
+        or 0
+    )
+    inventory_retail_value = (
+        db.query(func.sum(SalesProduct.stock_qty * SalesProduct.unit_price))
+        .filter(SalesProduct.status != SalesProductStatus.archived)
+        .scalar()
+        or 0
+    )
+
+    total_orders = db.query(func.count(SalesOrder.id)).scalar() or 0
+    pending_orders = (
+        db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status.in_([SalesOrderStatus.draft, SalesOrderStatus.pending]))
+        .scalar()
+        or 0
+    )
+    closed_orders = (
+        db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)))
+        .scalar()
+        or 0
+    )
+    cancelled_orders = (
+        db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status.in_([SalesOrderStatus.cancelled, SalesOrderStatus.refunded]))
+        .scalar()
+        or 0
+    )
+    revenue_total = (
+        db.query(func.sum(SalesOrder.total))
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)))
+        .scalar()
+        or 0
+    )
+    pending_pipeline_value = (
+        db.query(func.sum(SalesOrder.total))
+        .filter(SalesOrder.status.in_([SalesOrderStatus.draft, SalesOrderStatus.pending]))
+        .scalar()
+        or 0
+    )
+
+    sold_qty = (
+        db.query(func.sum(SalesOrderItem.quantity))
+        .join(SalesOrder, SalesOrder.id == SalesOrderItem.order_id)
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)))
+        .scalar()
+        or 0
+    )
+    cogs_total = (
+        db.query(func.sum(SalesOrderItem.quantity * SalesOrderItem.unit_cost))
+        .join(SalesOrder, SalesOrder.id == SalesOrderItem.order_id)
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)))
+        .scalar()
+        or 0
+    )
+    gross_profit = float(revenue_total) - float(cogs_total)
+    gross_margin = _safe_div(gross_profit, float(revenue_total)) * 100 if revenue_total else 0.0
+    avg_order_value = _safe_div(float(revenue_total), float(closed_orders)) if closed_orders else 0.0
+    sell_through = _safe_div(float(sold_qty), float(sold_qty + inventory_units)) * 100 if (sold_qty + inventory_units) > 0 else 0.0
+    inventory_turnover = _safe_div(float(cogs_total), float(inventory_cost_value)) if inventory_cost_value else 0.0
+
+    now = datetime.utcnow()
+    thirty_days_ago = now - timedelta(days=30)
+    recent_sales = (
+        db.query(func.sum(SalesOrder.total))
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)), SalesOrder.order_date >= thirty_days_ago)
+        .scalar()
+        or 0
+    )
+    previous_sales = (
+        db.query(func.sum(SalesOrder.total))
+        .filter(
+            SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)),
+            SalesOrder.order_date >= (thirty_days_ago - timedelta(days=30)),
+            SalesOrder.order_date < thirty_days_ago,
+        )
+        .scalar()
+        or 0
+    )
+    sales_delta, sales_delta_up = _change_percent(float(recent_sales), float(previous_sales))
+
+    return {
+        "total_products": int(total_products),
+        "current_products": int(current_products),
+        "non_current_products": int(non_current_products),
+        "low_stock_products": int(low_stock_products),
+        "out_of_stock_products": int(out_of_stock_products),
+        "inventory_units": int(inventory_units),
+        "inventory_cost_value": round(float(inventory_cost_value), 2),
+        "inventory_retail_value": round(float(inventory_retail_value), 2),
+        "total_orders": int(total_orders),
+        "pending_orders": int(pending_orders),
+        "closed_orders": int(closed_orders),
+        "cancelled_orders": int(cancelled_orders),
+        "revenue_total": round(float(revenue_total), 2),
+        "cogs_total": round(float(cogs_total), 2),
+        "gross_profit": round(float(gross_profit), 2),
+        "gross_margin_percent": round(float(gross_margin), 2),
+        "avg_order_value": round(float(avg_order_value), 2),
+        "sell_through_percent": round(float(sell_through), 2),
+        "inventory_turnover": round(float(inventory_turnover), 2),
+        "pending_pipeline_value": round(float(pending_pipeline_value), 2),
+        "units_sold": int(sold_qty),
+        "recent_30d_revenue": round(float(recent_sales), 2),
+        "revenue_change_vs_prev_30d": sales_delta,
+        "revenue_change_is_positive": bool(sales_delta_up),
+    }
+
+
+def get_sales_reports(db: Session):
+    top_products = (
+        db.query(SalesProduct)
+        .order_by(SalesProduct.total_revenue.desc(), SalesProduct.total_sold_units.desc(), SalesProduct.id.desc())
+        .limit(8)
+        .all()
+    )
+
+    current_products = (
+        db.query(SalesProduct)
+        .filter(SalesProduct.is_current.is_(True), SalesProduct.status != SalesProductStatus.archived)
+        .order_by(SalesProduct.updated_at.desc(), SalesProduct.id.desc())
+        .limit(120)
+        .all()
+    )
+    non_current_products = (
+        db.query(SalesProduct)
+        .filter(or_(SalesProduct.is_current.is_(False), SalesProduct.status.in_(list(SALES_NON_CURRENT_STATUSES))))
+        .order_by(SalesProduct.updated_at.desc(), SalesProduct.id.desc())
+        .limit(120)
+        .all()
+    )
+    low_stock_products = (
+        db.query(SalesProduct)
+        .filter(
+            SalesProduct.is_current.is_(True),
+            SalesProduct.status.notin_(list(SALES_NON_CURRENT_STATUSES)),
+            SalesProduct.stock_qty <= SalesProduct.reorder_level,
+        )
+        .order_by(SalesProduct.stock_qty.asc(), SalesProduct.updated_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    month_labels: list[str] = []
+    month_revenue: list[float] = []
+    base = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    for offset in range(5, -1, -1):
+        month = base.month - offset
+        year = base.year
+        while month <= 0:
+            month += 12
+            year -= 1
+        start = datetime(year, month, 1)
+        end = _month_window(start)[1]
+        amount = (
+            db.query(func.sum(SalesOrder.total))
+            .filter(
+                SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)),
+                SalesOrder.order_date >= start,
+                SalesOrder.order_date < end,
+            )
+            .scalar()
+            or 0
+        )
+        month_labels.append(start.strftime("%b %Y"))
+        month_revenue.append(round(float(amount), 2))
+
+    stale_cutoff = datetime.utcnow() - timedelta(days=90)
+    stale_current_products = (
+        db.query(SalesProduct)
+        .filter(
+            SalesProduct.is_current.is_(True),
+            or_(SalesProduct.last_sold_at.is_(None), SalesProduct.last_sold_at < stale_cutoff),
+            SalesProduct.status.notin_(list(SALES_NON_CURRENT_STATUSES)),
+        )
+        .order_by(SalesProduct.last_sold_at.asc().nullsfirst(), SalesProduct.updated_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    def _pack_product(row: SalesProduct):
+        return {
+            "id": row.id,
+            "sku": row.sku,
+            "name": row.name,
+            "category": row.category,
+            "status": row.status.value if isinstance(row.status, SalesProductStatus) else str(row.status),
+            "is_current": bool(row.is_current),
+            "stock_qty": int(row.stock_qty or 0),
+            "reorder_level": int(row.reorder_level or 0),
+            "unit_price": round(float(row.unit_price or 0), 2),
+            "unit_cost": round(float(row.unit_cost or 0), 2),
+            "total_sold_units": int(row.total_sold_units or 0),
+            "total_revenue": round(float(row.total_revenue or 0), 2),
+            "last_sold_at": row.last_sold_at.isoformat() if row.last_sold_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+
+    return {
+        "top_products": [_pack_product(row) for row in top_products],
+        "current_products": [_pack_product(row) for row in current_products],
+        "non_current_products": [_pack_product(row) for row in non_current_products],
+        "low_stock_products": [_pack_product(row) for row in low_stock_products],
+        "stale_current_products": [_pack_product(row) for row in stale_current_products],
+        "revenue_trend": {
+            "months": month_labels,
+            "revenue": month_revenue,
+        },
+    }
+
+
+# ── Support ───────────────────────────────────────────
+SUPPORT_OPEN_STATUSES = {
+    SupportTicketStatus.open,
+    SupportTicketStatus.in_progress,
+    SupportTicketStatus.waiting_customer,
+}
+SUPPORT_CLOSED_STATUSES = {SupportTicketStatus.resolved, SupportTicketStatus.closed}
+
+
+def get_support_tickets(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(SupportTicket)
+        .order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_support_ticket(db: Session, data: schemas.SupportTicketCreate):
+    normalized_number = data.ticket_number.strip().upper()
+    duplicate = (
+        db.query(SupportTicket)
+        .filter(func.lower(SupportTicket.ticket_number) == normalized_number.lower())
+        .first()
+    )
+    if duplicate:
+        raise ValueError(f"Ticket number '{normalized_number}' already exists.")
+
+    payload = data.model_dump()
+    payload["ticket_number"] = normalized_number
+    if payload.get("status") in SUPPORT_CLOSED_STATUSES and not payload.get("resolved_at"):
+        payload["resolved_at"] = datetime.utcnow()
+    row = SupportTicket(**payload)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_support_ticket(db: Session, id: int, data: schemas.SupportTicketUpdate):
+    row = db.query(SupportTicket).filter(SupportTicket.id == id).first()
+    if not row:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    if "ticket_number" in updates and updates["ticket_number"]:
+        normalized_number = updates["ticket_number"].strip().upper()
+        duplicate = (
+            db.query(SupportTicket)
+            .filter(func.lower(SupportTicket.ticket_number) == normalized_number.lower(), SupportTicket.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"Ticket number '{normalized_number}' already exists.")
+        updates["ticket_number"] = normalized_number
+
+    for key, value in updates.items():
+        setattr(row, key, value)
+
+    if row.status in SUPPORT_CLOSED_STATUSES and not row.resolved_at:
+        row.resolved_at = datetime.utcnow()
+    if row.status not in SUPPORT_CLOSED_STATUSES and "resolved_at" not in updates:
+        row.resolved_at = None
+
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_support_ticket(db: Session, id: int):
+    row = db.query(SupportTicket).filter(SupportTicket.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_support_summary(db: Session):
+    now = datetime.utcnow()
+    last_30_days = now - timedelta(days=30)
+    last_60_days = now - timedelta(days=60)
+
+    total = db.query(func.count(SupportTicket.id)).scalar() or 0
+    open_count = (
+        db.query(func.count(SupportTicket.id))
+        .filter(SupportTicket.status.in_(list(SUPPORT_OPEN_STATUSES)))
+        .scalar()
+        or 0
+    )
+    urgent_count = (
+        db.query(func.count(SupportTicket.id))
+        .filter(
+            SupportTicket.status.in_(list(SUPPORT_OPEN_STATUSES)),
+            SupportTicket.priority == SupportTicketPriority.urgent,
+        )
+        .scalar()
+        or 0
+    )
+    overdue_sla = (
+        db.query(func.count(SupportTicket.id))
+        .filter(
+            SupportTicket.status.in_(list(SUPPORT_OPEN_STATUSES)),
+            SupportTicket.sla_due_at.isnot(None),
+            SupportTicket.sla_due_at < now,
+        )
+        .scalar()
+        or 0
+    )
+    created_30d = (
+        db.query(func.count(SupportTicket.id))
+        .filter(SupportTicket.created_at >= last_30_days)
+        .scalar()
+        or 0
+    )
+    resolved_30d = (
+        db.query(func.count(SupportTicket.id))
+        .filter(
+            SupportTicket.status.in_(list(SUPPORT_CLOSED_STATUSES)),
+            SupportTicket.resolved_at.isnot(None),
+            SupportTicket.resolved_at >= last_30_days,
+        )
+        .scalar()
+        or 0
+    )
+    avg_csat = db.query(func.avg(SupportTicket.satisfaction_score)).filter(SupportTicket.satisfaction_score.isnot(None)).scalar()
+
+    response_rows = (
+        db.query(SupportTicket.created_at, SupportTicket.first_response_at)
+        .filter(
+            SupportTicket.created_at >= last_60_days,
+            SupportTicket.first_response_at.isnot(None),
+        )
+        .limit(1000)
+        .all()
+    )
+    response_hours = []
+    for created_at, first_response_at in response_rows:
+        if not created_at or not first_response_at:
+            continue
+        created_ref = created_at.replace(tzinfo=None) if created_at.tzinfo else created_at
+        response_ref = first_response_at.replace(tzinfo=None) if first_response_at.tzinfo else first_response_at
+        delta = (response_ref - created_ref).total_seconds() / 3600
+        if delta >= 0:
+            response_hours.append(delta)
+    avg_first_response_hours = sum(response_hours) / len(response_hours) if response_hours else 0.0
+    resolution_rate = _safe_div(float(resolved_30d), float(created_30d)) * 100 if created_30d else 0.0
+
+    return {
+        "total_tickets": int(total),
+        "open_tickets": int(open_count),
+        "urgent_open_tickets": int(urgent_count),
+        "sla_at_risk": int(overdue_sla),
+        "resolved_last_30d": int(resolved_30d),
+        "created_last_30d": int(created_30d),
+        "resolution_rate_percent": round(float(resolution_rate), 2),
+        "avg_first_response_hours": round(float(avg_first_response_hours), 2),
+        "avg_csat": round(float(avg_csat or 0), 2),
+    }
+
+
+# ── Supply Chain ──────────────────────────────────────
+SUPPLY_CHAIN_ACTIVE_SHIPMENT_STATUSES = {
+    SupplyChainShipmentStatus.planned,
+    SupplyChainShipmentStatus.in_transit,
+    SupplyChainShipmentStatus.delayed,
+}
+
+
+def get_supply_chain_items(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(SupplyChainItem)
+        .order_by(SupplyChainItem.updated_at.desc(), SupplyChainItem.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_supply_chain_item(db: Session, data: schemas.SupplyChainItemCreate):
+    normalized_sku = data.sku.strip().upper()
+    duplicate = (
+        db.query(SupplyChainItem)
+        .filter(func.lower(SupplyChainItem.sku) == normalized_sku.lower())
+        .first()
+    )
+    if duplicate:
+        raise ValueError(f"Item SKU '{normalized_sku}' already exists.")
+
+    payload = data.model_dump()
+    payload["sku"] = normalized_sku
+    row = SupplyChainItem(**payload)
+    _refresh_supply_chain_item_status(row)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_supply_chain_item(db: Session, id: int, data: schemas.SupplyChainItemUpdate):
+    row = db.query(SupplyChainItem).filter(SupplyChainItem.id == id).first()
+    if not row:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    if "sku" in updates and updates["sku"]:
+        normalized_sku = updates["sku"].strip().upper()
+        duplicate = (
+            db.query(SupplyChainItem)
+            .filter(func.lower(SupplyChainItem.sku) == normalized_sku.lower(), SupplyChainItem.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"Item SKU '{normalized_sku}' already exists.")
+        updates["sku"] = normalized_sku
+
+    for key, value in updates.items():
+        setattr(row, key, value)
+
+    _refresh_supply_chain_item_status(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_supply_chain_item(db: Session, id: int):
+    row = db.query(SupplyChainItem).filter(SupplyChainItem.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_supply_chain_shipments(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(SupplyChainShipment)
+        .order_by(SupplyChainShipment.updated_at.desc(), SupplyChainShipment.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_supply_chain_shipment(db: Session, data: schemas.SupplyChainShipmentCreate):
+    normalized_ref = data.shipment_ref.strip().upper()
+    duplicate = (
+        db.query(SupplyChainShipment)
+        .filter(func.lower(SupplyChainShipment.shipment_ref) == normalized_ref.lower())
+        .first()
+    )
+    if duplicate:
+        raise ValueError(f"Shipment reference '{normalized_ref}' already exists.")
+
+    payload = data.model_dump()
+    payload["shipment_ref"] = normalized_ref
+    row = SupplyChainShipment(**payload)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_supply_chain_shipment(db: Session, id: int, data: schemas.SupplyChainShipmentUpdate):
+    row = db.query(SupplyChainShipment).filter(SupplyChainShipment.id == id).first()
+    if not row:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    if "shipment_ref" in updates and updates["shipment_ref"]:
+        normalized_ref = updates["shipment_ref"].strip().upper()
+        duplicate = (
+            db.query(SupplyChainShipment)
+            .filter(func.lower(SupplyChainShipment.shipment_ref) == normalized_ref.lower(), SupplyChainShipment.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"Shipment reference '{normalized_ref}' already exists.")
+        updates["shipment_ref"] = normalized_ref
+
+    for key, value in updates.items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_supply_chain_shipment(db: Session, id: int):
+    row = db.query(SupplyChainShipment).filter(SupplyChainShipment.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_supply_chain_summary(db: Session):
+    now = datetime.utcnow()
+    last_30_days = now - timedelta(days=30)
+    last_60_days = now - timedelta(days=60)
+
+    total_items = db.query(func.count(SupplyChainItem.id)).scalar() or 0
+    healthy_items = (
+        db.query(func.count(SupplyChainItem.id))
+        .filter(SupplyChainItem.status == SupplyChainItemStatus.healthy)
+        .scalar()
+        or 0
+    )
+    low_stock_items = (
+        db.query(func.count(SupplyChainItem.id))
+        .filter(SupplyChainItem.status == SupplyChainItemStatus.low_stock)
+        .scalar()
+        or 0
+    )
+    out_of_stock_items = (
+        db.query(func.count(SupplyChainItem.id))
+        .filter(SupplyChainItem.status == SupplyChainItemStatus.out_of_stock)
+        .scalar()
+        or 0
+    )
+    inventory_units = db.query(func.sum(SupplyChainItem.on_hand_qty)).scalar() or 0
+    reserved_units = db.query(func.sum(SupplyChainItem.reserved_qty)).scalar() or 0
+    inventory_value = db.query(func.sum(SupplyChainItem.on_hand_qty * SupplyChainItem.unit_cost)).scalar() or 0
+
+    inbound_active = (
+        db.query(func.count(SupplyChainShipment.id))
+        .filter(
+            SupplyChainShipment.direction == SupplyChainShipmentDirection.inbound,
+            SupplyChainShipment.status.in_(list(SUPPLY_CHAIN_ACTIVE_SHIPMENT_STATUSES)),
+        )
+        .scalar()
+        or 0
+    )
+    outbound_active = (
+        db.query(func.count(SupplyChainShipment.id))
+        .filter(
+            SupplyChainShipment.direction == SupplyChainShipmentDirection.outbound,
+            SupplyChainShipment.status.in_(list(SUPPLY_CHAIN_ACTIVE_SHIPMENT_STATUSES)),
+        )
+        .scalar()
+        or 0
+    )
+    delayed_shipments = (
+        db.query(func.count(SupplyChainShipment.id))
+        .filter(SupplyChainShipment.status == SupplyChainShipmentStatus.delayed)
+        .scalar()
+        or 0
+    )
+    delivered_30d = (
+        db.query(func.count(SupplyChainShipment.id))
+        .filter(
+            SupplyChainShipment.status == SupplyChainShipmentStatus.delivered,
+            SupplyChainShipment.delivered_at.isnot(None),
+            SupplyChainShipment.delivered_at >= last_30_days,
+        )
+        .scalar()
+        or 0
+    )
+
+    delivered_rows = (
+        db.query(SupplyChainShipment.eta, SupplyChainShipment.delivered_at)
+        .filter(
+            SupplyChainShipment.status == SupplyChainShipmentStatus.delivered,
+            SupplyChainShipment.delivered_at.isnot(None),
+            SupplyChainShipment.delivered_at >= last_60_days,
+        )
+        .limit(1000)
+        .all()
+    )
+    on_time = 0
+    total_with_eta = 0
+    for eta, delivered_at in delivered_rows:
+        if not eta or not delivered_at:
+            continue
+        total_with_eta += 1
+        eta_ref = eta.replace(tzinfo=None) if eta.tzinfo else eta
+        delivered_ref = delivered_at.replace(tzinfo=None) if delivered_at.tzinfo else delivered_at
+        if delivered_ref <= eta_ref:
+            on_time += 1
+    on_time_rate = _safe_div(float(on_time), float(total_with_eta)) * 100 if total_with_eta else 0.0
+
+    return {
+        "total_items": int(total_items),
+        "healthy_items": int(healthy_items),
+        "low_stock_items": int(low_stock_items),
+        "out_of_stock_items": int(out_of_stock_items),
+        "inventory_units": int(inventory_units),
+        "reserved_units": int(reserved_units),
+        "inventory_value": round(float(inventory_value), 2),
+        "inbound_active_shipments": int(inbound_active),
+        "outbound_active_shipments": int(outbound_active),
+        "delayed_shipments": int(delayed_shipments),
+        "delivered_last_30d": int(delivered_30d),
+        "on_time_delivery_percent": round(float(on_time_rate), 2),
+    }
+
+
+# ── Procurement ───────────────────────────────────────
+PROCUREMENT_OPEN_STATUSES = {
+    ProcurementRequestStatus.submitted,
+    ProcurementRequestStatus.approved,
+    ProcurementRequestStatus.ordered,
+    ProcurementRequestStatus.partially_received,
+}
+PROCUREMENT_SPEND_STATUSES = {
+    ProcurementRequestStatus.ordered,
+    ProcurementRequestStatus.partially_received,
+    ProcurementRequestStatus.received,
+}
+
+
+def get_procurement_requests(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(ProcurementRequest)
+        .order_by(ProcurementRequest.updated_at.desc(), ProcurementRequest.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_procurement_request(db: Session, data: schemas.ProcurementRequestCreate):
+    normalized_number = data.request_number.strip().upper()
+    duplicate = (
+        db.query(ProcurementRequest)
+        .filter(func.lower(ProcurementRequest.request_number) == normalized_number.lower())
+        .first()
+    )
+    if duplicate:
+        raise ValueError(f"Request number '{normalized_number}' already exists.")
+
+    payload = data.model_dump()
+    payload["request_number"] = normalized_number
+    row = ProcurementRequest(**payload)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_procurement_request(db: Session, id: int, data: schemas.ProcurementRequestUpdate):
+    row = db.query(ProcurementRequest).filter(ProcurementRequest.id == id).first()
+    if not row:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    if "request_number" in updates and updates["request_number"]:
+        normalized_number = updates["request_number"].strip().upper()
+        duplicate = (
+            db.query(ProcurementRequest)
+            .filter(func.lower(ProcurementRequest.request_number) == normalized_number.lower(), ProcurementRequest.id != id)
+            .first()
+        )
+        if duplicate:
+            raise ValueError(f"Request number '{normalized_number}' already exists.")
+        updates["request_number"] = normalized_number
+
+    for key, value in updates.items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_procurement_request(db: Session, id: int):
+    row = db.query(ProcurementRequest).filter(ProcurementRequest.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_procurement_summary(db: Session):
+    now = datetime.utcnow()
+    last_30_days = now - timedelta(days=30)
+
+    total = db.query(func.count(ProcurementRequest.id)).scalar() or 0
+    open_count = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.status.in_(list(PROCUREMENT_OPEN_STATUSES)))
+        .scalar()
+        or 0
+    )
+    pending_approval = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.status == ProcurementRequestStatus.submitted)
+        .scalar()
+        or 0
+    )
+    approved = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.status == ProcurementRequestStatus.approved)
+        .scalar()
+        or 0
+    )
+    received = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.status == ProcurementRequestStatus.received)
+        .scalar()
+        or 0
+    )
+    overdue = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(
+            ProcurementRequest.due_date.isnot(None),
+            ProcurementRequest.due_date < now,
+            ProcurementRequest.status.notin_(
+                [
+                    ProcurementRequestStatus.received,
+                    ProcurementRequestStatus.cancelled,
+                    ProcurementRequestStatus.rejected,
+                ]
+            ),
+        )
+        .scalar()
+        or 0
+    )
+    spend_committed = (
+        db.query(func.sum(ProcurementRequest.amount))
+        .filter(ProcurementRequest.status.in_(list(PROCUREMENT_SPEND_STATUSES)))
+        .scalar()
+        or 0
+    )
+    spend_received = (
+        db.query(func.sum(ProcurementRequest.amount))
+        .filter(ProcurementRequest.status == ProcurementRequestStatus.received)
+        .scalar()
+        or 0
+    )
+    created_30d = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.created_at >= last_30_days)
+        .scalar()
+        or 0
+    )
+
+    cycle_rows = (
+        db.query(ProcurementRequest.created_at, ProcurementRequest.ordered_at)
+        .filter(
+            ProcurementRequest.ordered_at.isnot(None),
+            ProcurementRequest.created_at >= now - timedelta(days=90),
+        )
+        .limit(1000)
+        .all()
+    )
+    cycle_days = []
+    for created_at, ordered_at in cycle_rows:
+        if not created_at or not ordered_at:
+            continue
+        created_ref = created_at.replace(tzinfo=None) if created_at.tzinfo else created_at
+        ordered_ref = ordered_at.replace(tzinfo=None) if ordered_at.tzinfo else ordered_at
+        diff = (ordered_ref - created_ref).total_seconds() / 86400
+        if diff >= 0:
+            cycle_days.append(diff)
+    avg_cycle_days = sum(cycle_days) / len(cycle_days) if cycle_days else 0.0
+
+    return {
+        "total_requests": int(total),
+        "open_requests": int(open_count),
+        "pending_approval": int(pending_approval),
+        "approved_requests": int(approved),
+        "received_requests": int(received),
+        "overdue_requests": int(overdue),
+        "spend_committed": round(float(spend_committed), 2),
+        "spend_received": round(float(spend_received), 2),
+        "created_last_30d": int(created_30d),
+        "avg_procurement_cycle_days": round(float(avg_cycle_days), 2),
+    }
+
+
+# ── Insights ──────────────────────────────────────────
+def get_insight_reports(db: Session, skip: int = 0, limit: int = 200):
+    return (
+        db.query(InsightReport)
+        .order_by(InsightReport.updated_at.desc(), InsightReport.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def create_insight_report(db: Session, data: schemas.InsightReportCreate):
+    row = InsightReport(**data.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_insight_report(db: Session, id: int, data: schemas.InsightReportUpdate):
+    row = db.query(InsightReport).filter(InsightReport.id == id).first()
+    if not row:
+        return None
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_insight_report(db: Session, id: int):
+    row = db.query(InsightReport).filter(InsightReport.id == id).first()
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def run_insight_report(db: Session, id: int):
+    row = db.query(InsightReport).filter(InsightReport.id == id).first()
+    if not row:
+        return None
+    now = datetime.utcnow()
+    row.last_run_at = now
+    if row.status == InsightReportStatus.draft:
+        row.status = InsightReportStatus.active
+    if row.schedule == "daily":
+        row.next_run_at = now + timedelta(days=1)
+    elif row.schedule == "weekly":
+        row.next_run_at = now + timedelta(days=7)
+    elif row.schedule == "monthly":
+        row.next_run_at = now + timedelta(days=30)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_insights_summary(db: Session):
+    now = datetime.utcnow()
+    last_7_days = now - timedelta(days=7)
+
+    total_reports = db.query(func.count(InsightReport.id)).scalar() or 0
+    active_reports = (
+        db.query(func.count(InsightReport.id))
+        .filter(InsightReport.status == InsightReportStatus.active)
+        .scalar()
+        or 0
+    )
+    paused_reports = (
+        db.query(func.count(InsightReport.id))
+        .filter(InsightReport.status == InsightReportStatus.paused)
+        .scalar()
+        or 0
+    )
+    error_reports = (
+        db.query(func.count(InsightReport.id))
+        .filter(InsightReport.status == InsightReportStatus.error)
+        .scalar()
+        or 0
+    )
+    scheduled_reports = (
+        db.query(func.count(InsightReport.id))
+        .filter(InsightReport.schedule.isnot(None))
+        .scalar()
+        or 0
+    )
+    recently_refreshed = (
+        db.query(func.count(InsightReport.id))
+        .filter(InsightReport.last_run_at.isnot(None), InsightReport.last_run_at >= last_7_days)
+        .scalar()
+        or 0
+    )
+    freshness_score = _safe_div(float(recently_refreshed), float(total_reports)) * 100 if total_reports else 0.0
+
+    finance_income = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.income)
+        .scalar()
+        or 0
+    )
+    finance_expense = (
+        db.query(func.sum(Transaction.amount))
+        .filter(Transaction.type == TransactionType.expense)
+        .scalar()
+        or 0
+    )
+    sales_revenue = (
+        db.query(func.sum(SalesOrder.total))
+        .filter(SalesOrder.status.in_(list(SALES_CLOSED_STATUSES)))
+        .scalar()
+        or 0
+    )
+    support_open = (
+        db.query(func.count(SupportTicket.id))
+        .filter(SupportTicket.status.in_(list(SUPPORT_OPEN_STATUSES)))
+        .scalar()
+        or 0
+    )
+    procurement_open = (
+        db.query(func.count(ProcurementRequest.id))
+        .filter(ProcurementRequest.status.in_(list(PROCUREMENT_OPEN_STATUSES)))
+        .scalar()
+        or 0
+    )
+    supply_chain_risk = (
+        db.query(func.count(SupplyChainItem.id))
+        .filter(
+            SupplyChainItem.status.in_(
+                [SupplyChainItemStatus.low_stock, SupplyChainItemStatus.out_of_stock]
+            )
+        )
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total_reports": int(total_reports),
+        "active_reports": int(active_reports),
+        "paused_reports": int(paused_reports),
+        "error_reports": int(error_reports),
+        "scheduled_reports": int(scheduled_reports),
+        "freshness_score_percent": round(float(freshness_score), 2),
+        "cross_module_metrics": {
+            "finance_net": round(float(finance_income) - float(finance_expense), 2),
+            "sales_revenue": round(float(sales_revenue), 2),
+            "open_support_tickets": int(support_open),
+            "open_procurement_requests": int(procurement_open),
+            "supply_chain_risk_items": int(supply_chain_risk),
+        },
+    }
 
 
 # ── Marketing ─────────────────────────────────────────

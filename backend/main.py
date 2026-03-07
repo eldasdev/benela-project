@@ -11,6 +11,11 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError, TimeoutError as SATimeou
 from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
+from api.sales import router as sales_router
+from api.support import router as support_router
+from api.supply_chain import router as supply_chain_router
+from api.procurement import router as procurement_router
+from api.insights import router as insights_router
 from api.hr import router as hr_router
 from api.projects import router as projects_router
 from api.marketing import router as marketing_router
@@ -22,6 +27,15 @@ from api.chat import router as chat_router
 from api.notifications import router as notifications_router
 from database.connection import Base, engine
 from database.models import (
+    SalesProduct,
+    SalesOrder,
+    SalesOrderItem,
+    SalesInventoryAdjustment,
+    SupportTicket,
+    SupplyChainItem,
+    SupplyChainShipment,
+    ProcurementRequest,
+    InsightReport,
     MarketingCampaign,
     MarketingContentItem,
     MarketingLead,
@@ -62,6 +76,66 @@ def _should_auto_create_marketing_tables() -> bool:
         return _env_bool("AUTO_CREATE_MARKETING_TABLES", True)
     # Keep marketing module usable by default even when full create_all is disabled.
     return True
+
+
+def _should_auto_create_sales_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_SALES_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_SALES_TABLES", True)
+    # Keep sales module usable by default even when full create_all is disabled.
+    return True
+
+
+def _ensure_sales_schema():
+    SalesProduct.__table__.create(bind=engine, checkfirst=True)
+    SalesOrder.__table__.create(bind=engine, checkfirst=True)
+    SalesOrderItem.__table__.create(bind=engine, checkfirst=True)
+    SalesInventoryAdjustment.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_support_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_SUPPORT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_SUPPORT_TABLES", True)
+    return True
+
+
+def _ensure_support_schema():
+    SupportTicket.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_supply_chain_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_SUPPLY_CHAIN_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_SUPPLY_CHAIN_TABLES", True)
+    return True
+
+
+def _ensure_supply_chain_schema():
+    SupplyChainItem.__table__.create(bind=engine, checkfirst=True)
+    SupplyChainShipment.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_procurement_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_PROCUREMENT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_PROCUREMENT_TABLES", True)
+    return True
+
+
+def _ensure_procurement_schema():
+    ProcurementRequest.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_insights_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_INSIGHTS_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_INSIGHTS_TABLES", True)
+    return True
+
+
+def _ensure_insights_schema():
+    InsightReport.__table__.create(bind=engine, checkfirst=True)
 
 
 def _ensure_marketing_schema():
@@ -136,6 +210,11 @@ app.add_middleware(
 # Register routes
 app.include_router(agents_router, prefix="/agents", tags=["Agents"])
 app.include_router(finance_router, tags=["Finance"])
+app.include_router(sales_router)
+app.include_router(support_router)
+app.include_router(supply_chain_router)
+app.include_router(procurement_router)
+app.include_router(insights_router)
 app.include_router(hr_router, tags=["HR"])
 app.include_router(projects_router, tags=["Projects"])
 app.include_router(marketing_router)
@@ -161,6 +240,31 @@ def bootstrap_database():
     if not _should_auto_create_tables():
         logger.info("AUTO_CREATE_TABLES disabled; skipping metadata.create_all()")
         targeted_bootstraps: list[tuple[str, Callable[[], None]]] = []
+        if _should_auto_create_sales_tables():
+            targeted_bootstraps.append(("sales", _ensure_sales_schema))
+        else:
+            logger.info("AUTO_CREATE_SALES_TABLES disabled; skipping sales schema checks")
+
+        if _should_auto_create_support_tables():
+            targeted_bootstraps.append(("support", _ensure_support_schema))
+        else:
+            logger.info("AUTO_CREATE_SUPPORT_TABLES disabled; skipping support schema checks")
+
+        if _should_auto_create_supply_chain_tables():
+            targeted_bootstraps.append(("supply_chain", _ensure_supply_chain_schema))
+        else:
+            logger.info("AUTO_CREATE_SUPPLY_CHAIN_TABLES disabled; skipping supply chain schema checks")
+
+        if _should_auto_create_procurement_tables():
+            targeted_bootstraps.append(("procurement", _ensure_procurement_schema))
+        else:
+            logger.info("AUTO_CREATE_PROCUREMENT_TABLES disabled; skipping procurement schema checks")
+
+        if _should_auto_create_insights_tables():
+            targeted_bootstraps.append(("insights", _ensure_insights_schema))
+        else:
+            logger.info("AUTO_CREATE_INSIGHTS_TABLES disabled; skipping insights schema checks")
+
         if _should_auto_create_marketing_tables():
             targeted_bootstraps.append(("marketing", _ensure_marketing_schema))
         else:

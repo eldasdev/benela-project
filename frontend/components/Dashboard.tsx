@@ -18,6 +18,11 @@ import {
   Clock3,
 } from "lucide-react";
 import FinancePage from "./FinancePage";
+import SalesPage from "./SalesPage";
+import SupportPage from "./SupportPage";
+import SupplyChainPage from "./SupplyChainPage";
+import ProcurementPage from "./ProcurementPage";
+import InsightsPage from "./InsightsPage";
 import HRPage from "./HRPage";
 import ProjectsPage from "./ProjectsPage";
 import MarketplacePage from "./MarketplacePage";
@@ -236,9 +241,14 @@ const STATUS_COLORS: Record<string, string> = {
 const SECTION_TITLES: Partial<Record<Section, { title: string; subtitle: string }>> = {
   dashboard: { title: "Dashboard", subtitle: "Executive command center for your company" },
   finance: { title: "Finance", subtitle: "Transactions, P&L, invoices and cash flow" },
+  sales: { title: "Sales", subtitle: "Products, sold orders, inventory and lifecycle reporting" },
   hr: { title: "Human Resources", subtitle: "Employees, roles, hiring and performance" },
   projects: { title: "Projects", subtitle: "Kanban boards, tasks and team collaboration" },
   marketing: { title: "Marketing", subtitle: "Campaigns, content, leads, attribution and benchmark analytics" },
+  support: { title: "Support", subtitle: "Customer tickets, SLA operations and service quality" },
+  supply_chain: { title: "Supply Chain", subtitle: "Inventory flow, logistics and fulfillment control" },
+  procurement: { title: "Procurement", subtitle: "Purchase request lifecycle, spend and approvals" },
+  insights: { title: "Insights", subtitle: "Cross-module reporting, analytics and performance intelligence" },
   settings: { title: "Settings", subtitle: "Account, workspace and preferences" },
   marketplace: { title: "Marketplace", subtitle: "Integrations and add-ons" },
   legal: { title: "Legal", subtitle: "Legal research, contracts and compliance workflows" },
@@ -485,6 +495,16 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
       <div style={{ flex: 1, overflowY: "auto" }}>
         {activeSection === "finance" ? (
           <FinancePage />
+        ) : activeSection === "sales" ? (
+          <SalesPage />
+        ) : activeSection === "support" ? (
+          <SupportPage />
+        ) : activeSection === "supply_chain" ? (
+          <SupplyChainPage />
+        ) : activeSection === "procurement" ? (
+          <ProcurementPage />
+        ) : activeSection === "insights" ? (
+          <InsightsPage />
         ) : activeSection === "hr" ? (
           <HRPage />
         ) : activeSection === "projects" ? (
