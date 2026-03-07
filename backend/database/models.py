@@ -931,6 +931,186 @@ class ChatAttachment(Base):
     message = relationship("ChatMessage", back_populates="attachments")
 
 
+# ── Internal Collaboration Chat Models ───────────────
+class InternalChatThread(Base):
+    __tablename__ = "internal_chat_threads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(String(100), nullable=False, index=True)
+    scope = Column(String(30), nullable=False, default="workspace_owner", index=True)  # workspace_owner | direct
+    title = Column(String(255), nullable=False)
+    created_by_user_id = Column(String(120), nullable=False, index=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+    participants = relationship(
+        "InternalChatParticipant",
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InternalChatParticipant.id.asc()",
+    )
+    messages = relationship(
+        "InternalChatMessage",
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InternalChatMessage.created_at.asc()",
+    )
+
+
+class InternalChatParticipant(Base):
+    __tablename__ = "internal_chat_participants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(String(120), nullable=False, index=True)
+    email = Column(String(255), nullable=True)
+    display_name = Column(String(120), nullable=False, default="User")
+    role = Column(String(40), nullable=False, default="client")  # client | employee | team_member | super_admin
+    joined_at = Column(DateTime, default=func.now())
+    last_read_at = Column(DateTime, nullable=True)
+
+    thread = relationship("InternalChatThread", back_populates="participants")
+
+
+class InternalChatMessage(Base):
+    __tablename__ = "internal_chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sender_user_id = Column(String(120), nullable=False, index=True)
+    sender_name = Column(String(120), nullable=False, default="User")
+    sender_email = Column(String(255), nullable=True)
+    sender_role = Column(String(40), nullable=False, default="client")
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+    thread = relationship("InternalChatThread", back_populates="messages")
+    attachments = relationship(
+        "InternalChatAttachment",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InternalChatAttachment.id.asc()",
+    )
+
+
+class InternalChatAttachment(Base):
+    __tablename__ = "internal_chat_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(
+        Integer,
+        ForeignKey("internal_chat_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    file_name = Column(String(255), nullable=False)
+    mime_type = Column(String(120), nullable=True)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    storage_key = Column(String(600), nullable=False)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+    message = relationship("InternalChatMessage", back_populates="attachments")
+    thread = relationship("InternalChatThread")
+
+
+class InternalChatTask(Base):
+    __tablename__ = "internal_chat_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id = Column(String(100), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    notes = Column(Text, nullable=True)
+    due_at = Column(DateTime, nullable=True, index=True)
+    is_completed = Column(Boolean, nullable=False, default=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_by_user_id = Column(String(120), nullable=False, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+    thread = relationship("InternalChatThread")
+    reminders = relationship(
+        "InternalChatTaskReminder",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InternalChatTaskReminder.id.asc()",
+    )
+
+
+class InternalChatTaskReminder(Base):
+    __tablename__ = "internal_chat_task_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(
+        Integer,
+        ForeignKey("internal_chat_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id = Column(String(100), nullable=False, index=True)
+    remind_at = Column(DateTime, nullable=False, index=True)
+    sent_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+    task = relationship("InternalChatTask", back_populates="reminders")
+    thread = relationship("InternalChatThread")
+
+
+class InternalChatTelegramLink(Base):
+    __tablename__ = "internal_chat_telegram_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(String(100), nullable=False, index=True)
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(String(120), nullable=False, index=True)
+    user_role = Column(String(40), nullable=False, default="client")
+    telegram_chat_id = Column(String(80), nullable=False, index=True)
+    telegram_username = Column(String(120), nullable=True)
+    telegram_first_name = Column(String(120), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+    thread = relationship("InternalChatThread")
+
+
 # ── Marketplace Models ────────────────────────────────
 class PluginCategory(str, enum.Enum):
     finance = "finance"

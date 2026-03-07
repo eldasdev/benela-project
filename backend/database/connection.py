@@ -1,5 +1,5 @@
 import os
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit, SplitResult
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -18,12 +18,41 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_supabase_pooler(url: str) -> bool:
+    if not url.startswith("postgresql"):
+        return False
+    host = (urlsplit(url).hostname or "").lower()
+    return host.endswith(".pooler.supabase.com")
+
+
+def _use_supabase_tx_pooler() -> bool:
+    # Supabase session-mode pooler (5432) frequently hits max clients.
+    # Prefer transaction mode (6543) unless explicitly disabled.
+    return _env_bool("DB_SUPABASE_USE_TRANSACTION_POOLER", True)
+
+
+def _swap_port(parts: SplitResult, new_port: int) -> SplitResult:
+    host = parts.hostname or ""
+    if not host:
+        return parts
+    userinfo = ""
+    if parts.username:
+        userinfo = parts.username
+        if parts.password:
+            userinfo = f"{userinfo}:{parts.password}"
+        userinfo = f"{userinfo}@"
+    netloc = f"{userinfo}{host}:{new_port}"
+    return SplitResult(parts.scheme, netloc, parts.path, parts.query, parts.fragment)
+
+
 def _normalize_database_url(url: str) -> str:
     if not url:
         raise RuntimeError("DATABASE_URL is not configured")
     if not url.startswith("postgresql"):
         return url
     parts = urlsplit(url)
+    if _is_supabase_pooler(url) and (parts.port or 5432) == 5432 and _use_supabase_tx_pooler():
+        parts = _swap_port(parts, 6543)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     if "sslmode" not in query:
         query["sslmode"] = os.getenv("DB_SSLMODE", "require")
@@ -57,15 +86,16 @@ def _engine_kwargs(url: str) -> dict:
     if not url.startswith("postgresql"):
         return kwargs
 
-    if _env_bool("DB_USE_NULL_POOL", False):
+    use_null_pool = _env_bool("DB_USE_NULL_POOL", _is_supabase_pooler(url))
+    if use_null_pool:
         kwargs["poolclass"] = NullPool
         return kwargs
 
     kwargs.update(
         {
             "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "600")),
-            "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+            "pool_size": int(os.getenv("DB_POOL_SIZE", "2")),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "2")),
             "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "5")),
             "pool_use_lifo": _env_bool("DB_POOL_USE_LIFO", True),
         }

@@ -3870,6 +3870,64 @@ def get_chat_messages(db: Session, session_id: str, limit: int = 50):
     return list(reversed(rows))
 
 
+def list_chat_sessions(
+    db: Session,
+    section: str,
+    session_prefix: str,
+    limit: int = 50,
+):
+    """
+    List chat sessions for a section using a deterministic session_id prefix.
+    Returns latest activity first.
+    """
+    if not session_prefix:
+        return []
+
+    pattern = f"{session_prefix}%"
+    grouped = (
+        db.query(
+            ChatMessage.session_id.label("session_id"),
+            func.max(ChatMessage.id).label("last_id"),
+            func.max(ChatMessage.created_at).label("last_message_at"),
+            func.count(ChatMessage.id).label("message_count"),
+        )
+        .filter(
+            ChatMessage.section == section,
+            ChatMessage.session_id.like(pattern),
+        )
+        .group_by(ChatMessage.session_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            grouped.c.session_id,
+            grouped.c.last_message_at,
+            grouped.c.message_count,
+            ChatMessage.content.label("last_content"),
+        )
+        .join(ChatMessage, ChatMessage.id == grouped.c.last_id)
+        .order_by(grouped.c.last_message_at.desc(), grouped.c.last_id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    output = []
+    for row in rows:
+        content = (row.last_content or "").strip()
+        preview = content[:120]
+        output.append(
+            {
+                "session_id": row.session_id,
+                "section": section,
+                "last_message_preview": preview,
+                "last_message_at": row.last_message_at,
+                "message_count": int(row.message_count or 0),
+            }
+        )
+    return output
+
+
 def save_chat_message(
     db: Session,
     session_id: str,

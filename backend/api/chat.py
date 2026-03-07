@@ -9,6 +9,23 @@ from database import crud, schemas
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
+@router.get("/{section}/sessions", response_model=List[schemas.ChatSessionOut])
+def list_sessions(
+    section: str,
+    user_id: str = Query(..., description="Authenticated user id"),
+    workspace_id: str = Query("default-workspace", description="Workspace id"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    session_prefix = f"u:{user_id}:w:{workspace_id}:s:{section}:t:"
+    return crud.list_chat_sessions(
+        db,
+        section=section,
+        session_prefix=session_prefix,
+        limit=limit,
+    )
+
+
 @router.get("/{section}", response_model=List[schemas.ChatMessageOut])
 def get_chat_history(
     section: str,

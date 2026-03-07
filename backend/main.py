@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import threading
 from typing import Callable
 
 from fastapi import FastAPI
@@ -25,7 +26,9 @@ from api.marketplace import router as marketplace_router
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
 from api.notifications import router as notifications_router
-from database.connection import Base, engine
+from api.internal_chat import router as internal_chat_router
+from api.internal_chat import dispatch_due_reminders_job, process_telegram_bot_updates_job
+from database.connection import Base, engine, SessionLocal
 from database.models import (
     SalesProduct,
     SalesOrder,
@@ -46,6 +49,13 @@ from database.models import (
     LegalSearchLog,
     ChatMessage,
     ChatAttachment,
+    InternalChatThread,
+    InternalChatParticipant,
+    InternalChatMessage,
+    InternalChatAttachment,
+    InternalChatTask,
+    InternalChatTaskReminder,
+    InternalChatTelegramLink,
     AITrainerProfile,
     AITrainerSource,
     AITrainerChunk,
@@ -53,6 +63,9 @@ from database.models import (
 
 logger = logging.getLogger("uvicorn.error")
 _db_bootstrap_ok = False
+_reminder_worker_thread = None
+_reminder_worker_stop_event = threading.Event()
+_telegram_updates_offset = None
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -173,6 +186,23 @@ def _ensure_chat_schema():
     ChatAttachment.__table__.create(bind=engine, checkfirst=True)
 
 
+def _should_auto_create_internal_chat_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_INTERNAL_CHAT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_INTERNAL_CHAT_TABLES", True)
+    return True
+
+
+def _ensure_internal_chat_schema():
+    InternalChatThread.__table__.create(bind=engine, checkfirst=True)
+    InternalChatParticipant.__table__.create(bind=engine, checkfirst=True)
+    InternalChatMessage.__table__.create(bind=engine, checkfirst=True)
+    InternalChatAttachment.__table__.create(bind=engine, checkfirst=True)
+    InternalChatTask.__table__.create(bind=engine, checkfirst=True)
+    InternalChatTaskReminder.__table__.create(bind=engine, checkfirst=True)
+    InternalChatTelegramLink.__table__.create(bind=engine, checkfirst=True)
+
+
 def _should_auto_create_ai_trainer_tables() -> bool:
     raw = os.getenv("AUTO_CREATE_AI_TRAINER_TABLES")
     if raw is not None:
@@ -185,6 +215,39 @@ def _ensure_ai_trainer_schema():
     AITrainerProfile.__table__.create(bind=engine, checkfirst=True)
     AITrainerSource.__table__.create(bind=engine, checkfirst=True)
     AITrainerChunk.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_run_internal_chat_reminder_worker() -> bool:
+    raw = os.getenv("INTERNAL_CHAT_REMINDER_WORKER_ENABLED")
+    if raw is not None:
+        return _env_bool("INTERNAL_CHAT_REMINDER_WORKER_ENABLED", True)
+    return True
+
+
+def _internal_chat_reminder_worker_loop():
+    global _telegram_updates_offset
+    poll_seconds = max(15, int(os.getenv("INTERNAL_CHAT_REMINDER_POLL_SECONDS", "30")))
+    logger.info("Internal chat reminder worker started (interval=%ss).", poll_seconds)
+
+    while not _reminder_worker_stop_event.is_set():
+        db = SessionLocal()
+        try:
+            _telegram_updates_offset = process_telegram_bot_updates_job(db, _telegram_updates_offset)
+            processed = dispatch_due_reminders_job(db)
+            if processed or db.new or db.dirty or db.deleted:
+                db.commit()
+                if processed:
+                    logger.info("Internal chat reminder worker dispatched %s due reminder(s).", processed)
+            else:
+                db.rollback()
+        except Exception:
+            db.rollback()
+            logger.exception("Internal chat reminder worker failed during reminder dispatch")
+        finally:
+            db.close()
+
+        if _reminder_worker_stop_event.wait(poll_seconds):
+            break
 
 
 app = FastAPI(
@@ -224,6 +287,7 @@ app.include_router(marketplace_router)
 app.include_router(dashboard_router)
 app.include_router(chat_router)
 app.include_router(notifications_router)
+app.include_router(internal_chat_router)
 
 
 @app.on_event("startup")
@@ -279,6 +343,11 @@ def bootstrap_database():
             targeted_bootstraps.append(("chat", _ensure_chat_schema))
         else:
             logger.info("AUTO_CREATE_CHAT_TABLES disabled; skipping chat schema checks")
+
+        if _should_auto_create_internal_chat_tables():
+            targeted_bootstraps.append(("internal_chat", _ensure_internal_chat_schema))
+        else:
+            logger.info("AUTO_CREATE_INTERNAL_CHAT_TABLES disabled; skipping internal chat schema checks")
 
         if _should_auto_create_ai_trainer_tables():
             targeted_bootstraps.append(("ai_trainer", _ensure_ai_trainer_schema))
@@ -344,6 +413,36 @@ def bootstrap_database():
         "API will continue running and return 503 on DB-dependent routes.",
         retries,
     )
+
+
+@app.on_event("startup")
+def start_internal_chat_reminder_worker():
+    global _reminder_worker_thread
+
+    if not _should_run_internal_chat_reminder_worker():
+        logger.info("Internal chat reminder worker disabled by INTERNAL_CHAT_REMINDER_WORKER_ENABLED.")
+        return
+
+    if _reminder_worker_thread and _reminder_worker_thread.is_alive():
+        return
+
+    _reminder_worker_stop_event.clear()
+    _reminder_worker_thread = threading.Thread(
+        target=_internal_chat_reminder_worker_loop,
+        name="internal-chat-reminder-worker",
+        daemon=True,
+    )
+    _reminder_worker_thread.start()
+
+
+@app.on_event("shutdown")
+def stop_internal_chat_reminder_worker():
+    global _reminder_worker_thread
+
+    _reminder_worker_stop_event.set()
+    if _reminder_worker_thread and _reminder_worker_thread.is_alive():
+        _reminder_worker_thread.join(timeout=3)
+    _reminder_worker_thread = None
 
 
 @app.exception_handler(DBAPIError)

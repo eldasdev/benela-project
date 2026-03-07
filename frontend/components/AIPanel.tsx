@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Section } from "@/types";
+import { getSupabase } from "@/lib/supabase";
+import { getClientWorkspaceId } from "@/lib/client-settings";
 import {
   X,
   Send,
@@ -810,6 +812,14 @@ interface ChatThread {
   updatedAt: string;
 }
 
+interface RemoteChatSession {
+  session_id: string;
+  section: Section;
+  last_message_preview: string;
+  last_message_at: string;
+  message_count: number;
+}
+
 const MODEL_OPTIONS: AssistantModelOption[] = [
   {
     id: "claude-haiku-4-5-20251001",
@@ -856,7 +866,6 @@ const MODEL_OPTIONS: AssistantModelOption[] = [
 ];
 
 const DEFAULT_MODEL: AssistantModelId = "claude-haiku-4-5-20251001";
-const CHAT_SEED_STORAGE_KEY = "benela_ai_chat_seed_v1";
 const THREADS_STORAGE_PREFIX = "benela_ai_threads_v1";
 const ACTIVE_THREAD_STORAGE_PREFIX = "benela_ai_active_thread_v1";
 const MAX_FILE_ATTACHMENTS = 5;
@@ -906,24 +915,38 @@ const SECTION_OPTIONS = (Object.keys(SECTION_CONTEXT) as Section[]).map((value) 
   label: SECTION_CONTEXT[value].label,
 }));
 
-const threadStorageKey = (section: Section) => `${THREADS_STORAGE_PREFIX}_${section}`;
-const activeThreadStorageKey = (section: Section) => `${ACTIVE_THREAD_STORAGE_PREFIX}_${section}`;
+const storageIdentityKey = (userId: string, workspaceId: string): string =>
+  `${userId || "anon"}__${workspaceId || "default-workspace"}`;
 
-const getChatSeed = (): string => {
-  if (typeof window === "undefined") return "local-seed";
-  let seed = localStorage.getItem(CHAT_SEED_STORAGE_KEY);
-  if (!seed) {
-    seed = Math.random().toString(36).slice(2, 12);
-    localStorage.setItem(CHAT_SEED_STORAGE_KEY, seed);
-  }
-  return seed;
-};
+const threadStorageKey = (section: Section, identity: string) =>
+  `${THREADS_STORAGE_PREFIX}_${identity}_${section}`;
+const activeThreadStorageKey = (section: Section, identity: string) =>
+  `${ACTIVE_THREAD_STORAGE_PREFIX}_${identity}_${section}`;
 
 const makeThreadId = (): string =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-const buildSessionId = (section: Section, threadId: string): string =>
-  `${getChatSeed()}_${section}_${threadId}`;
+const buildSessionPrefix = (section: Section, userId: string, workspaceId: string): string =>
+  `u:${userId}:w:${workspaceId}:s:${section}:t:`;
+
+const buildSessionId = (
+  section: Section,
+  threadId: string,
+  userId?: string,
+  workspaceId?: string,
+): string => {
+  if (userId && workspaceId) {
+    return `${buildSessionPrefix(section, userId, workspaceId)}${threadId}`;
+  }
+  return `legacy:${section}:${threadId}`;
+};
+
+const parseThreadIdFromSessionId = (sessionId: string): string => {
+  const marker = ":t:";
+  const index = sessionId.lastIndexOf(marker);
+  if (index < 0) return sessionId;
+  return sessionId.slice(index + marker.length) || sessionId;
+};
 
 const defaultThreadTitle = (section: Section): string =>
   `${SECTION_CONTEXT[section]?.label ?? "Workspace"} Chat`;
@@ -937,13 +960,18 @@ const deriveThreadTitle = (input: string, fallback: string): string => {
   return normalized.length > 52 ? `${normalized.slice(0, 52)}...` : normalized;
 };
 
-const buildNewThread = (section: Section, model: AssistantModelId): ChatThread => {
+const buildNewThread = (
+  section: Section,
+  model: AssistantModelId,
+  userId?: string,
+  workspaceId?: string,
+): ChatThread => {
   const id = makeThreadId();
   const now = new Date().toISOString();
   return {
     id,
     section,
-    sessionId: buildSessionId(section, id),
+    sessionId: buildSessionId(section, id, userId, workspaceId),
     title: defaultThreadTitle(section),
     preview: "",
     model,
@@ -1041,10 +1069,10 @@ const buildPendingAttachment = async (file: File): Promise<PendingAttachment> =>
   };
 };
 
-const readStoredThreads = (section: Section): ChatThread[] => {
+const readStoredThreads = (section: Section, identity: string): ChatThread[] => {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(threadStorageKey(section));
+    const raw = localStorage.getItem(threadStorageKey(section, identity));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ChatThread[];
     return parsed
@@ -1063,25 +1091,28 @@ const readStoredThreads = (section: Section): ChatThread[] => {
   }
 };
 
-const writeStoredThreads = (section: Section, threads: ChatThread[]) => {
+const writeStoredThreads = (section: Section, identity: string, threads: ChatThread[]) => {
   if (typeof window === "undefined") return;
-  localStorage.setItem(threadStorageKey(section), JSON.stringify(threads));
+  localStorage.setItem(threadStorageKey(section, identity), JSON.stringify(threads));
 };
 
-const readStoredActiveThreadId = (section: Section): string | null => {
+const readStoredActiveThreadId = (section: Section, identity: string): string | null => {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(activeThreadStorageKey(section));
+  return localStorage.getItem(activeThreadStorageKey(section, identity));
 };
 
-const writeStoredActiveThreadId = (section: Section, threadId: string) => {
+const writeStoredActiveThreadId = (section: Section, identity: string, threadId: string) => {
   if (typeof window === "undefined") return;
-  localStorage.setItem(activeThreadStorageKey(section), threadId);
+  localStorage.setItem(activeThreadStorageKey(section, identity), threadId);
 };
 
 const findModelOption = (modelId: AssistantModelId): AssistantModelOption =>
   MODEL_OPTIONS.find((model) => model.id === modelId) ?? MODEL_OPTIONS[0];
 
 export default function AIPanel({ isOpen, section, onClose, onSectionChange }: Props) {
+  const [authUserId, setAuthUserId] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("default-workspace");
+  const [identityReady, setIdentityReady] = useState(false);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [threadsReady, setThreadsReady] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState("");
@@ -1114,6 +1145,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const ctx = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
   const selectedModel = findModelOption(model);
+  const storageIdentity = storageIdentityKey(authUserId, workspaceId);
 
   const filteredThreads = useMemo(() => {
     const query = threadSearch.trim().toLowerCase();
@@ -1240,10 +1272,58 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const ensureThread = (): ChatThread => {
     const existing = threadsRef.current.find((thread) => thread.id === activeThreadId);
     if (existing) return existing;
-    const created = buildNewThread(section, model);
+    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
     setThreads((prev) => sortThreads([created, ...prev]));
     setActiveThreadId(created.id);
     return created;
+  };
+
+  const loadRemoteThreads = async (
+    sectionName: Section,
+    userId: string,
+    workspace: string,
+    localThreads: ChatThread[],
+  ): Promise<ChatThread[]> => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const query = new URLSearchParams({
+      user_id: userId,
+      workspace_id: workspace,
+      limit: "120",
+    });
+    const res = await fetch(`${apiUrl}/chat/${sectionName}/sessions?${query.toString()}`);
+    if (!res.ok) {
+      throw new Error("Could not load cloud chat sessions.");
+    }
+    const remote = (await res.json()) as RemoteChatSession[];
+    const localBySession = new Map(localThreads.map((thread) => [thread.sessionId, thread]));
+    const remoteSessions = new Set(remote.map((item) => item.session_id));
+    const remotePrefix = buildSessionPrefix(sectionName, userId, workspace);
+
+    const hydrated = remote.map((item) => {
+      const local = localBySession.get(item.session_id);
+      const threadId = local?.id || parseThreadIdFromSessionId(item.session_id);
+      const fallbackTitle =
+        item.message_count > 0
+          ? deriveThreadTitle(item.last_message_preview, defaultThreadTitle(sectionName))
+          : defaultThreadTitle(sectionName);
+      return {
+        id: threadId,
+        section: sectionName,
+        sessionId: item.session_id,
+        title: local?.title || fallbackTitle,
+        preview: item.last_message_preview || local?.preview || "",
+        model: local?.model || DEFAULT_MODEL,
+        pinned: Boolean(local?.pinned),
+        createdAt: local?.createdAt || item.last_message_at || new Date().toISOString(),
+        updatedAt: item.last_message_at || local?.updatedAt || new Date().toISOString(),
+      } as ChatThread;
+    });
+
+    const unsyncedLocal = localThreads.filter(
+      (thread) => thread.sessionId.startsWith(remotePrefix) && !remoteSessions.has(thread.sessionId),
+    );
+
+    return sortThreads([...hydrated, ...unsyncedLocal]);
   };
 
   const loadHistory = async (thread: ChatThread) => {
@@ -1367,7 +1447,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     audioChunksRef.current = [];
     speechTranscriptRef.current = "";
     speechErrorRef.current = null;
-    const created = buildNewThread(section, model);
+    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
     setThreads((prev) => sortThreads([created, ...prev]));
     setActiveThreadId(created.id);
     setMessages([]);
@@ -1551,7 +1631,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
     const remaining = sortThreads(threadsRef.current.filter((thread) => thread.id !== threadId));
     if (!remaining.length) {
-      const fallback = buildNewThread(section, model);
+      const fallback = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
       setThreads([fallback]);
       setActiveThreadId(fallback.id);
       setMessages([]);
@@ -1808,6 +1888,27 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const { data } = await getSupabase().auth.getUser();
+        if (!mounted) return;
+        setAuthUserId(data.user?.id || "");
+      } catch {
+        if (!mounted) return;
+        setAuthUserId("");
+      } finally {
+        if (!mounted) return;
+        setWorkspaceId(getClientWorkspaceId() || "default-workspace");
+        setIdentityReady(true);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       clearReportUrls();
       stopMediaStream();
@@ -1822,7 +1923,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   }, [messages, historyLoading]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !identityReady) return;
+    let cancelled = false;
+
     setThreadsReady(false);
     setThreadSearch("");
     setInput("");
@@ -1840,35 +1943,67 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     speechErrorRef.current = null;
     clearReportUrls();
 
-    const stored = sortThreads(readStoredThreads(section));
-    const initialThreads = stored.length
-      ? stored
-      : [buildNewThread(section, DEFAULT_MODEL)];
-    const storedActiveId = readStoredActiveThreadId(section);
-    const nextActiveId =
-      storedActiveId && initialThreads.some((thread) => thread.id === storedActiveId)
-        ? storedActiveId
-        : initialThreads[0].id;
+    const init = async () => {
+      const storedRaw = sortThreads(readStoredThreads(section, storageIdentity));
+      const expectedPrefix =
+        authUserId && workspaceId ? buildSessionPrefix(section, authUserId, workspaceId) : "";
+      const stored = storedRaw.map((thread) => {
+        if (!expectedPrefix) return thread;
+        if (thread.sessionId.startsWith(expectedPrefix)) return thread;
+        return {
+          ...thread,
+          sessionId: buildSessionId(section, thread.id, authUserId, workspaceId),
+        };
+      });
+      let initialThreads = stored;
 
-    setThreads(initialThreads);
-    setActiveThreadId(nextActiveId);
-    setModel(initialThreads.find((thread) => thread.id === nextActiveId)?.model ?? DEFAULT_MODEL);
-    setThreadsReady(true);
-  }, [section, isOpen]);
+      if (authUserId) {
+        try {
+          const remote = await loadRemoteThreads(section, authUserId, workspaceId, stored);
+          if (remote.length) {
+            initialThreads = remote;
+          }
+        } catch {
+          // fallback to local cache
+        }
+      }
+
+      if (!initialThreads.length) {
+        initialThreads = [buildNewThread(section, DEFAULT_MODEL, authUserId || undefined, workspaceId || undefined)];
+      }
+
+      const storedActiveId = readStoredActiveThreadId(section, storageIdentity);
+      const nextActiveId =
+        storedActiveId && initialThreads.some((thread) => thread.id === storedActiveId)
+          ? storedActiveId
+          : initialThreads[0].id;
+
+      if (cancelled) return;
+      setThreads(initialThreads);
+      setActiveThreadId(nextActiveId);
+      setModel(initialThreads.find((thread) => thread.id === nextActiveId)?.model ?? DEFAULT_MODEL);
+      setThreadsReady(true);
+    };
+
+    void init();
+    return () => {
+      cancelled = true;
+    };
+  }, [section, isOpen, identityReady, storageIdentity, authUserId, workspaceId]);
 
   useEffect(() => {
     if (!isOpen || !threadsReady) return;
-    writeStoredThreads(section, threads);
-  }, [threads, section, isOpen, threadsReady]);
+    writeStoredThreads(section, storageIdentity, threads);
+  }, [threads, section, isOpen, threadsReady, storageIdentity]);
 
   useEffect(() => {
     if (!isOpen || !threadsReady || !activeThread) return;
-    writeStoredActiveThreadId(section, activeThread.id);
+    writeStoredActiveThreadId(section, storageIdentity, activeThread.id);
     setModel(activeThread.model);
     setPendingAttachments([]);
     setAttachmentNotice("");
     void loadHistory(activeThread);
-  }, [activeThread?.sessionId, activeThreadId, section, isOpen, threadsReady]);
+  }, [activeThread?.sessionId, activeThreadId, section, isOpen, threadsReady, storageIdentity]);
 
   return (
     <>

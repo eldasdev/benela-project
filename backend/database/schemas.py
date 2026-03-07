@@ -1271,6 +1271,154 @@ class ChatMessageOut(BaseModel):
         from_attributes = True
 
 
+class ChatSessionOut(BaseModel):
+    session_id: str
+    section: str
+    last_message_preview: str
+    last_message_at: datetime
+    message_count: int
+
+
+# ── Internal Collaboration Chat ───────────────────────
+class InternalChatThreadListQuery(BaseModel):
+    workspace_id: Optional[str] = None
+    user_id: str
+    user_role: str = "client"
+    limit: int = 50
+
+
+class InternalChatBridgeOpen(BaseModel):
+    workspace_id: str
+    requester_user_id: str
+    requester_email: Optional[str] = None
+    requester_name: Optional[str] = None
+    requester_role: str = "client"
+
+
+class InternalChatDirectCreate(BaseModel):
+    workspace_id: str
+    requester_user_id: str
+    requester_email: Optional[str] = None
+    requester_name: Optional[str] = None
+    requester_role: str = "client"
+    target_user_id: str
+    target_email: Optional[str] = None
+    target_name: Optional[str] = None
+    target_role: str = "team_member"
+    title: Optional[str] = None
+
+
+class InternalChatMessageCreate(BaseModel):
+    sender_user_id: str
+    sender_email: Optional[str] = None
+    sender_name: Optional[str] = None
+    sender_role: str = "client"
+    body: str
+
+
+class InternalChatAttachmentOut(BaseModel):
+    id: int
+    thread_id: int
+    file_name: str
+    mime_type: Optional[str]
+    size_bytes: int
+    created_at: datetime
+    download_url: str
+
+
+class InternalChatParticipantOut(BaseModel):
+    user_id: str
+    email: Optional[str]
+    display_name: str
+    role: str
+
+
+class InternalChatMessageOut(BaseModel):
+    id: int
+    thread_id: int
+    sender_user_id: str
+    sender_name: str
+    sender_email: Optional[str]
+    sender_role: str
+    body: str
+    attachments: list[InternalChatAttachmentOut] = Field(default_factory=list)
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InternalChatThreadOut(BaseModel):
+    id: int
+    workspace_id: str
+    scope: str
+    title: str
+    participants: list[InternalChatParticipantOut] = Field(default_factory=list)
+    last_message_preview: Optional[str] = None
+    last_message_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InternalChatTaskCreate(BaseModel):
+    title: str
+    notes: Optional[str] = None
+    due_at: Optional[datetime] = None
+    creator_user_id: str
+    creator_name: Optional[str] = None
+    creator_email: Optional[str] = None
+    creator_role: str = "client"
+
+
+class InternalChatTaskPatch(BaseModel):
+    is_completed: bool
+    user_id: str
+    user_role: str = "client"
+
+
+class InternalChatTaskOut(BaseModel):
+    id: int
+    thread_id: int
+    workspace_id: str
+    title: str
+    notes: Optional[str]
+    due_at: Optional[datetime]
+    is_completed: bool
+    completed_at: Optional[datetime]
+    created_by_user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InternalChatTelegramLinkCreate(BaseModel):
+    user_id: str
+    user_role: str = "client"
+    telegram_chat_id: str
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
+
+
+class InternalChatTelegramLinkOut(BaseModel):
+    id: int
+    workspace_id: str
+    thread_id: int
+    user_id: str
+    user_role: str
+    telegram_chat_id: str
+    telegram_username: Optional[str]
+    telegram_first_name: Optional[str]
+    is_active: bool
+    last_seen_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Client Notification Feed ──────────────────────────
 class ClientNotificationOut(BaseModel):
     id: int
