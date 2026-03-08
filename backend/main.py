@@ -75,6 +75,26 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _cors_origins() -> list[str]:
+    defaults = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://benela.dev",
+        "https://www.benela.dev",
+        "https://benela-frontend-vtjir.ondigitalocean.app",
+    ]
+    extra_raw = os.getenv("CORS_ALLOW_ORIGINS", "")
+    extra = [item.strip() for item in extra_raw.replace(";", ",").split(",") if item.strip()]
+    seen: set[str] = set()
+    merged: list[str] = []
+    for value in [*defaults, *extra]:
+        if value in seen:
+            continue
+        seen.add(value)
+        merged.append(value)
+    return merged
+
+
 def _should_auto_create_tables() -> bool:
     raw = os.getenv("AUTO_CREATE_TABLES")
     if raw is not None:
@@ -259,12 +279,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://benela.dev",
-        "https://www.benela.dev",
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

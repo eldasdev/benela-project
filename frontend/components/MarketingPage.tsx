@@ -16,7 +16,7 @@ import {
   DollarSign,
 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 const inputStyle = {
   width: "100%",

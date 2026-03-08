@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, ChevronLeft, Calendar, User } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 type View = "projects_list" | "kanban_board";
 

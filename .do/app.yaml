@@ -26,7 +26,7 @@ services:
       - path: /
     envs:
       - key: NEXT_PUBLIC_API_URL
-        value: https://api.benela.dev
+        value: /api
 
 domains:
   - domain: benela.dev

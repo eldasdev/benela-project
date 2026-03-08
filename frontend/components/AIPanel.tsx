@@ -1229,7 +1229,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   };
 
   const transcribeAudioBlob = async (blob: Blob) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
     const extension = blob.type.includes("mp4") ? "m4a" : "webm";
     const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
       type: blob.type || "audio/webm",
@@ -1284,7 +1284,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     workspace: string,
     localThreads: ChatThread[],
   ): Promise<ChatThread[]> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
     const query = new URLSearchParams({
       user_id: userId,
       workspace_id: workspace,
@@ -1331,7 +1331,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setHistoryLoading(true);
     setMessages([]);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
       const res = await fetch(
         `${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}&limit=100`,
       );
@@ -1389,7 +1389,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     assistantText: string,
     attachments: MessageAttachment[] = [],
   ) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
     await fetch(`${apiUrl}/chat/${section}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1422,7 +1422,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     const thread = activeThread;
     if (!thread) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
       await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}`, {
         method: "DELETE",
       });
@@ -1621,7 +1621,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     if (!approved) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
       await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(target.sessionId)}`, {
         method: "DELETE",
       });
@@ -1684,7 +1684,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setPdfNotice("");
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
       const readAgentDiagnostics = async () => {
         try {
           const healthRes = await fetch(`${apiUrl}/agents/health`);

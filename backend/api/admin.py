@@ -1,8 +1,10 @@
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from database.connection import get_db
 from database import admin_schemas
@@ -10,6 +12,9 @@ from database import admin_crud as crud
 from database.models import PlanStatus, PaymentStatus
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+_SUMMARY_CACHE_TTL_SECONDS = 45
+_summary_cache: dict[str, object] = {"updated_monotonic": 0.0, "payload": None}
 
 
 class SendNotificationBody(BaseModel):
@@ -26,7 +31,22 @@ class AITrainerContextPreviewBody(BaseModel):
 # ── Overview ──────────────────────────────────────────
 @router.get("/summary")
 def admin_summary(db: Session = Depends(get_db)):
-    return crud.get_platform_summary(db)
+    now = time.monotonic()
+    cached = _summary_cache.get("payload")
+    updated_monotonic = float(_summary_cache.get("updated_monotonic") or 0.0)
+
+    if cached and (now - updated_monotonic) < _SUMMARY_CACHE_TTL_SECONDS:
+        return cached
+
+    try:
+        payload = crud.get_platform_summary(db)
+        _summary_cache["payload"] = payload
+        _summary_cache["updated_monotonic"] = now
+        return payload
+    except SQLAlchemyError:
+        if cached:
+            return cached
+        raise
 
 
 # ── Clients ───────────────────────────────────────────

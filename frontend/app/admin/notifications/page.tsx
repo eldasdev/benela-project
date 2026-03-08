@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Megaphone, RefreshCcw, Send, Trash2 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 type NotificationType = "info" | "warning" | "success" | "critical";
 type NotificationTarget = "all" | "plan_tier" | "specific";

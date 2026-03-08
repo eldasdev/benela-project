@@ -19,7 +19,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _is_supabase_pooler(url: str) -> bool:
-    if not url.startswith("postgresql"):
+    if not (url.startswith("postgresql") or url.startswith("postgres://")):
         return False
     host = (urlsplit(url).hostname or "").lower()
     return host.endswith(".pooler.supabase.com")
@@ -48,6 +48,8 @@ def _swap_port(parts: SplitResult, new_port: int) -> SplitResult:
 def _normalize_database_url(url: str) -> str:
     if not url:
         raise RuntimeError("DATABASE_URL is not configured")
+    if url.startswith("postgres://"):
+        url = f"postgresql://{url[len('postgres://') :]}"
     if not url.startswith("postgresql"):
         return url
     parts = urlsplit(url)
@@ -62,7 +64,7 @@ def _normalize_database_url(url: str) -> str:
 def _build_connect_args(url: str) -> dict:
     if url.startswith("postgresql"):
         connect_args = {
-            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "5")),
+            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "3")),
             "keepalives": 1,
             "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE", "30")),
             "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL", "10")),
@@ -86,18 +88,27 @@ def _engine_kwargs(url: str) -> dict:
     if not url.startswith("postgresql"):
         return kwargs
 
-    use_null_pool = _env_bool("DB_USE_NULL_POOL", _is_supabase_pooler(url))
+    # Default to QueuePool so one app instance does not open an unbounded number
+    # of short-lived DB sessions under load.
+    use_null_pool = _env_bool("DB_USE_NULL_POOL", False)
     if use_null_pool:
         kwargs["poolclass"] = NullPool
         return kwargs
 
+    default_pool_size = "2"
+    default_max_overflow = "1"
+    if not _is_supabase_pooler(url):
+        default_pool_size = "5"
+        default_max_overflow = "5"
+
     kwargs.update(
         {
             "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "600")),
-            "pool_size": int(os.getenv("DB_POOL_SIZE", "2")),
-            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "2")),
-            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "5")),
+            "pool_size": int(os.getenv("DB_POOL_SIZE", default_pool_size)),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", default_max_overflow)),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "4")),
             "pool_use_lifo": _env_bool("DB_POOL_USE_LIFO", True),
+            "pool_reset_on_return": "rollback",
         }
     )
     return kwargs

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Link2, Pencil, Plus, RefreshCcw, XCircle } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 type PlanTier = "trial" | "starter" | "pro" | "enterprise";
 type PlanStatus = "active" | "expired" | "cancelled" | "suspended" | "trial";

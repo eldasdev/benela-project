@@ -109,7 +109,7 @@ type InternalChatTelegramLink = {
   updated_at: string;
 };
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 const JUDITH_ASSISTANT_USER_ID = "judith-ai";
 const TELEGRAM_BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "judith_aibot").replace("@", "");
 const REFRESH_INTERVAL_MS = 30000;

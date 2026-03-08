@@ -31,7 +31,7 @@ import LegalPage from "./LegalPage";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 interface Props {
   activeSection: Section;

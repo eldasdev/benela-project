@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, X, TrendingUp, TrendingDown, Headset, Clock3, AlertTriangle } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 const inputStyle = {
   width: "100%",

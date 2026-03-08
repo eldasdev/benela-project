@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 const NAV = [
   { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ShoppingCart, Search, PlugZap, ToggleLeft, ToggleRight } from "lucide-react";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
 type PluginCategory =
   | "finance"
