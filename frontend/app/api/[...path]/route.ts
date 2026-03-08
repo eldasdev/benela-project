@@ -40,6 +40,8 @@ function prepareHeaders(request: NextRequest): Headers {
   headers.delete("host");
   headers.delete("connection");
   headers.delete("content-length");
+  // Let upstream decide transfer encoding; avoid mismatched compressed payload handling.
+  headers.delete("accept-encoding");
   return headers;
 }
 
@@ -58,10 +60,18 @@ async function forward(request: NextRequest, path: string[], method: ForwardMeth
   }
 
   const upstream = await fetch(target, init);
+  const responseHeaders = new Headers(upstream.headers);
+  // Node fetch may return a decoded body while preserving upstream encoding headers.
+  // Drop hop-by-hop / payload-size headers to prevent browser decode failures.
+  responseHeaders.delete("content-encoding");
+  responseHeaders.delete("content-length");
+  responseHeaders.delete("transfer-encoding");
+  responseHeaders.delete("connection");
+
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: upstream.headers,
+    headers: responseHeaders,
   });
 }
 
