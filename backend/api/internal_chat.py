@@ -495,8 +495,76 @@ def _parse_relative_due_at(text: str) -> datetime | None:
     return local_value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _parse_time_only_due_at(text: str) -> datetime | None:
+    lowered = text.lower()
+
+    # If date context is already explicit, relative parser should handle it.
+    if re.search(r"\b(today|tomorrow|day after tomorrow|bugun|ertaga|indin)\b", lowered):
+        return None
+    if re.search(r"\b(?:due|deadline)\b", lowered):
+        return None
+    if re.search(r"\b\d{4}-\d{2}-\d{2}\b", lowered):
+        return None
+
+    now_local = datetime.now(UZ_TZ)
+    hour: int | None = None
+    minute = 0
+
+    time_meridiem = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b", lowered)
+    time_24h = re.search(r"\b(\d{1,2}):(\d{2})\b", lowered)
+    time_contextual = re.search(r"(?:\bat\b|\bby\b|@|\bsoat\b)\s*(\d{1,2})(?::(\d{2}))?\b", lowered)
+
+    if time_meridiem:
+        hour = int(time_meridiem.group(1))
+        minute = int(time_meridiem.group(2) or "0")
+        meridiem = time_meridiem.group(3).lower().replace(".", "")
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+    elif time_24h:
+        hour = int(time_24h.group(1))
+        minute = int(time_24h.group(2))
+    elif time_contextual:
+        hour = int(time_contextual.group(1))
+        minute = int(time_contextual.group(2) or "0")
+
+    if hour is None:
+        return None
+
+    hour = min(23, max(0, hour))
+    minute = min(59, max(0, minute))
+
+    local_candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    # If today's time has already passed, schedule for the next day.
+    if local_candidate <= (now_local - timedelta(minutes=2)):
+        local_candidate = local_candidate + timedelta(days=1)
+
+    return local_candidate.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _extract_due_at(text: str) -> datetime | None:
-    return _parse_due_at_from_text(text) or _parse_relative_due_at(text)
+    return _parse_due_at_from_text(text) or _parse_relative_due_at(text) or _parse_time_only_due_at(text)
+
+
+def _has_time_hint(text: str) -> bool:
+    lowered = text.lower()
+    return bool(
+        re.search(
+            r"\b(\d{1,2}:\d{2}|\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)|(?:at|by|@|soat)\s*\d{1,2})\b",
+            lowered,
+        )
+    )
+
+
+def _looks_like_commitment(text: str) -> bool:
+    lowered = text.lower()
+    return bool(
+        re.search(
+            r"\b(i|we)\s+(will|need to|have to|must|should|plan to|going to)\b",
+            lowered,
+        )
+    )
 
 
 def _extract_checklist_items(text: str) -> list[str]:
@@ -1049,9 +1117,42 @@ def _process_judith_instruction(
             r"\b(mark|schedule|set|create|add|note|remember|remind|plan|book|assign|vazifa|uchrashuv|eslat)\b",
             lowered,
         )
-    ) or any(keyword in lowered for keyword in {"meeting", "appointment", "deadline", "checklist"})
+    ) or any(
+        keyword in lowered
+        for keyword in {
+            "meeting",
+            "meet",
+            "appointment",
+            "deadline",
+            "checklist",
+            "interview",
+            "call",
+            "sync",
+            "standup",
+            "review",
+            "demo",
+            "presentation",
+            "lunch",
+            "dinner",
+            "breakfast",
+            "reminder",
+        }
+    )
     numeric_match = re.search(r"\b(\d{1,2})\s+tasks?\b", lowered)
-    has_action_intent = bool(due_at or explicit_action or numeric_match)
+    commitment = _looks_like_commitment(text)
+    has_action_intent = bool(due_at or explicit_action or numeric_match or commitment or _has_time_hint(text))
+
+    if "?" in text and not explicit_action and not numeric_match and not commitment:
+        suggested = _suggest_judith_response_for_question(db, thread, text)
+        if suggested:
+            _create_judith_message(db, thread_id=thread.id, body=suggested)
+            return True
+        _create_judith_message(
+            db,
+            thread_id=thread.id,
+            body="Noted. Add action + time, e.g. 'tomorrow 10 am meeting with clients'.",
+        )
+        return True
 
     if not has_action_intent:
         suggested = _suggest_judith_response_for_question(db, thread, text)
