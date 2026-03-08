@@ -76,6 +76,7 @@ export default function DashboardPage() {
 
   return (
     <div
+      className="platform-glass-app"
       style={{
         display: "flex",
         height: "100vh",

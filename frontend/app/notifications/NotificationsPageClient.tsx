@@ -176,7 +176,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-canvas)" }}>
+    <div className="platform-glass-app" style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-canvas)" }}>
       <Sidebar onSectionChange={handleSectionChange} onLogout={handleLogout} />
 
       <main style={{ flex: 1, overflowY: "auto" }}>

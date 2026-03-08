@@ -286,23 +286,33 @@ app.add_middleware(
 )
 
 # Register routes
-app.include_router(agents_router, prefix="/agents", tags=["Agents"])
-app.include_router(finance_router, tags=["Finance"])
-app.include_router(sales_router)
-app.include_router(support_router)
-app.include_router(supply_chain_router)
-app.include_router(procurement_router)
-app.include_router(insights_router)
-app.include_router(hr_router, tags=["HR"])
-app.include_router(projects_router, tags=["Projects"])
-app.include_router(marketing_router)
-app.include_router(legal_router)
-app.include_router(admin_router)
-app.include_router(marketplace_router)
-app.include_router(dashboard_router)
-app.include_router(chat_router)
-app.include_router(notifications_router)
-app.include_router(internal_chat_router)
+def _register_routes(prefix: str = ""):
+    """
+    Register all API routers under the given prefix.
+    We expose both root routes (e.g. /dashboard/overview) and prefixed routes
+    (e.g. /api/dashboard/overview) to support cloud reverse-proxy setups.
+    """
+    app.include_router(agents_router, prefix=f"{prefix}/agents", tags=["Agents"])
+    app.include_router(finance_router, prefix=prefix, tags=["Finance"])
+    app.include_router(sales_router, prefix=prefix)
+    app.include_router(support_router, prefix=prefix)
+    app.include_router(supply_chain_router, prefix=prefix)
+    app.include_router(procurement_router, prefix=prefix)
+    app.include_router(insights_router, prefix=prefix)
+    app.include_router(hr_router, prefix=prefix, tags=["HR"])
+    app.include_router(projects_router, prefix=prefix, tags=["Projects"])
+    app.include_router(marketing_router, prefix=prefix)
+    app.include_router(legal_router, prefix=prefix)
+    app.include_router(admin_router, prefix=prefix)
+    app.include_router(marketplace_router, prefix=prefix)
+    app.include_router(dashboard_router, prefix=prefix)
+    app.include_router(chat_router, prefix=prefix)
+    app.include_router(notifications_router, prefix=prefix)
+    app.include_router(internal_chat_router, prefix=prefix)
+
+
+_register_routes("")
+_register_routes("/api")
 
 
 @app.on_event("startup")

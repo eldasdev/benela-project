@@ -370,6 +370,113 @@ html[data-theme="arctic"] {
   --marketing-hero-chip-shadow: 0 14px 28px rgba(15, 23, 42, 0.1);
   --marketing-hero-partner-caption: rgba(71, 98, 143, 0.72);
   --marketing-hero-partner-text: rgba(30, 52, 88, 0.82);
+  --glass-panel-bg: rgba(250, 253, 255, 0.78);
+  --glass-surface-bg: rgba(255, 255, 255, 0.72);
+  --glass-elevated-bg: rgba(241, 247, 255, 0.72);
+  --glass-border: rgba(148, 179, 223, 0.46);
+  --glass-border-soft: rgba(148, 179, 223, 0.32);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 24px 58px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --glass-control-shadow: 0 10px 28px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+:root {
+  --glass-panel-bg: rgba(14, 14, 18, 0.72);
+  --glass-surface-bg: rgba(20, 20, 26, 0.68);
+  --glass-elevated-bg: rgba(28, 29, 38, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-soft: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 26px 58px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-control-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-blur: 16px;
+  --glass-saturate: 138%;
+}
+
+html[data-theme="graphite"] {
+  --glass-panel-bg: rgba(18, 27, 40, 0.74);
+  --glass-surface-bg: rgba(24, 35, 50, 0.68);
+  --glass-elevated-bg: rgba(33, 47, 68, 0.62);
+  --glass-border: rgba(163, 191, 235, 0.24);
+  --glass-border-soft: rgba(163, 191, 235, 0.16);
+  --glass-highlight: rgba(223, 235, 255, 0.24);
+  --glass-shadow: 0 26px 58px rgba(8, 14, 28, 0.44), inset 0 1px 0 rgba(221, 236, 255, 0.08);
+  --glass-control-shadow: 0 10px 28px rgba(7, 13, 25, 0.34), inset 0 1px 0 rgba(223, 236, 255, 0.1);
+}
+
+html[data-theme="emerald"] {
+  --glass-panel-bg: rgba(13, 27, 21, 0.74);
+  --glass-surface-bg: rgba(19, 37, 29, 0.68);
+  --glass-elevated-bg: rgba(28, 50, 40, 0.62);
+  --glass-border: rgba(123, 221, 174, 0.24);
+  --glass-border-soft: rgba(123, 221, 174, 0.16);
+  --glass-highlight: rgba(224, 255, 240, 0.2);
+  --glass-shadow: 0 26px 58px rgba(5, 18, 12, 0.44), inset 0 1px 0 rgba(225, 255, 241, 0.07);
+  --glass-control-shadow: 0 10px 28px rgba(5, 18, 12, 0.34), inset 0 1px 0 rgba(225, 255, 241, 0.08);
+}
+
+.platform-glass-app {
+  --bg-panel: var(--glass-panel-bg);
+  --bg-surface: var(--glass-surface-bg);
+  --bg-elevated: var(--glass-elevated-bg);
+  --border-default: var(--glass-border);
+  --border-soft: var(--glass-border-soft);
+  position: relative;
+  isolation: isolate;
+}
+
+.platform-glass-app::before,
+.platform-glass-app::after {
+  content: "";
+  position: absolute;
+  inset: auto;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.platform-glass-app::before {
+  top: -18%;
+  right: -12%;
+  width: min(54vw, 700px);
+  height: min(54vw, 700px);
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 32%, transparent) 0%, transparent 70%);
+  opacity: 0.42;
+}
+
+.platform-glass-app::after {
+  bottom: -28%;
+  left: -16%;
+  width: min(46vw, 620px);
+  height: min(46vw, 620px);
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 30%, transparent) 0%, transparent 72%);
+  opacity: 0.34;
+}
+
+.platform-glass-app > * {
+  position: relative;
+  z-index: 1;
+}
+
+.platform-glass-app [style*="var(--bg-panel)"],
+.platform-glass-app [style*="var(--bg-surface)"],
+.platform-glass-app [style*="var(--bg-elevated)"] {
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow);
+}
+
+.platform-glass-app button[style*="var(--bg-surface)"],
+.platform-glass-app button[style*="var(--bg-elevated)"],
+.platform-glass-app button[style*="var(--accent-soft)"],
+.platform-glass-app input[style*="var(--bg-surface)"],
+.platform-glass-app input[style*="var(--bg-elevated)"],
+.platform-glass-app select[style*="var(--bg-surface)"],
+.platform-glass-app select[style*="var(--bg-elevated)"],
+.platform-glass-app textarea[style*="var(--bg-surface)"],
+.platform-glass-app textarea[style*="var(--bg-elevated)"] {
+  box-shadow: var(--glass-control-shadow);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
