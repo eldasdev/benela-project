@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -45,6 +46,9 @@ UPLOAD_ROOT = Path(
     )
 )
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+_TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS = int(os.getenv("TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS", "300"))
+_telegram_conflict_last_logged_monotonic = 0.0
+_telegram_webhook_cleanup_attempted = False
 
 
 def _is_super_admin(role: str | None) -> bool:
@@ -169,6 +173,72 @@ def _telegram_api_post(token: str, method: str, payload: dict, timeout: int = 10
     except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, ValueError) as exc:
         return {"ok": False, "description": str(exc)}
     return {"ok": False, "description": "Invalid Telegram response"}
+
+
+def _telegram_api_get(token: str, method: str, timeout: int = 10) -> dict:
+    if not token:
+        return {"ok": False, "description": "Missing telegram bot token"}
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    req = urllib_request.Request(url=url, method="GET")
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+        parsed = json.loads(body or "{}")
+        if isinstance(parsed, dict):
+            return parsed
+    except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, ValueError) as exc:
+        return {"ok": False, "description": str(exc)}
+    return {"ok": False, "description": "Invalid Telegram response"}
+
+
+def _log_telegram_poll_conflict(message: str):
+    global _telegram_conflict_last_logged_monotonic
+    now = time.monotonic()
+    if (now - _telegram_conflict_last_logged_monotonic) < _TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS:
+        return
+    _telegram_conflict_last_logged_monotonic = now
+    logger.warning(message)
+
+
+def _handle_telegram_polling_conflict(token: str):
+    """
+    Handle Telegram 409 conflicts for getUpdates.
+    Common causes:
+    1) Existing webhook on the bot token.
+    2) Another process already polling getUpdates with the same token.
+    """
+    global _telegram_webhook_cleanup_attempted
+
+    webhook_url = ""
+    info = _telegram_api_get(token=token, method="getWebhookInfo")
+    if info.get("ok"):
+        webhook_url = str((info.get("result") or {}).get("url") or "").strip()
+
+    if webhook_url and not _telegram_webhook_cleanup_attempted:
+        _telegram_webhook_cleanup_attempted = True
+        delete_response = _telegram_api_post(
+            token=token,
+            method="deleteWebhook",
+            payload={"drop_pending_updates": False},
+        )
+        if delete_response.get("ok"):
+            _log_telegram_poll_conflict(
+                f"Telegram polling conflict resolved by deleting webhook ({webhook_url}). "
+                "Polling will continue on next cycle."
+            )
+            return
+        _log_telegram_poll_conflict(
+            "Telegram polling conflict detected and webhook cleanup failed. "
+            f"deleteWebhook response: {delete_response.get('description') or 'unknown error'}"
+        )
+        return
+
+    _log_telegram_poll_conflict(
+        "Telegram updates polling conflict (HTTP 409). "
+        "Another process is likely polling the same bot token. "
+        "Run only one poller or disable updates polling on secondary instances "
+        "with INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED=false."
+    )
 
 
 def _telegram_send_message(token: str, chat_id: str, text: str) -> bool:
@@ -311,7 +381,7 @@ def _build_telegram_start_instruction(chat_id: str) -> str:
 
 def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) -> int | None:
     token = (settings.TELEGRAM_BOT_TOKEN or "").strip()
-    if not token or not settings.INTERNAL_CHAT_TELEGRAM_ENABLED:
+    if not token or not settings.INTERNAL_CHAT_TELEGRAM_ENABLED or not settings.INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED:
         return last_update_id
 
     params = ["limit=50", "timeout=1"]
@@ -322,7 +392,13 @@ def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) ->
     try:
         with urllib_request.urlopen(req, timeout=12) as response:
             payload = json.loads(response.read().decode("utf-8", errors="ignore") or "{}")
-    except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, ValueError) as exc:
+    except urllib_error.HTTPError as exc:
+        if exc.code == 409:
+            _handle_telegram_polling_conflict(token)
+            return last_update_id
+        logger.warning("Telegram updates polling failed: %s", exc)
+        return last_update_id
+    except (urllib_error.URLError, TimeoutError, ValueError) as exc:
         logger.warning("Telegram updates polling failed: %s", exc)
         return last_update_id
 

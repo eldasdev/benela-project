@@ -16,5 +16,6 @@ class Settings:
     TELEGRAM_WORKSPACE_CHAT_IDS: str = os.getenv("TELEGRAM_WORKSPACE_CHAT_IDS", "")
     TELEGRAM_AUTO_DISCOVER_CHAT_IDS: bool = os.getenv("TELEGRAM_AUTO_DISCOVER_CHAT_IDS", "True") == "True"
     INTERNAL_CHAT_TELEGRAM_ENABLED: bool = os.getenv("INTERNAL_CHAT_TELEGRAM_ENABLED", "True") == "True"
+    INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED: bool = os.getenv("INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED", "True") == "True"
 
 settings = Settings()
