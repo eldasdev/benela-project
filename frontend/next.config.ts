@@ -1,8 +1,26 @@
 import type { NextConfig } from "next";
 
+function normalizeApiOrigin(value: string | undefined): string {
+  if (!value) return "";
+  return value.trim().replace(/\/+$/, "");
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  async rewrites() {
+    const apiOrigin = normalizeApiOrigin(process.env.API_PROXY_TARGET);
+    if (!apiOrigin || !/^https?:\/\//i.test(apiOrigin)) {
+      return [];
+    }
+
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiOrigin}/api/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {

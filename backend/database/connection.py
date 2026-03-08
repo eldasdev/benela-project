@@ -26,9 +26,18 @@ def _is_supabase_pooler(url: str) -> bool:
 
 
 def _use_supabase_tx_pooler() -> bool:
-    # Supabase session-mode pooler (5432) frequently hits max clients.
-    # Prefer transaction mode (6543) unless explicitly disabled.
-    return _env_bool("DB_SUPABASE_USE_TRANSACTION_POOLER", True)
+    """
+    Supabase session-mode pooler (5432) can hit max clients in production,
+    while some local/dev networks cannot reliably reach transaction mode (6543).
+    Default behavior:
+    - production: use transaction mode (6543)
+    - non-production: keep original URL port unless explicitly enabled
+    """
+    raw = os.getenv("DB_SUPABASE_USE_TRANSACTION_POOLER")
+    if raw is not None:
+        return _env_bool("DB_SUPABASE_USE_TRANSACTION_POOLER", False)
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
+    return app_env in {"production", "prod"}
 
 
 def _swap_port(parts: SplitResult, new_port: int) -> SplitResult:
@@ -64,7 +73,7 @@ def _normalize_database_url(url: str) -> str:
 def _build_connect_args(url: str) -> dict:
     if url.startswith("postgresql"):
         connect_args = {
-            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "3")),
+            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10")),
             "keepalives": 1,
             "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE", "30")),
             "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL", "10")),
@@ -106,7 +115,7 @@ def _engine_kwargs(url: str) -> dict:
             "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "600")),
             "pool_size": int(os.getenv("DB_POOL_SIZE", default_pool_size)),
             "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", default_max_overflow)),
-            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "4")),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
             "pool_use_lifo": _env_bool("DB_POOL_USE_LIFO", True),
             "pool_reset_on_return": "rollback",
         }

@@ -5,7 +5,7 @@ from datetime import datetime
 from html import unescape
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from sqlalchemy.orm import Session
@@ -38,6 +38,81 @@ _DOC_BADGE_RE = re.compile(r'<span class="badge[^"]*">(?P<text>.*?)</span>', re.
 _DOC_ID_RE = re.compile(r"/docs/(-?\d+)")
 _DOC_NUMBER_RE = re.compile(r"\b([A-ZА-Я0-9ЎҚҒҲʼ‘'`’\-]{2,}-\d+(?:-son)?)\b", re.IGNORECASE)
 _DATE_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
+_NON_WORD_RE = re.compile(r"[^a-z0-9а-яёўқғҳ]+", re.IGNORECASE)
+_MULTI_SPACE_RE = re.compile(r"\s+")
+
+_EN_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "into",
+    "about",
+    "under",
+    "over",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "when",
+    "where",
+    "how",
+    "why",
+    "legal",
+    "law",
+    "laws",
+    "code",
+    "requirements",
+    "requirement",
+    "contract",
+    "contracts",
+    "agreement",
+    "agreements",
+    "rules",
+    "regulation",
+    "regulations",
+    "compliance",
+    "company",
+    "client",
+    "clients",
+    "fixed",
+    "term",
+}
+
+_EN_UZ_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("labour code", "mehnat kodeksi"),
+    ("labor code", "mehnat kodeksi"),
+    ("fixed-term contracts", "muddatli mehnat shartnomasi"),
+    ("fixed-term contract", "muddatli mehnat shartnomasi"),
+    ("fixed term contracts", "muddatli mehnat shartnomasi"),
+    ("fixed term contract", "muddatli mehnat shartnomasi"),
+    ("employment contract", "mehnat shartnomasi"),
+    ("employment contracts", "mehnat shartnomalari"),
+    ("tax code", "soliq kodeksi"),
+    ("civil code", "fuqarolik kodeksi"),
+    ("criminal code", "jinoyat kodeksi"),
+    ("banking law", "bank va banklar to'g'risidagi qonun"),
+    ("bank law", "bank va banklar to'g'risidagi qonun"),
+    ("requirements", "talablari"),
+    ("requirement", "talab"),
+    ("contracts", "shartnomalar"),
+    ("contract", "shartnoma"),
+)
+
+_EN_CONNECTORS_RE = re.compile(r"\b(for|of|in|on|with|about|the|a|an|to)\b", re.IGNORECASE)
+_DDG_RESULT_RE = re.compile(
+    r'<a[^>]+class="result__a"[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+_DDG_SNIPPET_RE = re.compile(
+    r'<a[^>]+class="result__snippet"[^>]*>(?P<snippet_a>.*?)</a>|'
+    r'<div[^>]+class="result__snippet"[^>]*>(?P<snippet_b>.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_DDG_UDDG_RE = re.compile(r"[?&]uddg=([^&]+)")
 
 
 def _clean_html(value: str) -> str:
@@ -294,31 +369,157 @@ class RemoteLexMinerSearchProvider:
             headers["X-Integration-API-Key"] = self.api_key
         return headers
 
-    def _normalize_item(self, raw: dict) -> dict:
+    def _extract_documents(self, payload: object) -> list[dict]:
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        if not isinstance(payload, dict):
+            return []
+
+        candidates: list[object] = [
+            payload.get("documents"),
+            payload.get("results"),
+            payload.get("items"),
+        ]
+        nested_data = payload.get("data")
+        if isinstance(nested_data, dict):
+            candidates.extend(
+                [
+                    nested_data.get("documents"),
+                    nested_data.get("results"),
+                    nested_data.get("items"),
+                ]
+            )
+
+        for rows in candidates:
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+        return []
+
+    def _coerce_title(self, raw: dict) -> str:
+        direct_title = raw.get("title")
+        if isinstance(direct_title, str) and direct_title.strip():
+            return direct_title.strip()
+        if isinstance(direct_title, dict):
+            for key in ("uz", "uz_lat", "ru", "en"):
+                value = direct_title.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            for value in direct_title.values():
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        for key in ("title_uz", "title_ru", "name"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return "Untitled legal document"
+
+    def _coerce_category(self, raw: dict) -> str:
         raw_category = raw.get("category")
         if isinstance(raw_category, list):
-            category = str(raw_category[0]) if raw_category else "general"
-        else:
-            category = str(raw_category or "general")
+            if raw_category and isinstance(raw_category[0], str):
+                return raw_category[0]
+        elif isinstance(raw_category, str) and raw_category.strip():
+            return raw_category.strip()
 
-        title = (
-            raw.get("title")
-            or raw.get("title_uz")
-            or raw.get("title_ru")
-            or raw.get("name")
-            or "Untitled legal document"
-        )
+        raw_categories = raw.get("categories")
+        if isinstance(raw_categories, list):
+            for item in raw_categories:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+
+        raw_doc_type = raw.get("doc_type")
+        if isinstance(raw_doc_type, str) and raw_doc_type.strip():
+            return raw_doc_type.strip()
+
+        return "general"
+
+    def _keyword_query(self, query: str, max_terms: int = 4) -> str:
+        lowered = _MULTI_SPACE_RE.sub(" ", _NON_WORD_RE.sub(" ", query.lower())).strip()
+        if not lowered:
+            return ""
+
+        tokens = [token for token in lowered.split(" ") if len(token) >= 3 and token not in _EN_STOPWORDS]
+        if not tokens:
+            return ""
+        return " ".join(tokens[:max_terms])
+
+    def _is_probably_english(self, query: str) -> bool:
+        letters = [ch for ch in query if ch.isalpha()]
+        if not letters:
+            return False
+        latin_count = sum(1 for ch in letters if "a" <= ch.lower() <= "z")
+        return (latin_count / len(letters)) >= 0.65
+
+    def _translate_query_to_uz_hint(self, query: str) -> str:
+        lowered = f" {query.lower()} "
+        translated = lowered
+        for source_phrase, target_phrase in _EN_UZ_REPLACEMENTS:
+            translated = translated.replace(source_phrase, target_phrase)
+        translated = _EN_CONNECTORS_RE.sub(" ", translated)
+        translated = _MULTI_SPACE_RE.sub(" ", translated).strip()
+        return translated
+
+    def _query_candidates(self, query: str, category: str | None = None) -> list[str]:
+        candidates: list[str] = []
+
+        def add_candidate(value: str):
+            candidate = value.strip()
+            if len(candidate) < 2:
+                return
+            if candidate.lower() in {item.lower() for item in candidates}:
+                return
+            candidates.append(candidate)
+
+        add_candidate(query)
+
+        lowered = query.strip().lower()
+        if ("labor code" in lowered or "labour code" in lowered) and ("fixed-term" in lowered or "fixed term" in lowered):
+            add_candidate("mehnat kodeksi muddatli mehnat shartnomasi")
+        if ("employment contract" in lowered or "employment contracts" in lowered) and (
+            "fixed-term" in lowered or "fixed term" in lowered
+        ):
+            add_candidate("muddatli mehnat shartnomasi")
+        if "tax code" in lowered:
+            add_candidate("soliq kodeksi")
+        if "bank" in lowered and ("law" in lowered or "code" in lowered):
+            add_candidate("bank va banklar to'g'risidagi qonun")
+
+        translated = self._translate_query_to_uz_hint(query)
+        if translated and translated.lower() != query.strip().lower():
+            add_candidate(translated)
+
+        keyword_only = self._keyword_query(translated or query)
+        if keyword_only:
+            add_candidate(keyword_only)
+
+        category_hint = (category or "").strip().lower()
+        focused_category = "," not in category_hint and ";" not in category_hint and "/" not in category_hint
+        if focused_category:
+            if "labor" in category_hint or "mehnat" in category_hint:
+                add_candidate("mehnat kodeksi muddatli mehnat shartnomasi")
+            elif "tax" in category_hint or "soliq" in category_hint:
+                add_candidate("soliq kodeksi")
+            elif "bank" in category_hint:
+                add_candidate("bank va banklar to'g'risidagi qonun")
+
+        return candidates[:5]
+
+    def _normalize_item(self, raw: dict) -> dict:
+        category = self._coerce_category(raw)
+        title = self._coerce_title(raw)
 
         return {
-            "id": raw.get("id"),
+            "id": raw.get("id") or raw.get("lex_id"),
             "title": title,
             "document_number": raw.get("document_number") or raw.get("doc_number") or raw.get("number"),
             "jurisdiction": raw.get("jurisdiction") or "Uzbekistan",
             "category": category,
             "source": raw.get("source") or "lex_uz",
-            "source_url": raw.get("source_url") or raw.get("url"),
+            "source_url": raw.get("source_url") or raw.get("url") or raw.get("lex_url"),
             "published_at": raw.get("published_at") or raw.get("adoption_date") or raw.get("date"),
-            "excerpt": raw.get("excerpt") or raw.get("summary"),
+            "excerpt": raw.get("excerpt") or raw.get("summary") or raw.get("snippet"),
             "relevance_score": float(raw.get("relevance_score") or raw.get("score") or 0),
         }
 
@@ -330,63 +531,338 @@ class RemoteLexMinerSearchProvider:
         source: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        params = {
-            "query": query,
-            "q": query,
-            "limit": max(1, min(limit, 100)),
-            "per_page": max(1, min(limit, 100)),
-            "status": "active",
-            "lang": "uz_lat",
-        }
-        if jurisdiction:
-            params["jurisdiction"] = jurisdiction
-        if category:
-            params["category"] = category
-        if source:
-            params["source"] = source
+        max_results = max(1, min(limit, 100))
+        query_candidates = self._query_candidates(query, category=category)
+        language_candidates = ["uz_lat", "ru"] if self._is_probably_english(query) else ["uz_lat", "ru"]
 
-        request_url = self._build_url(params)
-        req = Request(
-            request_url,
-            headers=self._request_headers(),
-            method="GET",
-        )
-        try:
-            with urlopen(req, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except Exception:
-            if self.live_fallback_enabled:
-                return self.live_provider.search(
-                    query=query,
-                    jurisdiction=jurisdiction,
-                    category=category,
-                    source=source,
-                    limit=params["limit"],
+        rows: list[dict] = []
+        seen: set[str] = set()
+        remote_errors: list[Exception] = []
+
+        for candidate_query in query_candidates:
+            for lang in language_candidates:
+                params = {
+                    "query": candidate_query,
+                    "q": candidate_query,
+                    "limit": max_results,
+                    "per_page": max_results,
+                    "status": "active",
+                    "lang": lang,
+                }
+                if jurisdiction:
+                    params["jurisdiction"] = jurisdiction
+                if category:
+                    params["category"] = category
+                if source:
+                    params["source"] = source
+
+                request_url = self._build_url(params)
+                req = Request(
+                    request_url,
+                    headers=self._request_headers(),
+                    method="GET",
                 )
-            raise
+                try:
+                    with urlopen(req, timeout=self.timeout_seconds) as response:
+                        payload = json.loads(response.read().decode("utf-8"))
+                except Exception as exc:
+                    remote_errors.append(exc)
+                    continue
 
-        if isinstance(payload, list):
-            docs = payload
-        elif isinstance(payload, dict):
-            docs = payload.get("documents") or payload.get("results") or []
-        else:
-            docs = []
+                docs = self._extract_documents(payload)
+                if not docs:
+                    continue
 
-        normalized = [self._normalize_item(item) for item in docs if isinstance(item, dict)]
-        normalized = normalized[: params["limit"]]
-        if normalized:
-            return normalized
+                for item in docs:
+                    normalized = self._normalize_item(item)
+                    dedupe_key = (
+                        str(normalized.get("source_url") or "")
+                        or f"{normalized.get('id')}"
+                        or normalized.get("title", "")
+                    ).strip()
+                    if not dedupe_key or dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    rows.append(normalized)
+                    if len(rows) >= max_results:
+                        return rows[:max_results]
+
+            if rows:
+                break
+
+        if rows:
+            return rows[:max_results]
 
         if self.live_fallback_enabled:
-            return self.live_provider.search(
-                query=query,
-                jurisdiction=jurisdiction,
-                category=category,
-                source=source,
-                limit=params["limit"],
-            )
+            for candidate_query in query_candidates:
+                try:
+                    fallback_rows = self.live_provider.search(
+                        query=candidate_query,
+                        jurisdiction=jurisdiction,
+                        category=category,
+                        source=source,
+                        limit=max_results,
+                    )
+                except Exception:
+                    continue
+                if fallback_rows:
+                    return fallback_rows[:max_results]
+
+        if remote_errors and not self.live_fallback_enabled:
+            raise remote_errors[-1]
 
         return []
+
+
+def _decode_ddg_redirect(url: str) -> str:
+    candidate = (url or "").strip()
+    if not candidate:
+        return ""
+
+    if candidate.startswith("//"):
+        candidate = f"https:{candidate}"
+    if candidate.startswith("/l/?") or candidate.startswith("https://duckduckgo.com/l/?"):
+        match = _DDG_UDDG_RE.search(candidate)
+        if match:
+            try:
+                from urllib.parse import unquote
+
+                candidate = unquote(match.group(1))
+            except Exception:
+                pass
+
+    return candidate
+
+
+def _domain_allowed(url: str, allowed_domains: set[str]) -> bool:
+    if not allowed_domains:
+        return True
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    for domain in allowed_domains:
+        clean = domain.lower().strip()
+        if not clean:
+            continue
+        if host == clean or host.endswith(f".{clean}"):
+            return True
+    return False
+
+
+def _is_likely_legal_result(title: str, snippet: str) -> bool:
+    text = f"{title} {snippet}".lower()
+    legal_markers = (
+        "qonun",
+        "kodeks",
+        "mehnat",
+        "soliq",
+        "bank",
+        "compliance",
+        "regulation",
+        "law",
+        "legal",
+        "contract",
+        "policy",
+        "decree",
+    )
+    return any(marker in text for marker in legal_markers)
+
+
+def _web_query_candidates(query: str) -> list[str]:
+    candidates: list[str] = []
+
+    def add_candidate(value: str):
+        candidate = _MULTI_SPACE_RE.sub(" ", value.strip())
+        if len(candidate) < 2:
+            return
+        if candidate.lower() in {item.lower() for item in candidates}:
+            return
+        candidates.append(candidate)
+
+    cleaned = (query or "").strip()
+    add_candidate(cleaned)
+
+    lowered = f" {cleaned.lower()} "
+    translated = lowered
+    for source_phrase, target_phrase in _EN_UZ_REPLACEMENTS:
+        translated = translated.replace(source_phrase, target_phrase)
+    translated = _EN_CONNECTORS_RE.sub(" ", translated)
+    translated = _MULTI_SPACE_RE.sub(" ", translated).strip()
+    add_candidate(translated)
+
+    keyword_tokens = [
+        token
+        for token in _MULTI_SPACE_RE.sub(" ", _NON_WORD_RE.sub(" ", translated or cleaned)).strip().split(" ")
+        if len(token) >= 3 and token not in _EN_STOPWORDS
+    ]
+    if keyword_tokens:
+        add_candidate(" ".join(keyword_tokens[:5]))
+
+    if ("labor code" in cleaned.lower() or "labour code" in cleaned.lower()) and (
+        "fixed-term" in cleaned.lower() or "fixed term" in cleaned.lower()
+    ):
+        add_candidate("mehnat kodeksi muddatli mehnat shartnomasi")
+    if ("employment contract" in cleaned.lower() or "employment contracts" in cleaned.lower()) and (
+        "fixed-term" in cleaned.lower() or "fixed term" in cleaned.lower()
+    ):
+        add_candidate("muddatli mehnat shartnomasi")
+    if "tax code" in cleaned.lower():
+        add_candidate("soliq kodeksi")
+    if "bank" in cleaned.lower() and ("law" in cleaned.lower() or "code" in cleaned.lower()):
+        add_candidate("bank va banklar to'g'risidagi qonun")
+
+    return candidates[:5]
+
+
+def search_web_legal_case_references(
+    query: str,
+    jurisdiction: str | None = None,
+    category: str | None = None,
+    limit: int = 6,
+    timeout_seconds: float | None = None,
+) -> list[dict]:
+    if not _env_bool("LEGAL_WEB_CASE_SEARCH_ENABLED", True):
+        return []
+
+    cleaned_query = (query or "").strip()
+    if len(cleaned_query) < 2:
+        return []
+
+    timeout = max(3.0, float(timeout_seconds or os.getenv("LEGAL_WEB_SEARCH_TIMEOUT", "8")))
+    max_results = max(1, min(int(limit), 12))
+    domain_csv = os.getenv(
+        "LEGAL_WEB_SEARCH_DOMAINS",
+        "lex.uz,ilo.org,oecd.org,worldbank.org,unctad.org,ifrs.org,ec.europa.eu",
+    )
+    allowed_domains = {item.strip().lower() for item in domain_csv.split(",") if item.strip()}
+
+    query_parts = [cleaned_query]
+    if jurisdiction:
+        query_parts.append(jurisdiction.strip())
+    if category:
+        query_parts.append(category.strip())
+    query_parts.extend(["legal case", "compliance"])
+    search_query = " ".join(part for part in query_parts if part)
+
+    request_url = f"https://duckduckgo.com/html/?{urlencode({'q': search_query})}"
+    req = Request(
+        request_url,
+        headers={
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (compatible; BenelaLegalBot/1.0)",
+        },
+        method="GET",
+    )
+
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            html = response.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    snippets = [
+        _clean_html(match.group("snippet_a") or match.group("snippet_b") or "")
+        for match in _DDG_SNIPPET_RE.finditer(html)
+    ]
+
+    rows: list[dict] = []
+    seen_urls: set[str] = set()
+    for index, match in enumerate(_DDG_RESULT_RE.finditer(html), start=1):
+        raw_url = match.group("href") or ""
+        resolved_url = _decode_ddg_redirect(raw_url)
+        title = _clean_html(match.group("title") or "")
+        snippet = snippets[index - 1] if (index - 1) < len(snippets) else ""
+
+        if not resolved_url.startswith("http"):
+            continue
+        if resolved_url in seen_urls:
+            continue
+        if not _domain_allowed(resolved_url, allowed_domains):
+            continue
+        if not _is_likely_legal_result(title, snippet):
+            continue
+
+        seen_urls.add(resolved_url)
+        rows.append(
+            {
+                "id": None,
+                "title": title or "External legal reference",
+                "document_number": None,
+                "jurisdiction": jurisdiction or "International",
+                "category": category or "case_reference",
+                "source": "web_case",
+                "source_url": resolved_url,
+                "published_at": None,
+                "excerpt": snippet or None,
+                "relevance_score": round(max(0.25, 0.95 - (index - 1) * 0.08), 3),
+            }
+        )
+        if len(rows) >= max_results:
+            break
+
+    if rows:
+        return rows
+
+    # Fallback to direct lex.uz live web search when web index parsing has no usable hits.
+    live_rows: list[dict] = []
+    selected_live_query = cleaned_query
+    live_provider = LiveLexUzSearchProvider(timeout_seconds=timeout)
+    for candidate_query in _web_query_candidates(cleaned_query):
+        try:
+            live_rows = live_provider.search(
+                query=candidate_query,
+                jurisdiction=jurisdiction,
+                category=category,
+                source="lex_uz",
+                limit=max_results,
+            )
+        except Exception:
+            live_rows = []
+        if live_rows:
+            selected_live_query = candidate_query
+            break
+
+    fallback_rows: list[dict] = []
+    query_keywords = {
+        token
+        for token in _NON_WORD_RE.sub(" ", selected_live_query.lower()).split(" ")
+        if len(token) >= 4 and token not in _EN_STOPWORDS
+    }
+
+    filtered_live_rows: list[dict] = []
+    if query_keywords:
+        min_overlap = 2 if len(query_keywords) >= 3 else 1
+        for item in live_rows:
+            haystack = f"{item.get('title') or ''} {item.get('excerpt') or ''}".lower()
+            overlap = sum(1 for token in query_keywords if token in haystack)
+            if overlap >= min_overlap:
+                filtered_live_rows.append(item)
+        if filtered_live_rows:
+            live_rows = filtered_live_rows
+
+    for item in live_rows:
+        fallback_rows.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title") or "Lex.uz legal reference",
+                "document_number": item.get("document_number"),
+                "jurisdiction": item.get("jurisdiction") or jurisdiction or "Uzbekistan",
+                "category": item.get("category") or category or "case_reference",
+                "source": "web_case",
+                "source_url": item.get("source_url"),
+                "published_at": item.get("published_at"),
+                "excerpt": item.get("excerpt"),
+                "relevance_score": float(item.get("relevance_score") or 0.4),
+            }
+        )
+
+    if fallback_rows:
+        return fallback_rows[:max_results]
+
+    return rows
 
 
 def build_legal_search_provider(db: Session, provider_hint: str | None = None) -> LegalSearchProvider:
@@ -484,8 +960,8 @@ def request_lex_miner_advice(
     except Exception as exc:
         raise LexMinerIntegrationError(f"Lex miner advice error: {exc}") from exc
 
-    answer = str(raw.get("answer") or "").strip()
-    sources_raw = raw.get("sources") or []
+    answer = str(raw.get("answer") or raw.get("recommendation") or raw.get("message") or "").strip()
+    sources_raw = raw.get("sources") or raw.get("references") or raw.get("documents") or []
     if isinstance(sources_raw, list):
         references = [
             _normalize_integration_source(item, index=index)

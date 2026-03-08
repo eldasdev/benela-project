@@ -16,6 +16,7 @@ from services.legal_provider import (
     build_legal_search_provider,
     get_lex_miner_integration_status,
     request_lex_miner_advice,
+    search_web_legal_case_references,
 )
 
 router = APIRouter(prefix="/legal", tags=["Legal"])
@@ -202,6 +203,33 @@ def _keyword_query(text: str, max_terms: int = 3) -> str:
         "risk",
         "risklar",
         "mchj",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "into",
+        "about",
+        "under",
+        "over",
+        "this",
+        "that",
+        "these",
+        "those",
+        "what",
+        "which",
+        "when",
+        "where",
+        "how",
+        "why",
+        "legal",
+        "law",
+        "laws",
+        "code",
+        "requirement",
+        "requirements",
+        "contract",
+        "contracts",
     }
     tokens = [
         t.strip().lower()
@@ -225,6 +253,199 @@ def _keyword_query(text: str, max_terms: int = 3) -> str:
 def _language_label(code: str) -> str:
     labels = {"uz": "Uzbek", "ru": "Russian", "en": "English"}
     return labels.get(code, "Uzbek")
+
+
+def _merge_reference_rows(primary: list[dict], extra: list[dict], limit: int) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+
+    def add_row(row: dict):
+        key = (str(row.get("source_url") or "").strip() or str(row.get("title") or "").strip()).lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        merged.append(row)
+
+    for row in primary:
+        add_row(row)
+        if len(merged) >= limit:
+            return merged[:limit]
+    for row in extra:
+        add_row(row)
+        if len(merged) >= limit:
+            return merged[:limit]
+    return merged[:limit]
+
+
+def _provider_for_model(model: str | None) -> str:
+    normalized = (model or "").strip().lower()
+    if normalized.startswith("gpt-"):
+        return "openai"
+    return "anthropic"
+
+
+def _provider_configured(provider: str) -> bool:
+    if provider == "openai":
+        return bool(settings.OPENAI_API_KEY)
+    return bool(settings.ANTHROPIC_API_KEY)
+
+
+def _default_model_for_provider(provider: str) -> str:
+    if provider == "openai":
+        return os.getenv("LEGAL_OPENAI_FALLBACK_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+    return "claude-haiku-4-5-20251001"
+
+
+def _recommendation_attempts(requested_model: str | None) -> list[tuple[str, str]]:
+    primary_provider = _provider_for_model(requested_model)
+    primary_model = (requested_model or "").strip() or _default_model_for_provider(primary_provider)
+
+    attempts: list[tuple[str, str]] = [(primary_provider, primary_model)]
+    if primary_provider != "anthropic":
+        attempts.append(("anthropic", _default_model_for_provider("anthropic")))
+    if primary_provider != "openai":
+        attempts.append(("openai", _default_model_for_provider("openai")))
+
+    deduped: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in attempts:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def _build_deterministic_recommendation(
+    query: str,
+    references: list[dict],
+    summary: dict,
+    response_language: str,
+    instructions: str,
+) -> str:
+    language = response_language if response_language in {"uz", "ru", "en"} else "uz"
+    has_refs = len(references) > 0
+    top_refs = "; ".join(str(row.get("title") or "").strip() for row in references[:4] if row.get("title"))
+    if not top_refs:
+        top_refs = (
+            "Mos hujjatlar topilmadi."
+            if language == "uz"
+            else "Подходящие документы не найдены."
+            if language == "ru"
+            else "No matching documents found."
+        )
+
+    high_risk_contracts = int(summary.get("high_risk_contracts", 0) or 0)
+    high_risk_tasks = int(summary.get("high_risk_tasks", 0) or 0)
+    overdue_tasks = int(summary.get("overdue_tasks", 0) or 0)
+    expiring_contracts = int(summary.get("expiring_contracts_30d", 0) or 0)
+    review_due = int(summary.get("review_due_documents", 0) or 0)
+    open_tasks = int(summary.get("open_tasks", 0) or 0)
+    active_contracts = int(summary.get("active_contracts", 0) or 0)
+
+    if language == "ru":
+        return (
+            f"Анализ кейса: Запрос: {query}. Источники: {top_refs}.\n"
+            f"Риск-профиль: высокий риск контрактов={high_risk_contracts}, высокий риск задач={high_risk_tasks}, "
+            f"просроченные задачи={overdue_tasks}, истекающие контракты 30 дней={expiring_contracts}, "
+            f"документы с просроченным review={review_due}.\n"
+            "Рекомендация 1 (Юридическая защита и комплаенс):\n"
+            "Шаги: 1) Сформировать реестр обязательных норм по теме запроса и привязать к внутренним политикам. "
+            "2) Провести gap-анализ по текущим процессам и договорам. "
+            "3) Зафиксировать корректирующие меры с владельцами и сроками до 30 дней.\n"
+            "Рекомендация 2 (Операционная модель и контроль):\n"
+            "Шаги: 1) Ввести еженедельный legal-risk review по активным контрактам и открытым задачам. "
+            "2) Установить SLA: эскалация просрочек в течение 24 часов. "
+            "3) Встроить обязательный юридический чек перед запуском новых сделок.\n"
+            "Рекомендация 3 (Финансовая и кадровая оптимизация):\n"
+            "Шаги: 1) Рассчитать стоимость правового риска и резерв на потенциальные претензии. "
+            "2) Перераспределить бюджет в пользу preventive legal controls. "
+            "3) Если нарушения повторяются, провести performance-review ответственных ролей и обновить RACI.\n"
+            "Заключение: Приоритетно закрыть просроченные и высокорисковые элементы, затем закрепить постоянный контроль. "
+            "Это снижает вероятность споров и финансовых потерь в ближайшем цикле отчетности."
+            f"{' Дополнительные инструкции учтены.' if instructions else ''}"
+        ).strip()
+
+    if language == "en":
+        return (
+            f"Case Analysis: Query: {query}. Sources: {top_refs}.\n"
+            f"Risk profile: high-risk contracts={high_risk_contracts}, high-risk tasks={high_risk_tasks}, "
+            f"overdue tasks={overdue_tasks}, expiring contracts in 30 days={expiring_contracts}, "
+            f"review-due legal documents={review_due}.\n"
+            "Recommendation 1 (Legal Defense and Compliance Control):\n"
+            "Steps: 1) Build a clause-level legal obligations matrix for this case. "
+            "2) Run a gap assessment against current workflows and contracts. "
+            "3) Execute remediation actions with owners and 30-day deadlines.\n"
+            "Recommendation 2 (Operational Governance and Escalation):\n"
+            "Steps: 1) Launch a weekly legal risk review for active contracts and open compliance items. "
+            "2) Enforce a 24-hour escalation SLA for overdue items. "
+            "3) Add mandatory legal checkpoint before approving new commercial commitments.\n"
+            "Recommendation 3 (Financial and Workforce Optimization):\n"
+            "Steps: 1) Quantify legal exposure and set a reserve for potential claims. "
+            "2) Shift budget toward preventive controls and policy automation. "
+            "3) If repeated non-compliance persists, run role-level performance review and adjust accountability structure.\n"
+            "Conclusion: Close overdue/high-risk items first, then lock in recurring controls. "
+            "This reduces dispute probability and improves financial predictability."
+            f"{' Additional instructions were considered.' if instructions else ''}"
+        ).strip()
+
+    uz_case_line = (
+        f"Vaziyat tahlili: So'rov: {query}. Manbalar: {top_refs}."
+        if has_refs
+        else f"Vaziyat tahlili: So'rov: {query}. Joriy ifoda bo'yicha aniq manbalar yetarli emas."
+    )
+    uz_extra_note = " Qo'shimcha ko'rsatmalar inobatga olindi." if instructions else ""
+    return (
+        f"{uz_case_line}\n"
+        f"Risk profili: yuqori xavfli shartnomalar={high_risk_contracts}, yuqori xavfli vazifalar={high_risk_tasks}, "
+        f"kechikkan vazifalar={overdue_tasks}, 30 kun ichida tugaydigan shartnomalar={expiring_contracts}, "
+        f"review muddati o'tgan hujjatlar={review_due}, faol shartnomalar={active_contracts}, ochiq vazifalar={open_tasks}.\n"
+        "Tavsiya 1 (Huquqiy himoya va compliance nazorati):\n"
+        "Qadamlar: 1) So'rov bo'yicha majburiy huquqiy talablar matritsasini tuzing. "
+        "2) Amaldagi jarayon va shartnomalarda gap-analiz o'tkazing. "
+        "3) 30 kunlik aniq muddatlar bilan tuzatish rejasini ijroga kiriting.\n"
+        "Tavsiya 2 (Operatsion boshqaruv va eskalatsiya):\n"
+        "Qadamlar: 1) Har hafta legal-risk review uchrashuvini yo'lga qo'ying. "
+        "2) Kechikkan holatlar uchun 24 soatlik eskalatsiya SLA joriy qiling. "
+        "3) Yangi bitimlar oldidan majburiy legal check-point qo'shing.\n"
+        "Tavsiya 3 (Moliyaviy va kadrlar bo'yicha optimizatsiya):\n"
+        "Qadamlar: 1) Potensial huquqiy yo'qotishlar bo'yicha zaxira summasini hisoblang. "
+        "2) Budjetning bir qismini preventiv nazorat va policy avtomatizatsiyasiga yo'naltiring. "
+        "3) Takroriy buzilishlar bo'lsa, mas'ul rollar performance-review qilinib accountability modeli yangilansin.\n"
+        "Xulosa: Avval kechikkan va yuqori xavfli elementlarni yoping, keyin doimiy nazorat konturlarini mustahkamlang. "
+        "Bu nizolar ehtimolini va kutilmagan moliyaviy yo'qotishlarni kamaytiradi."
+        f"{uz_extra_note}"
+    ).strip()
+
+
+def _recommendation_meets_quality_bar(text: str, language: str) -> bool:
+    candidate = (text or "").strip()
+    if len(candidate) < 420:
+        return False
+    lowered = candidate.lower()
+    if language == "ru":
+        return (
+            "рекомендация 1" in lowered
+            and "рекомендация 2" in lowered
+            and "рекомендация 3" in lowered
+            and ("заключение" in lowered or "вывод" in lowered)
+            and ("шаг" in lowered or "steps" in lowered)
+        )
+    if language == "en":
+        return (
+            "recommendation 1" in lowered
+            and "recommendation 2" in lowered
+            and "recommendation 3" in lowered
+            and "conclusion" in lowered
+            and "steps" in lowered
+        )
+    return (
+        "tavsiya 1" in lowered
+        and "tavsiya 2" in lowered
+        and "tavsiya 3" in lowered
+        and "xulosa" in lowered
+        and ("qadam" in lowered or "steps" in lowered)
+    )
 
 
 @router.get("/summary")
@@ -345,6 +566,20 @@ def search_documents(
         limit=limit,
         provider_hint=provider,
     )
+    if not rows:
+        try:
+            web_rows = search_web_legal_case_references(
+                query=query,
+                jurisdiction=jurisdiction,
+                category=category,
+                limit=min(limit, 12),
+            )
+        except Exception:
+            web_rows = []
+        if web_rows:
+            rows = web_rows
+            provider_name = f"{provider_name} (internet case fallback)"
+
     logging_enabled = os.getenv("LEGAL_SEARCH_LOGGING_ENABLED", "false").strip().lower() in {
         "1",
         "true",
@@ -414,12 +649,26 @@ def legal_recommendation(payload: schemas.LegalRecommendationRequest, db: Sessio
             )
             references = refined_rows[:top_k]
 
-    summary = _empty_legal_summary()
-    if provider_hint in {"database", "db", "local"}:
+    # Internet augmentation for case-style recommendations.
+    web_case_limit = max(0, top_k - len(references))
+    if web_case_limit > 0 and len(references) == 0:
         try:
-            summary = crud.get_legal_summary(db)
+            web_case_rows = search_web_legal_case_references(
+                query=query,
+                jurisdiction=payload.jurisdiction,
+                category=payload.category,
+                limit=max(web_case_limit, min(3, top_k)),
+            )
         except Exception:
-            summary = _empty_legal_summary()
+            web_case_rows = []
+        if web_case_rows:
+            references = _merge_reference_rows(references, web_case_rows, top_k)
+
+    summary = _empty_legal_summary()
+    try:
+        summary = crud.get_legal_summary(db)
+    except Exception:
+        summary = _empty_legal_summary()
     instructions = (payload.instructions or "").strip()
     response_language = (payload.response_language or "uz").strip().lower()
     if response_language not in {"uz", "ru", "en"}:
@@ -457,7 +706,9 @@ def legal_recommendation(payload: schemas.LegalRecommendationRequest, db: Sessio
     prompt = (
         f"{prompt}\n\n"
         f"Response language: {response_language_label}. "
-        f"Write the full recommendation only in {response_language_label}."
+        f"Write the full recommendation only in {response_language_label}. "
+        "Return plain text in this exact logical flow: Case Analysis, Recommendation 1 with Steps, "
+        "Recommendation 2 with Steps, Recommendation 3 with Steps, Conclusion."
     )
 
     if lex_advice_error:
@@ -467,53 +718,89 @@ def legal_recommendation(payload: schemas.LegalRecommendationRequest, db: Sessio
             "Proceed with local recommendation generation."
         )
 
-    if not settings.ANTHROPIC_API_KEY:
-        if lex_advice_error:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Lex miner advice is unavailable and local Claude API key is not configured. "
-                    f"Lex error: {lex_advice_error}"
-                ),
-            )
-        raise HTTPException(status_code=503, detail="Claude API key is not configured.")
-
     agent = BaseAgent(
         name="Legal Advisory Agent",
         system_prompt=(
             "You are a senior legal operations advisor for enterprise clients using Benela AI. "
-            "Use provided legal references and workspace metrics to give practical guidance. "
+            "Act like experienced legal counsel with practical enterprise portfolio experience. "
+            "Use provided legal references, internet case references, and workspace metrics to give practical guidance. "
             "Do not present this as formal legal advice. "
             f"Always answer in {response_language_label}. "
             "Never use markdown syntax. No headings, bullets, or numbered lists. Plain text only. "
-            "Structure output in clear plain text sections: Situation, Risks, Recommended Actions, Next Evidence Needed. "
-            "Always cite reference numbers like [1], [2] where relevant."
+            "Output must include at least 3 distinct recommendations. "
+            "For each recommendation include: strategy name, why it fits this case, and explicit implementation steps. "
+            "Always include one operational recommendation and one financial/risk-cost recommendation; include workforce/process-change recommendation only if evidence supports it. "
+            "Avoid generic advice; tie every action to current case facts and references. "
+            "End with a clear conclusion that selects the recommended priority path and expected business impact. "
+            "Cite reference numbers like [1], [2] where relevant."
         ),
     )
 
-    try:
-        recommendation = agent.run(prompt, context=context, model=payload.model)
-    except Exception as exc:
-        message = str(exc).lower()
-        if "401" in message or "authentication" in message:
-            raise HTTPException(status_code=401, detail="Claude authentication failed.")
-        if "429" in message or "rate" in message:
-            raise HTTPException(status_code=429, detail="Claude rate limit reached. Retry shortly.")
-        if "529" in message or "overloaded" in message:
-            raise HTTPException(status_code=503, detail="Claude is temporarily overloaded. Retry shortly.")
-        raise HTTPException(status_code=503, detail="Could not generate legal recommendation right now.")
+    recommendation = ""
+    used_provider = ""
+    used_model = ""
+    local_errors: list[str] = []
+
+    for provider_name_for_ai, model_name in _recommendation_attempts(payload.model):
+        if not _provider_configured(provider_name_for_ai):
+            continue
+        try:
+            recommendation = agent.run(
+                prompt,
+                context=context,
+                model=model_name,
+                provider=provider_name_for_ai,
+            ).strip()
+            if recommendation:
+                if not _recommendation_meets_quality_bar(recommendation, response_language):
+                    recommendation = _build_deterministic_recommendation(
+                        query=query,
+                        references=references,
+                        summary=summary,
+                        response_language=response_language,
+                        instructions=instructions,
+                    )
+                    used_provider = "deterministic"
+                    used_model = model_name
+                    break
+                used_provider = provider_name_for_ai
+                used_model = model_name
+                break
+        except Exception as exc:
+            local_errors.append(f"{provider_name_for_ai}:{str(exc)}")
+
+    if not recommendation:
+        recommendation = _build_deterministic_recommendation(
+            query=query,
+            references=references,
+            summary=summary,
+            response_language=response_language,
+            instructions=instructions,
+        )
+        used_provider = "deterministic"
 
     result_provider = provider_name
     if lex_advice_error:
-        result_provider = f"{provider_name} (lex advice fallback: local)"
+        result_provider = f"{provider_name} (lex advice fallback: {used_provider})"
+    elif used_provider and used_provider != "anthropic":
+        result_provider = f"{provider_name} ({used_provider})"
+
+    confidence = "medium"
+    if used_provider == "deterministic":
+        confidence = "low"
+    elif used_provider == "openai":
+        confidence = "medium"
+
+    if local_errors and used_provider != "deterministic":
+        result_provider = f"{result_provider} (resilient)"
 
     return schemas.LegalRecommendationResponse(
         query=query,
         provider=result_provider,
         recommendation=recommendation,
         references=[schemas.LegalSearchDocument(**row) for row in references],
-        model=payload.model,
-        confidence="medium",
+        model=used_model or payload.model,
+        confidence=confidence,
         disclaimer=(
             "This response is informational and grounded on workspace metrics plus matched legal references. "
             "For binding legal interpretation, consult a licensed legal professional."

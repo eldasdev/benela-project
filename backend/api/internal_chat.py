@@ -48,6 +48,10 @@ UPLOAD_ROOT = Path(
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 _TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS = int(os.getenv("TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS", "300"))
 _telegram_conflict_last_logged_monotonic = 0.0
+_TELEGRAM_POLL_FAILURE_LOG_COOLDOWN_SECONDS = int(
+    os.getenv("TELEGRAM_POLL_FAILURE_LOG_COOLDOWN_SECONDS", "90")
+)
+_telegram_poll_failure_last_logged_monotonic = 0.0
 _telegram_webhook_cleanup_attempted = False
 
 
@@ -197,6 +201,15 @@ def _log_telegram_poll_conflict(message: str):
     if (now - _telegram_conflict_last_logged_monotonic) < _TELEGRAM_CONFLICT_LOG_COOLDOWN_SECONDS:
         return
     _telegram_conflict_last_logged_monotonic = now
+    logger.warning(message)
+
+
+def _log_telegram_poll_failure(message: str):
+    global _telegram_poll_failure_last_logged_monotonic
+    now = time.monotonic()
+    if (now - _telegram_poll_failure_last_logged_monotonic) < _TELEGRAM_POLL_FAILURE_LOG_COOLDOWN_SECONDS:
+        return
+    _telegram_poll_failure_last_logged_monotonic = now
     logger.warning(message)
 
 
@@ -396,14 +409,16 @@ def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) ->
         if exc.code == 409:
             _handle_telegram_polling_conflict(token)
             return last_update_id
-        logger.warning("Telegram updates polling failed: %s", exc)
+        _log_telegram_poll_failure(f"Telegram updates polling failed: {exc}")
         return last_update_id
     except (urllib_error.URLError, TimeoutError, ValueError) as exc:
-        logger.warning("Telegram updates polling failed: %s", exc)
+        _log_telegram_poll_failure(f"Telegram updates polling failed: {exc}")
         return last_update_id
 
     if not payload.get("ok"):
-        logger.warning("Telegram getUpdates returned not ok: %s", payload.get("description") or "unknown")
+        _log_telegram_poll_failure(
+            f"Telegram getUpdates returned not ok: {payload.get('description') or 'unknown'}"
+        )
         return last_update_id
 
     next_update_id = last_update_id

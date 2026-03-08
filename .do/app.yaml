@@ -27,6 +27,8 @@ services:
     envs:
       - key: NEXT_PUBLIC_API_URL
         value: /api
+      - key: API_PROXY_TARGET
+        value: https://benela-backend-vtjir.ondigitalocean.app
 
 domains:
   - domain: benela.dev

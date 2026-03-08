@@ -24,6 +24,7 @@ const inputStyle: CSSProperties = {
   borderRadius: "9px",
   background: "var(--bg-elevated)",
   border: "1px solid var(--border-soft)",
+  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)",
   color: "var(--text-primary)",
   fontSize: "13px",
   outline: "none",
@@ -182,6 +183,11 @@ type ClaudeModelId =
   | "claude-opus-4-1-20250805";
 
 type RecommendationLanguage = "uz" | "ru" | "en";
+type RecommendationSection = {
+  key: string;
+  title: string;
+  body: string;
+};
 
 const CLAUDE_MODELS: Array<{ id: ClaudeModelId; label: string }> = [
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
@@ -193,6 +199,19 @@ const RECOMMENDATION_LANGUAGES: Array<{ id: RecommendationLanguage; label: strin
   { id: "uz", label: "Uzbek" },
   { id: "ru", label: "Russian" },
   { id: "en", label: "English" },
+];
+
+const RECOMMENDATION_SECTION_PATTERNS: Array<{
+  key: string;
+  fallbackTitle: string;
+  regex: RegExp;
+}> = [
+  { key: "case", fallbackTitle: "Case Analysis", regex: /^(case analysis|vaziyat tahlili|vaziyat|анализ кейса|ситуация)\s*:/i },
+  { key: "risk", fallbackTitle: "Risk Profile", regex: /^(risk profile|risk profili|xavflar|риск-профиль|риски)\s*:/i },
+  { key: "rec1", fallbackTitle: "Recommendation 1", regex: /^(recommendation\s*1|tavsiya\s*1|рекомендация\s*1)(?:\s*\(.*\))?\s*:/i },
+  { key: "rec2", fallbackTitle: "Recommendation 2", regex: /^(recommendation\s*2|tavsiya\s*2|рекомендация\s*2)(?:\s*\(.*\))?\s*:/i },
+  { key: "rec3", fallbackTitle: "Recommendation 3", regex: /^(recommendation\s*3|tavsiya\s*3|рекомендация\s*3)(?:\s*\(.*\))?\s*:/i },
+  { key: "conclusion", fallbackTitle: "Conclusion", regex: /^(conclusion|xulosa|заключение|вывод)\s*:/i },
 ];
 
 const statusColor: Record<string, string> = {
@@ -294,6 +313,99 @@ const compactTextStyle: CSSProperties = {
   textOverflow: "ellipsis",
 };
 
+const normalizeHttpUrl = (value?: string | null): string | null => {
+  const raw = (value || "").trim();
+  if (!raw) return null;
+  const candidate = raw.startsWith("//") ? `https:${raw}` : raw;
+  try {
+    const url = new URL(candidate.startsWith("http://") || candidate.startsWith("https://") ? candidate : `https://${candidate}`);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const buildReferenceHref = (row: SearchDocument): string => {
+  const normalized = normalizeHttpUrl(row.source_url);
+  if (normalized) return normalized;
+  return `https://lex.uz/search/all?searchtype=all&query=${encodeURIComponent(row.title || "")}`;
+};
+
+const parseRecommendationSections = (value: string): RecommendationSection[] => {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return [];
+
+  const sections: Array<{ key: string; title: string; lines: string[] }> = [];
+  let current: { key: string; title: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const matchPattern = RECOMMENDATION_SECTION_PATTERNS.find((pattern) => pattern.regex.test(line));
+    if (matchPattern) {
+      const headingText = line.split(":")[0]?.trim() || matchPattern.fallbackTitle;
+      const rest = line.replace(matchPattern.regex, "").trim();
+      current = { key: matchPattern.key, title: headingText || matchPattern.fallbackTitle, lines: [] };
+      if (rest) current.lines.push(rest);
+      sections.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { key: "overview", title: "Overview", lines: [] };
+      sections.push(current);
+    }
+    current.lines.push(line);
+  }
+
+  const normalized = sections
+    .map((section) => ({
+      key: section.key,
+      title: section.title,
+      body: section.lines.join("\n").trim(),
+    }))
+    .filter((section) => section.body.length > 0);
+
+  if (normalized.length > 0) return normalized;
+  return [{ key: "recommendation", title: "Recommendation", body: value.trim() }];
+};
+
+const prettifyRecommendationTitle = (title: string): string => {
+  const cleaned = title.trim();
+  if (!cleaned) return "Recommendation";
+  const lettersOnly = cleaned.replace(/[^A-Za-z]/g, "");
+  if (lettersOnly && cleaned === cleaned.toUpperCase()) {
+    return cleaned
+      .toLowerCase()
+      .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+  }
+  return cleaned;
+};
+
+const formatRecommendationBody = (text: string): string => {
+  return text
+    .replace(/\.\s+(?=\d+\))/g, ".\n")
+    .replace(/;\s+(?=\d+\))/g, ";\n")
+    .replace(/\s+(?=\d+\))/g, "\n")
+    .trim();
+};
+
+const getSectionTone = (key: string): string => {
+  if (key === "case") return "var(--accent)";
+  if (key === "risk") return "#f59e0b";
+  if (key === "conclusion") return "#34d399";
+  return "var(--text-primary)";
+};
+
+const getSectionBadge = (key: string): string | null => {
+  if (key === "rec1") return "01";
+  if (key === "rec2") return "02";
+  if (key === "rec3") return "03";
+  return null;
+};
+
 export default function LegalPage() {
   const [tab, setTab] = useState<TabType>("research");
   const [summary, setSummary] = useState<LegalSummary | null>(null);
@@ -335,6 +447,10 @@ export default function LegalPage() {
   const [recommendationDisclaimer, setRecommendationDisclaimer] = useState("");
   const [recommendationError, setRecommendationError] = useState("");
   const [integrationStatus, setIntegrationStatus] = useState<LegalIntegrationStatus | null>(null);
+  const recommendationSections = useMemo(
+    () => parseRecommendationSections(recommendation),
+    [recommendation],
+  );
 
   const documentMap = useMemo(() => {
     const map: Record<number, LegalDocument> = {};
@@ -994,9 +1110,9 @@ export default function LegalPage() {
                         <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{row.relevance_score.toFixed(2)}</span>
                       </div>
                       <div style={{ fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.45 }}>{row.excerpt || "No excerpt."}</div>
-                      {row.source_url ? (
+                      {normalizeHttpUrl(row.source_url) ? (
                         <a
-                          href={row.source_url}
+                          href={normalizeHttpUrl(row.source_url) || "#"}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
@@ -1023,12 +1139,13 @@ export default function LegalPage() {
             <div
               style={{
                 background: "var(--bg-surface)",
-                border: "1px solid var(--border-default)",
+                border: "1px solid var(--border-soft)",
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                 borderRadius: "14px",
                 overflow: "hidden",
               }}
             >
-              <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-default)", display: "grid", gap: "6px" }}>
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <Sparkles size={14} color="var(--accent)" />
                   <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Claude Legal Recommendation</span>
@@ -1041,7 +1158,8 @@ export default function LegalPage() {
               <div style={{ padding: "14px", display: "grid", gap: "10px" }}>
                 <div
                   style={{
-                    border: "1px solid var(--border-default)",
+                    border: "1px solid var(--border-soft)",
+                    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                     borderRadius: "8px",
                     background: integrationStatus?.reachable
                       ? "color-mix(in srgb, #22c55e 8%, var(--bg-panel))"
@@ -1107,6 +1225,7 @@ export default function LegalPage() {
                     height: "34px",
                     borderRadius: "8px",
                     border: "1px solid var(--border-soft)",
+                    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
                     background: "var(--accent-soft)",
                     color: "var(--accent)",
                     fontSize: "12px",
@@ -1140,7 +1259,8 @@ export default function LegalPage() {
 
                 <div
                   style={{
-                    border: "1px solid var(--border-default)",
+                    border: "1px solid var(--border-soft)",
+                    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                     borderRadius: "10px",
                     background: "var(--bg-panel)",
                     padding: "10px 11px",
@@ -1151,26 +1271,126 @@ export default function LegalPage() {
                 >
                   {recommendation ? (
                     <>
-                      <div style={{ ...mutedMonoStyle }}>
-                        provider {recommendationProvider || "database"}
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          width: "fit-content",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "4px 8px",
+                          borderRadius: "999px",
+                          border: "1px solid var(--border-soft)",
+                          background: "var(--bg-elevated)",
+                          fontSize: "10.5px",
+                          color: "var(--text-subtle)",
+                        }}
+                      >
+                        Recommendation ready
+                        {recommendationConfidence ? (
+                          <span style={{ color: "var(--text-quiet)" }}>| confidence {recommendationConfidence}</span>
+                        ) : null}
                       </div>
-                      {(recommendationModelUsed || recommendationConfidence) && (
-                        <div style={{ ...mutedMonoStyle }}>
-                          {recommendationModelUsed ? `model ${recommendationModelUsed}` : ""}
-                          {recommendationModelUsed && recommendationConfidence ? " | " : ""}
-                          {recommendationConfidence ? `confidence ${recommendationConfidence}` : ""}
-                        </div>
-                      )}
-                      <div style={{ fontSize: "12px", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.58 }}>
-                        {recommendation}
+                      {(recommendationProvider || recommendationModelUsed || recommendationConfidence) ? (
+                        <details
+                          style={{
+                            border: "1px solid var(--border-soft)",
+                            boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
+                            borderRadius: "8px",
+                            padding: "6px 8px",
+                            background: "var(--bg-elevated)",
+                          }}
+                        >
+                          <summary style={{ cursor: "pointer", fontSize: "10.5px", color: "var(--text-quiet)" }}>
+                            Technical details
+                          </summary>
+                          <div style={{ ...mutedMonoStyle, marginTop: "6px" }}>
+                            provider {recommendationProvider || "database"}
+                          </div>
+                          {(recommendationModelUsed || recommendationConfidence) && (
+                            <div style={{ ...mutedMonoStyle, marginTop: "4px" }}>
+                              {recommendationModelUsed ? `model ${recommendationModelUsed}` : ""}
+                              {recommendationModelUsed && recommendationConfidence ? " | " : ""}
+                              {recommendationConfidence ? `confidence ${recommendationConfidence}` : ""}
+                            </div>
+                          )}
+                        </details>
+                      ) : null}
+                      <div style={{ display: "grid", gap: "7px" }}>
+                        {recommendationSections.map((section, index) => (
+                          <div
+                            key={`${section.key}-${index}`}
+                            style={{
+                              border: "1px solid var(--border-soft)",
+                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
+                              borderRadius: "10px",
+                              padding: "10px",
+                              background: "var(--bg-elevated)",
+                              display: "grid",
+                              gap: "7px",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                              <div
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  color: getSectionTone(section.key),
+                                  letterSpacing: "0.03em",
+                                }}
+                              >
+                                {prettifyRecommendationTitle(section.title)}
+                              </div>
+                              {getSectionBadge(section.key) ? (
+                                <span
+                                  style={{
+                                    fontSize: "10px",
+                                    color: "var(--text-quiet)",
+                                    border: "1px solid var(--border-soft)",
+                                    borderRadius: "999px",
+                                    padding: "2px 6px",
+                                    minWidth: "26px",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  {getSectionBadge(section.key)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.58 }}>
+                              {formatRecommendationBody(section.body)}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       {recommendationRefs.length > 0 ? (
                         <div style={{ display: "grid", gap: "4px" }}>
                           <span style={mutedMonoStyle}>references</span>
                           {recommendationRefs.slice(0, 6).map((ref, index) => (
-                            <span key={`${ref.id || "ref"}-${index}`} style={{ fontSize: "10.5px", color: "var(--text-subtle)", ...compactTextStyle }}>
-                              [{index + 1}] {ref.title}
-                            </span>
+                            <a
+                              key={`${ref.id || "ref"}-${index}`}
+                              href={buildReferenceHref(ref)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                textDecoration: "none",
+                                color: "var(--accent)",
+                                fontSize: "10.5px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                border: "1px solid var(--border-soft)",
+                                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
+                                borderRadius: "7px",
+                                background: "var(--bg-elevated)",
+                                padding: "5px 7px",
+                              }}
+                              title={ref.source_url || ref.title}
+                            >
+                              <span style={{ ...compactTextStyle, maxWidth: "calc(100% - 18px)" }}>
+                                [{index + 1}] {ref.title}
+                              </span>
+                              <ExternalLink size={10} />
+                            </a>
                           ))}
                         </div>
                       ) : null}

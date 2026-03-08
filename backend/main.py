@@ -247,9 +247,19 @@ def _should_run_internal_chat_reminder_worker() -> bool:
 def _internal_chat_reminder_worker_loop():
     global _telegram_updates_offset
     poll_seconds = max(15, int(os.getenv("INTERNAL_CHAT_REMINDER_POLL_SECONDS", "30")))
-    logger.info("Internal chat reminder worker started (interval=%ss).", poll_seconds)
+    max_backoff_seconds = max(
+        poll_seconds,
+        int(os.getenv("INTERNAL_CHAT_REMINDER_MAX_BACKOFF_SECONDS", "300")),
+    )
+    failure_count = 0
+    logger.info(
+        "Internal chat reminder worker started (interval=%ss, max_backoff=%ss).",
+        poll_seconds,
+        max_backoff_seconds,
+    )
 
     while not _reminder_worker_stop_event.is_set():
+        wait_seconds = poll_seconds
         db = SessionLocal()
         try:
             _telegram_updates_offset = process_telegram_bot_updates_job(db, _telegram_updates_offset)
@@ -260,13 +270,35 @@ def _internal_chat_reminder_worker_loop():
                     logger.info("Internal chat reminder worker dispatched %s due reminder(s).", processed)
             else:
                 db.rollback()
+            failure_count = 0
+        except DBAPIError as exc:
+            db.rollback()
+            failure_count += 1
+            wait_seconds = min(max_backoff_seconds, poll_seconds * (2 ** min(6, max(0, failure_count - 1))))
+            logger.warning(
+                "Internal chat reminder worker DB unavailable (attempt=%s, retry_in=%ss): %s",
+                failure_count,
+                wait_seconds,
+                exc,
+            )
+            try:
+                # Drop stale/invalid pooled sockets before next retry.
+                engine.dispose()
+            except Exception:
+                logger.exception("Failed to dispose SQLAlchemy engine after worker DB failure")
         except Exception:
             db.rollback()
-            logger.exception("Internal chat reminder worker failed during reminder dispatch")
+            failure_count += 1
+            wait_seconds = min(max_backoff_seconds, poll_seconds * (2 ** min(6, max(0, failure_count - 1))))
+            logger.exception(
+                "Internal chat reminder worker failed during reminder dispatch (attempt=%s, retry_in=%ss)",
+                failure_count,
+                wait_seconds,
+            )
         finally:
             db.close()
 
-        if _reminder_worker_stop_event.wait(poll_seconds):
+        if _reminder_worker_stop_event.wait(wait_seconds):
             break
 
 
