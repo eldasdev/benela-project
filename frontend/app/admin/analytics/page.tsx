@@ -104,7 +104,7 @@ export default function AdminAnalyticsPage() {
   }, [revenue, growth, churn]);
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1450px", margin: "0 auto" }}>
+    <div className="admin-page-shell" style={{ maxWidth: "1450px", margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
         <div>
           <h1 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Analytics</h1>
@@ -214,7 +214,7 @@ export default function AdminAnalyticsPage() {
                     style={{
                       width: `${Math.max(2, (point.churned / churnMax) * 100)}%`,
                       height: "100%",
-                      background: "linear-gradient(90deg, #f87171, #ef4444)",
+                      background: "linear-gradient(90deg, color-mix(in srgb, var(--danger) 74%, #fff 26%), var(--danger))",
                     }}
                   />
                 </div>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base
@@ -840,6 +840,93 @@ class PlatformSettings(Base):
     updated_at                = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
+# ── Client Onboarding / Workspace Account ────────────
+class ClientWorkspaceAccount(Base):
+    __tablename__ = "client_workspace_accounts"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_client_workspace_accounts_user_id"),
+        UniqueConstraint("workspace_id", name="uq_client_workspace_accounts_workspace_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(120), nullable=False, index=True)
+    user_email = Column(String(255), nullable=True, index=True)
+    workspace_id = Column(String(120), nullable=False, index=True)
+
+    business_name = Column(String(255), nullable=False)
+    business_slug = Column(String(120), nullable=False, index=True)
+    business_fingerprint = Column(String(255), nullable=False, index=True)
+    registration_number = Column(String(140), nullable=True, index=True)
+
+    country = Column(String(120), nullable=True)
+    city = Column(String(120), nullable=True)
+    address = Column(String(255), nullable=True)
+    industry = Column(String(120), nullable=True)
+    employee_count = Column(Integer, nullable=True)
+    owner_name = Column(String(255), nullable=True)
+    owner_phone = Column(String(50), nullable=True)
+
+    plan_tier = Column(Enum(PlanTier), nullable=False, default=PlanTier.starter)
+    trial_started_at = Column(DateTime, nullable=True)
+    trial_ends_at = Column(DateTime, nullable=True)
+    payment_required = Column(Boolean, nullable=False, default=False, index=True)
+    onboarding_completed = Column(Boolean, nullable=False, default=False, index=True)
+
+    duplicate_of_account_id = Column(
+        Integer,
+        ForeignKey("client_workspace_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    client_org_id = Column(Integer, ForeignKey("client_orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class ClientBusinessDocument(Base):
+    __tablename__ = "client_business_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(
+        Integer,
+        ForeignKey("client_workspace_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id = Column(String(120), nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    mime_type = Column(String(120), nullable=True)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    storage_key = Column(String(700), nullable=False)
+    document_type = Column(String(60), nullable=False, default="official")
+    verification_status = Column(String(40), nullable=False, default="pending")
+    uploaded_by_user_id = Column(String(120), nullable=False, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+
+class ClientPlatformReport(Base):
+    __tablename__ = "client_platform_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(
+        Integer,
+        ForeignKey("client_workspace_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    workspace_id = Column(String(120), nullable=True, index=True)
+    user_id = Column(String(120), nullable=False, index=True)
+    user_email = Column(String(255), nullable=True, index=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    status = Column(String(40), nullable=False, default="open", index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    resolved_at = Column(DateTime, nullable=True)
+
+
 # ── AI Trainer Models ────────────────────────────────
 class AITrainerProfile(Base):
     __tablename__ = "ai_trainer_profiles"
@@ -1105,6 +1192,28 @@ class InternalChatTelegramLink(Base):
     telegram_first_name = Column(String(120), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     last_seen_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+    thread = relationship("InternalChatThread")
+
+
+class InternalChatZoomLink(Base):
+    __tablename__ = "internal_chat_zoom_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(String(100), nullable=False, index=True)
+    thread_id = Column(
+        Integer,
+        ForeignKey("internal_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(String(120), nullable=False, index=True)
+    user_role = Column(String(40), nullable=False, default="client")
+    zoom_join_base_url = Column(String(2048), nullable=False)
+    use_for_meetings = Column(Boolean, nullable=False, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime, default=func.now(), index=True)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
 

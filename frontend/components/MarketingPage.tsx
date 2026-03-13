@@ -15,6 +15,7 @@ import {
   Target,
   DollarSign,
 } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -257,6 +258,8 @@ const lineClampStyle = {
 };
 
 export default function MarketingPage() {
+  const isDenseLayout = useIsMobile(1120);
+
   const [tab, setTab] = useState<"campaigns" | "content" | "leads" | "channels">("campaigns");
   const [summary, setSummary] = useState<MarketingSummary | null>(null);
   const [funnel, setFunnel] = useState<MarketingFunnel | null>(null);
@@ -574,7 +577,7 @@ export default function MarketingPage() {
     : [];
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1300px", margin: "0 auto" }}>
+    <div style={{ padding: isDenseLayout ? "14px" : "24px", maxWidth: "1300px", margin: "0 auto", overflowX: "hidden" }}>
       {loadError ? (
         <div
           style={{
@@ -799,7 +802,10 @@ export default function MarketingPage() {
           border: "1px solid var(--border-default)",
           borderRadius: "10px",
           padding: "4px",
-          width: "fit-content",
+          width: isDenseLayout ? "100%" : "fit-content",
+          overflowX: "auto",
+          flexWrap: "nowrap",
+          scrollbarWidth: "thin",
         }}
       >
         {(
@@ -823,6 +829,8 @@ export default function MarketingPage() {
               background: tab === value ? "var(--bg-elevated)" : "transparent",
               color: tab === value ? "var(--text-primary)" : "var(--text-subtle)",
               transition: "all 0.15s",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
             {label}
@@ -843,7 +851,9 @@ export default function MarketingPage() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "16px 20px",
+            gap: "10px",
+            flexWrap: "wrap",
+            padding: isDenseLayout ? "14px 12px" : "16px 20px",
             borderBottom: "1px solid var(--border-default)",
           }}
         >
@@ -879,6 +889,7 @@ export default function MarketingPage() {
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               gap: "6px",
               padding: "7px 14px",
               borderRadius: "9px",
@@ -888,6 +899,7 @@ export default function MarketingPage() {
               fontSize: "13px",
               fontWeight: 500,
               cursor: "pointer",
+              width: isDenseLayout ? "100%" : "auto",
             }}
           >
             <Plus size={14} />

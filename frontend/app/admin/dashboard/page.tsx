@@ -6,6 +6,9 @@ import {
   TrendingUp,
   TrendingDown,
   CreditCard,
+  Clock3,
+  ShieldAlert,
+  Sparkles,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
@@ -137,12 +140,35 @@ export default function AdminDashboardPage() {
       ]
     : [];
 
+  const panelBorder = "1px solid color-mix(in srgb, var(--border-default) 84%, transparent)";
+  const rowBorder = "1px solid color-mix(in srgb, var(--border-default) 74%, transparent)";
+  const panelBg =
+    "linear-gradient(142deg, color-mix(in srgb, var(--bg-surface) 88%, var(--accent-soft) 12%), color-mix(in srgb, var(--bg-surface) 94%, transparent))";
+  const subtleBg =
+    "linear-gradient(142deg, color-mix(in srgb, var(--bg-panel) 88%, var(--accent-soft) 12%), color-mix(in srgb, var(--bg-panel) 94%, transparent))";
+  const chartPlotHeight = 160;
+
   return (
-    <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
+    <div
+      className="admin-page-shell"
+      style={{
+        maxWidth: "1400px",
+        margin: "0 auto",
+        display: "grid",
+        alignContent: "start",
+        gap: "24px",
+      }}
+    >
       <div
         style={{
-          marginBottom: "24px",
+          padding: "16px 18px",
+          borderRadius: "14px",
+          border: panelBorder,
+          background: panelBg,
+          boxShadow: "0 20px 38px rgba(5, 10, 24, 0.16)",
           display: "flex",
+          gap: "12px",
+          flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
         }}
@@ -158,14 +184,16 @@ export default function AdminDashboardPage() {
         <Link
           href="/admin/marketplace"
           style={{
+            whiteSpace: "nowrap",
             fontSize: "12px",
-            color: "#ef4444",
-            border: "1px solid rgba(239,68,68,0.35)",
-            background: "rgba(239,68,68,0.08)",
-            borderRadius: "8px",
-            padding: "8px 12px",
+            color: "var(--accent)",
+            border: "1px solid color-mix(in srgb, var(--accent) 34%, var(--border-default) 66%)",
+            background: "linear-gradient(132deg, color-mix(in srgb, var(--accent-soft) 80%, transparent), color-mix(in srgb, var(--accent-soft) 52%, transparent))",
+            borderRadius: "10px",
+            padding: "9px 13px",
             textDecoration: "none",
             fontWeight: 600,
+            boxShadow: "0 10px 22px rgba(5, 10, 24, 0.2)",
           }}
         >
           Open Marketplace Manager
@@ -174,23 +202,24 @@ export default function AdminDashboardPage() {
 
       {/* KPI Row */}
       <div
+        className="admin-overview-kpis"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(6, 1fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
           gap: "12px",
-          marginBottom: "24px",
         }}
       >
         {kpiCards.map((card) => (
           <div
             key={card.label}
             style={{
-              background: "var(--bg-surface)",
-              border: "1px solid #1e1e2a",
+              background: panelBg,
+              border: panelBorder,
               borderRadius: "12px",
               padding: "16px 18px",
               position: "relative",
               overflow: "hidden",
+              boxShadow: "0 14px 34px rgba(5, 10, 24, 0.12)",
             }}
           >
             <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginBottom: "8px", fontWeight: 500 }}>
@@ -228,19 +257,19 @@ export default function AdminDashboardPage() {
       {/* Plan breakdown */}
       {summary?.plan_breakdown && (
         <div
+          className="admin-overview-plans"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
             gap: "10px",
-            marginBottom: "24px",
           }}
         >
           {(["trial", "starter", "pro", "enterprise"] as const).map((tier) => (
             <div
               key={tier}
               style={{
-                background: "var(--bg-surface)",
-                border: "1px solid #1e1e2a",
+                background: panelBg,
+                border: panelBorder,
                 borderLeft: `3px solid ${PLAN_COLORS[tier] || "var(--text-subtle)"}`,
                 borderRadius: "8px",
                 padding: "12px 14px",
@@ -261,14 +290,22 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Two-column: Revenue chart + Activity */}
-      <div style={{ display: "flex", gap: "24px", marginBottom: "24px" }}>
+      <div
+        className="admin-overview-split"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.35fr) minmax(300px, 1fr)",
+          gap: "24px",
+        }}
+      >
         <div
           style={{
-            flex: "0 0 60%",
-            background: "var(--bg-surface)",
-            border: "1px solid #1e1e2a",
+            minWidth: 0,
+            background: panelBg,
+            border: panelBorder,
             borderRadius: "14px",
             padding: "20px",
+            boxShadow: "0 16px 34px rgba(5, 10, 24, 0.12)",
           }}
         >
           <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "16px" }}>
@@ -276,11 +313,11 @@ export default function AdminDashboardPage() {
           </h2>
           <div
             style={{
-              display: "flex",
-              alignItems: "flex-end",
+              display: "grid",
+              gridTemplateColumns: `repeat(${Math.max(revenueChart.length, 1)}, minmax(0, 1fr))`,
               gap: "8px",
-              justifyContent: "space-between",
-              height: "180px",
+              minHeight: "220px",
+              alignItems: "end",
             }}
           >
             {revenueChart.map((d) => (
@@ -290,25 +327,65 @@ export default function AdminDashboardPage() {
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: "6px",
-                  flex: 1,
+                  minWidth: 0,
                 }}
               >
-                <span style={{ fontSize: "10px", color: "var(--text-subtle)" }}>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-subtle)",
+                    minHeight: "14px",
+                    lineHeight: 1.2,
+                    marginBottom: "6px",
+                  }}
+                >
                   ${(d.revenue / 1000).toFixed(1)}k
                 </span>
                 <div
                   style={{
+                    position: "relative",
                     width: "100%",
-                    maxWidth: "32px",
-                    height: `${(d.revenue / maxRevenue) * 160}px`,
-                    minHeight: "4px",
-                    background: "linear-gradient(180deg, var(--accent), var(--accent-2))",
-                    borderRadius: "4px 4px 0 0",
-                    transition: "opacity 0.15s",
+                    maxWidth: "36px",
+                    height: `${chartPlotHeight}px`,
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    marginBottom: "8px",
                   }}
-                />
-                <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>{d.month}</span>
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: "1px",
+                      background: "color-mix(in srgb, var(--border-default) 70%, transparent)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      width: "100%",
+                      maxWidth: "32px",
+                      height: `${Math.max(4, Math.round((d.revenue / maxRevenue) * chartPlotHeight))}px`,
+                      minHeight: "4px",
+                      background: "linear-gradient(180deg, var(--accent), var(--accent-2))",
+                      borderRadius: "4px 4px 0 0",
+                      transition: "opacity 0.15s",
+                    }}
+                  />
+                </div>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-quiet)",
+                    lineHeight: 1.25,
+                    minHeight: "28px",
+                    textAlign: "center",
+                  }}
+                >
+                  {d.month}
+                </span>
               </div>
             ))}
           </div>
@@ -316,11 +393,12 @@ export default function AdminDashboardPage() {
 
         <div
           style={{
-            flex: "0 0 40%",
-            background: "var(--bg-surface)",
-            border: "1px solid #1e1e2a",
+            minWidth: 0,
+            background: panelBg,
+            border: panelBorder,
             borderRadius: "14px",
             padding: "20px",
+            boxShadow: "0 16px 34px rgba(5, 10, 24, 0.12)",
           }}
         >
           <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "14px" }}>
@@ -336,8 +414,8 @@ export default function AdminDashboardPage() {
                   gap: "10px",
                   padding: "8px 10px",
                   borderRadius: "8px",
-                  background: "var(--bg-panel)",
-                  border: "1px solid #1a1a24",
+                  background: subtleBg,
+                  border: rowBorder,
                 }}
               >
                 <div
@@ -345,7 +423,7 @@ export default function AdminDashboardPage() {
                     width: "28px",
                     height: "28px",
                     borderRadius: "6px",
-                    background: "rgba(124,106,255,0.15)",
+                    background: "color-mix(in srgb, var(--accent-soft) 82%, transparent)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -380,10 +458,11 @@ export default function AdminDashboardPage() {
       {/* Recent clients table */}
       <div
         style={{
-          background: "var(--bg-surface)",
-          border: "1px solid #1e1e2a",
+          background: panelBg,
+          border: panelBorder,
           borderRadius: "14px",
           overflow: "hidden",
+          boxShadow: "0 18px 34px rgba(5, 10, 24, 0.12)",
         }}
       >
         <div
@@ -392,7 +471,7 @@ export default function AdminDashboardPage() {
             alignItems: "center",
             justifyContent: "space-between",
             padding: "16px 20px",
-            borderBottom: "1px solid #1e1e2a",
+            borderBottom: rowBorder,
           }}
         >
           <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
@@ -412,91 +491,198 @@ export default function AdminDashboardPage() {
         </div>
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "1.5fr 1fr 0.8fr 0.8fr 0.8fr 0.9fr 100px",
-            padding: "10px 20px",
-            background: "var(--bg-panel)",
-            borderBottom: "1px solid #1e1e2a",
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
           }}
         >
-          {["Company", "Owner", "Plan", "Status", "MRR", "Joined", ""].map((h) => (
-            <span
-              key={h}
-              style={{
-                fontSize: "10px",
-                fontWeight: 600,
-                color: "var(--text-subtle)",
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-              }}
-            >
-              {h}
-            </span>
-          ))}
-        </div>
-        {clients.map((row) => (
           <div
-            key={row.client.id}
             style={{
+              minWidth: "930px",
               display: "grid",
               gridTemplateColumns: "1.5fr 1fr 0.8fr 0.8fr 0.8fr 0.9fr 100px",
-              padding: "12px 20px",
-              borderBottom: "1px solid #1a1a24",
-              alignItems: "center",
+              padding: "10px 20px",
+              background: subtleBg,
+              borderBottom: rowBorder,
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
-              {row.client.name}
-            </span>
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.client.owner_name}</span>
-            <span
-              style={{
-                fontSize: "11px",
-                padding: "2px 8px",
-                borderRadius: "6px",
-                background: `${PLAN_COLORS[row.subscription?.plan_tier || "trial"] || "var(--text-subtle)"}18`,
-                color: PLAN_COLORS[row.subscription?.plan_tier || "trial"] || "var(--text-muted)",
-                width: "fit-content",
-              }}
-            >
-              {(row.subscription?.plan_tier || "—").toUpperCase()}
-            </span>
-            <span
-              style={{
-                fontSize: "11px",
-                padding: "2px 8px",
-                borderRadius: "6px",
-                background: row.client.is_suspended ? "#f8717118" : "#34d39918",
-                color: row.client.is_suspended ? "#f87171" : "#34d399",
-                width: "fit-content",
-              }}
-            >
-              {row.client.is_suspended ? "Suspended" : "Active"}
-            </span>
-            <span style={{ fontSize: "12px", color: "#34d399" }}>
-              {row.subscription ? `$${row.subscription.price_monthly}/mo` : "—"}
-            </span>
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-              {row.client.created_at
-                ? new Date(row.client.created_at).toLocaleDateString()
-                : "—"}
-            </span>
-            <Link
-              href={`/admin/clients/${row.client.id}`}
-              style={{
-                fontSize: "12px",
-                padding: "6px 10px",
-                borderRadius: "8px",
-                background: "rgba(124,106,255,0.15)",
-                color: "#a78bfa",
-                textDecoration: "none",
-                border: "1px solid rgba(124,106,255,0.25)",
-              }}
-            >
-              View
-            </Link>
+            {["Company", "Owner", "Plan", "Status", "MRR", "Joined", ""].map((h) => (
+              <span
+                key={h}
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: "var(--text-subtle)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                {h}
+              </span>
+            ))}
           </div>
-        ))}
+          {clients.map((row) => (
+            <div
+              key={row.client.id}
+              style={{
+                minWidth: "930px",
+                display: "grid",
+                gridTemplateColumns: "1.5fr 1fr 0.8fr 0.8fr 0.8fr 0.9fr 100px",
+                padding: "12px 20px",
+                borderBottom: rowBorder,
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+                {row.client.name}
+              </span>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.client.owner_name}</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  padding: "2px 8px",
+                  borderRadius: "6px",
+                  background: `${PLAN_COLORS[row.subscription?.plan_tier || "trial"] || "var(--text-subtle)"}18`,
+                  color: PLAN_COLORS[row.subscription?.plan_tier || "trial"] || "var(--text-muted)",
+                  width: "fit-content",
+                }}
+              >
+                {(row.subscription?.plan_tier || "—").toUpperCase()}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  padding: "2px 8px",
+                  borderRadius: "6px",
+                  background: row.client.is_suspended ? "#f8717118" : "#34d39918",
+                  color: row.client.is_suspended ? "#f87171" : "#34d399",
+                  width: "fit-content",
+                }}
+              >
+                {row.client.is_suspended ? "Suspended" : "Active"}
+              </span>
+              <span style={{ fontSize: "12px", color: "#34d399" }}>
+                {row.subscription ? `$${row.subscription.price_monthly}/mo` : "—"}
+              </span>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                {row.client.created_at
+                  ? new Date(row.client.created_at).toLocaleDateString()
+                  : "—"}
+              </span>
+              <Link
+                href={`/admin/clients/${row.client.id}`}
+                style={{
+                  fontSize: "12px",
+                  padding: "6px 10px",
+                  borderRadius: "8px",
+                  background: "color-mix(in srgb, var(--accent-soft) 80%, transparent)",
+                  color: "var(--accent)",
+                  textDecoration: "none",
+                  border: "1px solid color-mix(in srgb, var(--accent) 26%, transparent)",
+                  width: "fit-content",
+                }}
+              >
+                View
+              </Link>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: "14px",
+        }}
+      >
+        <div
+          style={{
+            background: panelBg,
+            border: panelBorder,
+            borderRadius: "14px",
+            padding: "16px",
+            boxShadow: "0 14px 28px rgba(5, 10, 24, 0.1)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+            <ShieldAlert size={14} color="var(--accent)" />
+            <h3 style={{ margin: 0, fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>Risk Watch</h3>
+          </div>
+          <p style={{ margin: 0, fontSize: "12px", color: "var(--text-muted)", lineHeight: 1.6 }}>
+            Suspended clients: <strong style={{ color: "var(--text-primary)" }}>{summary?.suspended ?? 0}</strong>
+          </p>
+          <p style={{ margin: "6px 0 0", fontSize: "12px", color: "var(--text-muted)", lineHeight: 1.6 }}>
+            Active trial organizations:{" "}
+            <strong style={{ color: "var(--text-primary)" }}>{summary?.trials_active ?? 0}</strong>
+          </p>
+          <p style={{ margin: "6px 0 0", fontSize: "12px", color: "var(--text-muted)", lineHeight: 1.6 }}>
+            Paid coverage: <strong style={{ color: "var(--text-primary)" }}>{paidCoverage || 0}%</strong> of MRR.
+          </p>
+        </div>
+
+        <div
+          style={{
+            background: panelBg,
+            border: panelBorder,
+            borderRadius: "14px",
+            padding: "16px",
+            boxShadow: "0 14px 28px rgba(5, 10, 24, 0.1)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+            <Sparkles size={14} color="var(--accent)" />
+            <h3 style={{ margin: 0, fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>Plan Mix</h3>
+          </div>
+          {(["trial", "starter", "pro", "enterprise"] as const).map((tier) => (
+            <div
+              key={tier}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "7px 0",
+                borderBottom: "1px dashed color-mix(in srgb, var(--border-default) 70%, transparent)",
+              }}
+            >
+              <span style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "capitalize" }}>{tier}</span>
+              <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>
+                {summary?.plan_breakdown?.[tier] ?? 0}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            background: panelBg,
+            border: panelBorder,
+            borderRadius: "14px",
+            padding: "16px",
+            boxShadow: "0 14px 28px rgba(5, 10, 24, 0.1)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+            <Clock3 size={14} color="var(--accent)" />
+            <h3 style={{ margin: 0, fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>Action Queue</h3>
+          </div>
+          {activity.slice(0, 4).map((item) => (
+            <div
+              key={`queue-${item.id}`}
+              style={{
+                padding: "8px 0",
+                borderBottom: "1px dashed color-mix(in srgb, var(--border-default) 70%, transparent)",
+              }}
+            >
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--text-primary)", lineHeight: 1.5 }}>{item.action}</p>
+              <p style={{ margin: "3px 0 0", fontSize: "10px", color: "var(--text-subtle)" }}>
+                {new Date(item.created_at).toLocaleString()}
+              </p>
+            </div>
+          ))}
+          {!activity.length ? (
+            <p style={{ margin: 0, fontSize: "12px", color: "var(--text-muted)" }}>No pending actions.</p>
+          ) : null}
+        </div>
       </div>
     </div>
   );

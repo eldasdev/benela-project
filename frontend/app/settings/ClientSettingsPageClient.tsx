@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   Bell,
   Building2,
+  FileBadge2,
   KeyRound,
+  PanelLeft,
   Save,
   ShieldCheck,
+  UploadCloud,
   UserRound,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
@@ -21,7 +25,20 @@ import {
   readClientSettings,
   saveClientSettings,
 } from "@/lib/client-settings";
+import { pathForSection } from "@/lib/section-routes";
 import { Section } from "@/types";
+import { useIsMobile } from "@/lib/use-is-mobile";
+import {
+  fetchClientAccountProfile,
+  listClientBusinessDocuments,
+  patchClientAccountProfile,
+  planLabel,
+  upsertClientOnboarding,
+  uploadClientBusinessDocument,
+  type ClientBusinessDocument,
+  type ClientProfilePatchPayload,
+  type PaidPlanTier,
+} from "@/lib/client-account";
 
 const SECTION_LABELS: Record<ClientSection, string> = {
   dashboard: "Dashboard",
@@ -38,10 +55,47 @@ const SECTION_LABELS: Record<ClientSection, string> = {
   marketplace: "Marketplace",
 };
 
+type BusinessForm = {
+  owner_name: string;
+  owner_phone: string;
+  business_name: string;
+  registration_number: string;
+  industry: string;
+  country: string;
+  city: string;
+  address: string;
+  employee_count: string;
+  plan_tier: PaidPlanTier;
+};
+
+const DEFAULT_BUSINESS_FORM: BusinessForm = {
+  owner_name: "",
+  owner_phone: "",
+  business_name: "",
+  registration_number: "",
+  industry: "",
+  country: "Uzbekistan",
+  city: "",
+  address: "",
+  employee_count: "",
+  plan_tier: "starter",
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+function resolveDownloadUrl(downloadUrl: string): string {
+  if (/^https?:\/\//i.test(downloadUrl)) return downloadUrl;
+  if (!API_BASE || API_BASE === "/api") return downloadUrl;
+  return `${API_BASE.replace(/\/+$/, "")}${downloadUrl}`;
+}
+
 export default function ClientSettingsPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState("");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [jobTitle, setJobTitle] = useState("");
@@ -57,15 +111,34 @@ export default function ClientSettingsPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  const [businessForm, setBusinessForm] = useState<BusinessForm>(DEFAULT_BUSINESS_FORM);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const [paymentRequired, setPaymentRequired] = useState(false);
+  const [trialLabel, setTrialLabel] = useState("Setup required");
+  const [trialProgressPercent, setTrialProgressPercent] = useState(0);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  const [documents, setDocuments] = useState<ClientBusinessDocument[]>([]);
+  const [documentType, setDocumentType] = useState("official");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [savingBusiness, setSavingBusiness] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
+  const setMessage = (nextNotice = "", nextError = "") => {
+    setNotice(nextNotice);
+    setError(nextError);
+  };
+
   useEffect(() => {
     let active = true;
+
     const init = async () => {
       const sb = getSupabase();
       const { data, error: getUserError } = await sb.auth.getUser();
@@ -75,9 +148,11 @@ export default function ClientSettingsPage() {
       }
       if (!active) return;
 
+      setUserId(data.user.id);
       setEmail(data.user.email ?? "");
       const metadata = (data.user.user_metadata || {}) as Record<string, unknown>;
-      setFullName(typeof metadata.full_name === "string" ? metadata.full_name : "");
+      const metadataName = typeof metadata.full_name === "string" ? metadata.full_name : "";
+      setFullName(metadataName);
       setJobTitle(typeof metadata.job_title === "string" ? metadata.job_title : "");
 
       const stored = readClientSettings();
@@ -85,6 +160,57 @@ export default function ClientSettingsPage() {
       setDefaultSection(stored.defaultSection);
       setNotifications(stored.notifications);
 
+      try {
+        const account = await fetchClientAccountProfile(data.user.id);
+        if (account) {
+          setBusinessForm({
+            owner_name: account.owner_name || metadataName,
+            owner_phone: account.owner_phone || "",
+            business_name: account.business_name || "",
+            registration_number: account.registration_number || "",
+            industry: account.industry || "",
+            country: account.country || "Uzbekistan",
+            city: account.city || "",
+            address: account.address || "",
+            employee_count: account.employee_count ? String(account.employee_count) : "",
+            plan_tier: account.plan_tier,
+          });
+          setOnboardingCompleted(Boolean(account.onboarding_completed));
+          setPaymentRequired(Boolean(account.payment_required));
+          setTrialLabel(
+            account.payment_required
+              ? "Payment required"
+              : account.trial_seconds_remaining > 0
+              ? `${Math.floor(account.trial_seconds_remaining / 86400)}d trial left`
+              : "Trial ended"
+          );
+          setTrialProgressPercent(account.trial_progress_percent || 0);
+
+          if (account.workspace_id) {
+            setWorkspaceId(account.workspace_id);
+            saveClientSettings({
+              workspaceId: account.workspace_id,
+              defaultSection: stored.defaultSection,
+              notifications: stored.notifications,
+            });
+          }
+
+          try {
+            const docs = await listClientBusinessDocuments(data.user.id);
+            if (active) setDocuments(docs);
+          } catch {
+            if (active) setDocuments([]);
+          }
+          setProfileLoaded(true);
+        } else {
+          setBusinessForm((prev) => ({ ...prev, owner_name: metadataName || prev.owner_name }));
+          setProfileLoaded(false);
+        }
+      } catch {
+        setProfileLoaded(false);
+      }
+
+      if (!active) return;
       setLoading(false);
     };
 
@@ -93,11 +219,6 @@ export default function ClientSettingsPage() {
       active = false;
     };
   }, [router]);
-
-  const setMessage = (nextNotice = "", nextError = "") => {
-    setNotice(nextNotice);
-    setError(nextError);
-  };
 
   const saveProfile = async () => {
     setSavingProfile(true);
@@ -137,11 +258,106 @@ export default function ClientSettingsPage() {
         notifications,
       });
       setWorkspaceId(normalizedWorkspace);
-      setMessage("Client settings saved. Dashboard modules now use this workspace.");
+      setMessage("Client settings saved.");
     } catch (e: unknown) {
       setMessage("", readErrorMessage(e, "Could not save client settings."));
     } finally {
       setSavingPrefs(false);
+    }
+  };
+
+  const saveBusinessProfile = async () => {
+    if (!userId) return;
+    setSavingBusiness(true);
+    setMessage();
+
+    try {
+      const employeeCount = businessForm.employee_count.trim()
+        ? Math.max(1, Number.parseInt(businessForm.employee_count, 10) || 0)
+        : null;
+
+      const updated = profileLoaded
+        ? await patchClientAccountProfile(userId, {
+            owner_name: businessForm.owner_name.trim() || undefined,
+            owner_phone: businessForm.owner_phone.trim() || undefined,
+            business_name: businessForm.business_name.trim() || undefined,
+            registration_number: businessForm.registration_number.trim() || undefined,
+            industry: businessForm.industry.trim() || undefined,
+            country: businessForm.country.trim() || undefined,
+            city: businessForm.city.trim() || undefined,
+            address: businessForm.address.trim() || undefined,
+            employee_count: employeeCount,
+            plan_tier: businessForm.plan_tier,
+          } satisfies ClientProfilePatchPayload)
+        : await upsertClientOnboarding({
+            user_id: userId,
+            user_email: email || undefined,
+            owner_name: businessForm.owner_name.trim() || undefined,
+            owner_phone: businessForm.owner_phone.trim() || undefined,
+            business_name: businessForm.business_name.trim(),
+            registration_number: businessForm.registration_number.trim() || undefined,
+            industry: businessForm.industry.trim() || undefined,
+            country: businessForm.country.trim() || "Uzbekistan",
+            city: businessForm.city.trim() || undefined,
+            address: businessForm.address.trim() || undefined,
+            employee_count: employeeCount,
+            plan_tier: businessForm.plan_tier,
+          });
+      setOnboardingCompleted(Boolean(updated.onboarding_completed));
+      setPaymentRequired(Boolean(updated.payment_required));
+      setTrialLabel(
+        updated.payment_required
+          ? "Payment required"
+          : updated.trial_seconds_remaining > 0
+          ? `${Math.floor(updated.trial_seconds_remaining / 86400)}d trial left`
+          : "Trial ended"
+      );
+      setTrialProgressPercent(updated.trial_progress_percent || 0);
+      setProfileLoaded(true);
+
+      if (updated.workspace_id) {
+        setWorkspaceId(updated.workspace_id);
+        saveClientSettings({
+          workspaceId: updated.workspace_id,
+          defaultSection,
+          notifications,
+        });
+      }
+
+      setMessage("Business profile saved. Upload official documents to complete verification.");
+    } catch (e: unknown) {
+      setMessage("", readErrorMessage(e, "Could not save business profile."));
+    } finally {
+      setSavingBusiness(false);
+    }
+  };
+
+  const uploadDocument = async () => {
+    if (!userId) return;
+    if (!documentFile) {
+      setMessage("", "Select a file to upload.");
+      return;
+    }
+
+    setUploadingDocument(true);
+    setMessage();
+    try {
+      const uploaded = await uploadClientBusinessDocument(userId, documentFile, documentType);
+      setDocuments((prev) => [uploaded, ...prev]);
+      setDocumentFile(null);
+
+      const refreshed = await fetchClientAccountProfile(userId).catch(() => null);
+      if (refreshed) {
+        setOnboardingCompleted(Boolean(refreshed.onboarding_completed));
+        setPaymentRequired(Boolean(refreshed.payment_required));
+        setTrialProgressPercent(refreshed.trial_progress_percent || 0);
+      }
+
+      setMessage("Document uploaded successfully. Verification pending.");
+    } catch (e: unknown) {
+      setMessage("", readErrorMessage(e, "Could not upload document."));
+    } finally {
+      setUploadingDocument(false);
     }
   };
 
@@ -171,13 +387,13 @@ export default function ClientSettingsPage() {
 
   const handleSectionChange = (section: Section) => {
     if (section === "settings") return;
-    const target =
-      section === "dashboard" ? "/dashboard" : `/dashboard?section=${encodeURIComponent(section)}`;
-    router.push(target);
+    setMobileSidebarOpen(false);
+    router.push(pathForSection(section));
   };
 
   const handleLogout = async () => {
     await getSupabase().auth.signOut();
+    setMobileSidebarOpen(false);
     router.push("/login");
   };
 
@@ -192,10 +408,26 @@ export default function ClientSettingsPage() {
 
   return (
     <div className="platform-glass-app" style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-canvas)" }}>
-      <Sidebar onSectionChange={handleSectionChange} onLogout={handleLogout} />
+      <Sidebar
+        activeSection="settings"
+        onSectionChange={handleSectionChange}
+        onLogout={handleLogout}
+        isMobile={isMobile}
+        mobileOpen={isMobile ? mobileSidebarOpen : false}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+      />
+      {isMobile && mobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="mobile-shell-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
       <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "24px" }}>
+        <div className="responsive-page-container client-settings-container" style={{ maxWidth: "1280px", margin: "0 auto", padding: "24px" }}>
           <header
+            className="responsive-page-header"
             style={{
               display: "flex",
               alignItems: "center",
@@ -206,14 +438,20 @@ export default function ClientSettingsPage() {
             }}
           >
             <div>
+              {isMobile ? (
+                <button onClick={() => setMobileSidebarOpen((prev) => !prev)} style={{ ...secondaryBtn, marginBottom: "10px" }}>
+                  <PanelLeft size={13} />
+                  Menu
+                </button>
+              ) : null}
               <h1 style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
                 Client Settings
               </h1>
               <p style={{ fontSize: "12px", color: "var(--text-subtle)", marginTop: "4px" }}>
-                Manage your account, workspace context, notifications, and security.
+                Manage your account, company profile, legal documents, and security.
               </p>
             </div>
-            <button onClick={() => router.push("/dashboard")} style={secondaryBtn}>
+            <button onClick={() => router.push(pathForSection(defaultSection))} style={secondaryBtn}>
               <ArrowLeft size={13} />
               Back to Dashboard
             </button>
@@ -239,11 +477,266 @@ export default function ClientSettingsPage() {
 
           <div
             style={{
+              marginBottom: "16px",
+              border: "1px solid var(--border-default)",
+              borderRadius: "12px",
+              background: "var(--bg-surface)",
+              padding: "12px 14px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "10px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Workspace</div>
+              <div style={{ marginTop: "4px", fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{workspaceId}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Plan</div>
+              <div style={{ marginTop: "4px", fontSize: "14px", fontWeight: 600, color: paymentRequired ? "var(--danger)" : "var(--text-primary)" }}>
+                {profileLoaded ? planLabel(businessForm.plan_tier) : "Not configured"}
+                {paymentRequired ? " · payment required" : ""}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Onboarding</div>
+              <div style={{ marginTop: "4px", fontSize: "14px", fontWeight: 600, color: onboardingCompleted ? "var(--success)" : "var(--text-primary)" }}>
+                {onboardingCompleted ? "Completed" : "In progress"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Trial status</div>
+              <div style={{ marginTop: "4px", fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>
+                {trialLabel}
+              </div>
+              <div style={{ marginTop: "6px", width: "100%", height: "8px", borderRadius: "999px", border: "1px solid var(--border-default)", background: "var(--bg-elevated)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${Math.min(100, Math.max(0, trialProgressPercent))}%`,
+                    height: "100%",
+                    background: paymentRequired
+                      ? "linear-gradient(90deg, #ef4444, #f87171)"
+                      : "linear-gradient(90deg, var(--accent), var(--accent-2))",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="client-settings-grid"
+            style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
               gap: "16px",
             }}
           >
+            <section style={panelStyle}>
+              <div style={panelHeader}>
+                <Building2 size={14} />
+                Business Profile
+              </div>
+              <div style={panelBody}>
+                <Field label="Business Name">
+                  <input
+                    value={businessForm.business_name}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, business_name: e.target.value }))}
+                    style={inputStyle}
+                    placeholder="Acme Holdings"
+                  />
+                </Field>
+                <Field label="Registration Number">
+                  <input
+                    value={businessForm.registration_number}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, registration_number: e.target.value }))}
+                    style={inputStyle}
+                    placeholder="Official registry ID"
+                  />
+                </Field>
+                <Field label="Industry">
+                  <input
+                    value={businessForm.industry}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, industry: e.target.value }))}
+                    style={inputStyle}
+                    placeholder="Finance, SaaS, Retail..."
+                  />
+                </Field>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <Field label="Country">
+                    <input
+                      value={businessForm.country}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, country: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="Uzbekistan"
+                    />
+                  </Field>
+                  <Field label="City">
+                    <input
+                      value={businessForm.city}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, city: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="Tashkent"
+                    />
+                  </Field>
+                </div>
+                <Field label="Business Address">
+                  <input
+                    value={businessForm.address}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, address: e.target.value }))}
+                    style={inputStyle}
+                    placeholder="Street, district, city"
+                  />
+                </Field>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <Field label="Employee Count">
+                    <input
+                      type="number"
+                      min={1}
+                      value={businessForm.employee_count}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, employee_count: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="10"
+                    />
+                  </Field>
+                  <Field label="Plan Tier">
+                    <select
+                      value={businessForm.plan_tier}
+                      onChange={(e) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          plan_tier: e.target.value as PaidPlanTier,
+                        }))
+                      }
+                      style={inputStyle}
+                    >
+                      <option value="starter">Starter</option>
+                      <option value="pro">Pro</option>
+                      <option value="enterprise">Enterprise</option>
+                    </select>
+                  </Field>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <Field label="Owner Name">
+                    <input
+                      value={businessForm.owner_name}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, owner_name: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="Owner / legal rep"
+                    />
+                  </Field>
+                  <Field label="Owner Phone">
+                    <input
+                      value={businessForm.owner_phone}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, owner_phone: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="+998 ..."
+                    />
+                  </Field>
+                </div>
+                {paymentRequired ? (
+                  <div
+                    style={{
+                      borderRadius: "9px",
+                      border: "1px solid var(--danger-soft-border)",
+                      background: "var(--danger-soft-bg)",
+                      color: "var(--danger)",
+                      padding: "9px 10px",
+                      fontSize: "11px",
+                      display: "flex",
+                      gap: "7px",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <AlertTriangle size={14} style={{ marginTop: "1px", flexShrink: 0 }} />
+                    <span>
+                      This business fingerprint is already registered under another account. Trial is disabled and payment is required to activate this account.
+                    </span>
+                  </div>
+                ) : null}
+                <button onClick={saveBusinessProfile} style={primaryBtn} disabled={savingBusiness}>
+                  <Save size={13} />
+                  {savingBusiness ? "Saving..." : "Save Business Profile"}
+                </button>
+              </div>
+            </section>
+
+            <section style={panelStyle}>
+              <div style={panelHeader}>
+                <FileBadge2 size={14} />
+                Official Documents
+              </div>
+              <div style={panelBody}>
+                <Field label="Document Type">
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="official">Official registration</option>
+                    <option value="license">License</option>
+                    <option value="tax">Tax document</option>
+                    <option value="compliance">Compliance certificate</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+                <Field label="Upload File">
+                  <input
+                    type="file"
+                    onChange={(e) => setDocumentFile(e.target.files?.[0] || null)}
+                    style={inputStyle}
+                  />
+                </Field>
+                <button onClick={uploadDocument} style={primaryBtn} disabled={uploadingDocument}>
+                  <UploadCloud size={13} />
+                  {uploadingDocument ? "Uploading..." : "Upload Document"}
+                </button>
+
+                <div style={{ marginTop: "6px", border: "1px solid var(--border-default)", borderRadius: "10px", overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 1.3fr) minmax(72px, 0.8fr) minmax(86px, 0.8fr)", padding: "8px 10px", borderBottom: "1px solid var(--border-default)", background: "var(--bg-elevated)", fontSize: "10px", letterSpacing: "0.09em", color: "var(--text-quiet)", fontFamily: "monospace" }}>
+                    <span>FILE</span>
+                    <span>TYPE</span>
+                    <span>STATUS</span>
+                  </div>
+                  {documents.length ? (
+                    <div style={{ maxHeight: "240px", overflowY: "auto" }}>
+                      {documents.map((doc) => (
+                        <a
+                          key={doc.id}
+                          href={resolveDownloadUrl(doc.download_url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "minmax(140px, 1.3fr) minmax(72px, 0.8fr) minmax(86px, 0.8fr)",
+                            gap: "8px",
+                            padding: "10px",
+                            textDecoration: "none",
+                            borderBottom: "1px solid var(--border-default)",
+                            color: "var(--text-muted)",
+                            fontSize: "12px",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span style={{ display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 }}>
+                            <span style={{ color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file_name}</span>
+                            <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>{formatBytes(doc.size_bytes)}</span>
+                          </span>
+                          <span style={{ textTransform: "capitalize" }}>{doc.document_type || "official"}</span>
+                          <span style={{ textTransform: "capitalize", color: doc.verification_status === "verified" ? "var(--success)" : "var(--text-subtle)" }}>
+                            {doc.verification_status || "pending"}
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: "12px", fontSize: "12px", color: "var(--text-subtle)" }}>
+                      No documents uploaded yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
             <section style={panelStyle}>
               <div style={panelHeader}>
                 <UserRound size={14} />
@@ -304,7 +797,7 @@ export default function ClientSettingsPage() {
                   </select>
                 </Field>
                 <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                  This workspace ID is used by dashboard and marketplace API calls.
+                  Workspace context is used by all client modules and AI requests.
                 </p>
                 <button onClick={savePreferences} style={primaryBtn} disabled={savingPrefs}>
                   <Save size={13} />
@@ -471,6 +964,13 @@ function ToggleRow({
       </div>
     </button>
   );
+}
+
+function formatBytes(bytes: number): string {
+  const safe = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
+  if (safe < 1024) return `${safe} B`;
+  if (safe < 1024 * 1024) return `${(safe / 1024).toFixed(1)} KB`;
+  return `${(safe / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function readErrorMessage(error: unknown, fallback: string): string {

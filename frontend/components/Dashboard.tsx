@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Section } from "@/types";
 import {
   Sparkles,
+  MessageCircle,
   Bell,
   TrendingUp,
   TrendingDown,
@@ -16,6 +17,11 @@ import {
   DollarSign,
   Activity,
   Clock3,
+  PanelLeft,
+  PieChart,
+  BarChart3,
+  Gauge,
+  ListTodo,
 } from "lucide-react";
 import FinancePage from "./FinancePage";
 import SalesPage from "./SalesPage";
@@ -37,6 +43,8 @@ interface Props {
   activeSection: Section;
   aiPanelOpen: boolean;
   onToggleAI: () => void;
+  isMobile?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 type DashboardCard = {
@@ -53,6 +61,15 @@ type DashboardRow = {
   tasks_today: string;
   alerts: string;
   last_activity: string;
+};
+
+type ModuleOverviewVisualRow = {
+  module: string;
+  status: string;
+  tasks: number;
+  alerts: number;
+  lastActivity: string;
+  score: number | null;
 };
 
 type DashboardOverview = {
@@ -277,11 +294,54 @@ const toneStyles: Record<DashboardHeadlineItem["tone"], { fg: string; bg: string
   },
 };
 
+const MODULE_STATUS_STYLE: Record<string, { color: string; soft: string; border: string }> = {
+  Healthy: {
+    color: "#34d399",
+    soft: "color-mix(in srgb, #34d399 14%, var(--bg-surface))",
+    border: "color-mix(in srgb, #34d399 34%, var(--border-default))",
+  },
+  Warning: {
+    color: "#fbbf24",
+    soft: "color-mix(in srgb, #fbbf24 14%, var(--bg-surface))",
+    border: "color-mix(in srgb, #fbbf24 34%, var(--border-default))",
+  },
+  Critical: {
+    color: "#f87171",
+    soft: "color-mix(in srgb, #f87171 14%, var(--bg-surface))",
+    border: "color-mix(in srgb, #f87171 34%, var(--border-default))",
+  },
+  default: {
+    color: "var(--text-subtle)",
+    soft: "var(--bg-elevated)",
+    border: "var(--border-soft)",
+  },
+};
+
+function parseMetricCount(value: string) {
+  const cleaned = String(value || "").replace(/[^\d-]/g, "");
+  const parsed = Number.parseInt(cleaned, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizeModuleStatus(status: string) {
+  const value = status.trim().toLowerCase();
+  if (value.includes("healthy") || value.includes("active") || value === "ok") return "Healthy";
+  if (value.includes("critical") || value.includes("high")) return "Critical";
+  if (value.includes("warning") || value.includes("risk") || value.includes("pending")) return "Warning";
+  return "default";
+}
+
 function formatMoney(value: number) {
   return `$${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Props) {
+export default function Dashboard({
+  activeSection,
+  aiPanelOpen,
+  onToggleAI,
+  isMobile = false,
+  onToggleSidebar,
+}: Props) {
   const router = useRouter();
   const data = DATA[activeSection] ?? DATA.dashboard;
   const overrideTitle = SECTION_TITLES[activeSection];
@@ -382,8 +442,9 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
   }, [loadUnreadNotifications]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-canvas)" }}>
+    <div className="dashboard-shell" style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-canvas)" }}>
       <div
+        className="dashboard-topbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -395,18 +456,43 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
           borderBottom: "1px solid var(--border-default)",
         }}
       >
-        <div>
-          <h1 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
-            {overrideTitle?.title ?? data.title}
-          </h1>
-          <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "1px" }}>
-            {overrideTitle?.subtitle ?? data.subtitle}
-          </p>
+        <div className="dashboard-title-block" style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          {isMobile && onToggleSidebar ? (
+            <button
+              onClick={onToggleSidebar}
+              title="Open menu"
+              aria-label="Open menu"
+              style={{
+                width: "34px",
+                height: "34px",
+                borderRadius: "9px",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-elevated)",
+                color: "var(--text-muted)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <PanelLeft size={14} />
+            </button>
+          ) : null}
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
+              {overrideTitle?.title ?? data.title}
+            </h1>
+            <p className="dashboard-title-subtitle" style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "1px" }}>
+              {overrideTitle?.subtitle ?? data.subtitle}
+            </p>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div className="dashboard-topbar-actions" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           {activeSection === "dashboard" && (
             <button
               onClick={() => void loadDashboard()}
+              className="dashboard-btn-refresh"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -418,14 +504,16 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
                 border: "1px solid var(--border-default)",
                 color: "var(--text-muted)",
                 fontSize: "12px",
+                whiteSpace: "nowrap",
               }}
             >
               <RefreshCcw size={12} />
-              {dashboardLoading ? "Loading..." : "Refresh"}
+              <span className="dashboard-btn-label">{dashboardLoading ? "Loading..." : "Refresh"}</span>
             </button>
           )}
           <button
             onClick={onToggleAI}
+            className="dashboard-btn-ai"
             style={{
               display: "flex",
               alignItems: "center",
@@ -443,13 +531,15 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
               fontSize: "13px",
               fontWeight: 500,
               transition: "all 0.2s ease",
+              whiteSpace: "nowrap",
             }}
           >
             <Sparkles size={14} />
-            Ask AI
+            <span className="dashboard-btn-label">Ask AI</span>
           </button>
           <button
             onClick={() => router.push("/notifications")}
+            className="dashboard-btn-notify"
             style={{
               width: "34px",
               height: "34px",
@@ -492,7 +582,7 @@ export default function Dashboard({ activeSection, aiPanelOpen, onToggleAI }: Pr
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div className="dashboard-content-scroll" style={{ flex: 1, overflowY: "auto" }}>
         {activeSection === "finance" ? (
           <FinancePage />
         ) : activeSection === "sales" ? (
@@ -542,6 +632,14 @@ function DashboardCommandCenterPanel({
   data: DashboardCommandCenter;
   error?: string;
 }) {
+  const openJudithWorkspace = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("benela:open-internal-chat", {
+        detail: { scope: "judith" },
+      })
+    );
+  }, []);
   const maxAbsNet = useMemo(() => {
     const values = data.cashflow_trend.map((point) => Math.abs(point.net));
     return Math.max(...values, 1);
@@ -564,12 +662,29 @@ function DashboardCommandCenterPanel({
     [data.module_scores]
   );
 
-  const moduleRows = data.overview.modules.map((row) => ({
+  const moduleVisualRows = useMemo<ModuleOverviewVisualRow[]>(() => {
+    const scoreMap = new Map(
+      data.module_scores.map((score) => [score.module.trim().toLowerCase(), score.score])
+    );
+    return data.overview.modules.map((row) => {
+      const moduleKey = row.module.trim().toLowerCase();
+      return {
+        module: row.module,
+        status: row.status,
+        tasks: parseMetricCount(row.tasks_today),
+        alerts: parseMetricCount(row.alerts),
+        lastActivity: row.last_activity,
+        score: scoreMap.get(moduleKey) ?? null,
+      };
+    });
+  }, [data.overview.modules, data.module_scores]);
+
+  const moduleRows = moduleVisualRows.map((row) => ({
     module: row.module,
     status: row.status,
-    tasks: row.tasks_today,
-    alerts: row.alerts,
-    last: row.last_activity,
+    tasks: String(row.tasks),
+    alerts: String(row.alerts),
+    last: row.lastActivity,
   }));
 
   return (
@@ -632,6 +747,68 @@ function DashboardCommandCenterPanel({
           <span style={{ color: "var(--success)" }}>{healthyModules}</span> healthy /{" "}
           <span style={{ color: "var(--text-primary)" }}>{data.module_scores.length}</span> tracked
         </span>
+      </div>
+
+      <div
+        style={{
+          border: "1px solid var(--border-default)",
+          borderRadius: "12px",
+          background: "var(--bg-surface)",
+          padding: "14px",
+          display: "grid",
+          gap: "12px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gap: "4px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
+              <Sparkles size={14} color="var(--accent)" />
+              Judith Task & Event Command Center
+            </span>
+            <span style={{ fontSize: "12px", color: "var(--text-subtle)", maxWidth: "760px", lineHeight: 1.55 }}>
+              Delegate execution to Judith: turn goals into checklists, assign deadlines in UZT, and keep your team synchronized with proactive reminders.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={openJudithWorkspace}
+            style={{
+              height: "34px",
+              padding: "0 14px",
+              borderRadius: "10px",
+              border: "1px solid color-mix(in srgb, var(--accent) 40%, var(--border-default))",
+              background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, var(--bg-surface)), color-mix(in srgb, var(--accent-2) 24%, var(--bg-surface)))",
+              color: "var(--text-primary)",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              cursor: "pointer",
+            }}
+          >
+            <MessageCircle size={13} />
+            Open Judith
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "9px" }}>
+          <MetricRow
+            icon={<ListTodo size={13} color="var(--accent)" />}
+            label="Open Tasks"
+            value={`${Math.max(0, data.operations.tasks_total - data.operations.tasks_overdue)} active`}
+          />
+          <MetricRow
+            icon={<Clock3 size={13} color="#fbbf24" />}
+            label="Due in 7 Days"
+            value={`${data.operations.tasks_due_7_days} scheduled`}
+          />
+          <MetricRow
+            icon={<Bell size={13} color="#f87171" />}
+            label="Overdue"
+            value={`${data.operations.tasks_overdue} need action`}
+          />
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
@@ -886,6 +1063,8 @@ function DashboardCommandCenterPanel({
         </Card>
       </div>
 
+      <ModuleOverviewVisuals rows={moduleVisualRows} />
+
       <DataTable
         title="Module Overview"
         columns={["Module", "Status", "Tasks Today", "Alerts", "Last Activity"]}
@@ -996,6 +1175,16 @@ function DashboardOverviewPanel({
         last: r.last_activity,
       }))
     : fallback.table.rows;
+  const moduleVisualRows = useMemo<ModuleOverviewVisualRow[]>(() => {
+    return rows.map((row) => ({
+      module: row["module"] || "—",
+      status: row["status"] || "—",
+      tasks: parseMetricCount(row["tasks"] || "0"),
+      alerts: parseMetricCount(row["alerts"] || "0"),
+      lastActivity: row["last"] || "—",
+      score: null,
+    }));
+  }, [rows]);
 
   return (
     <div style={{ padding: "24px" }}>
@@ -1047,6 +1236,8 @@ function DashboardOverviewPanel({
           </div>
         ))}
       </div>
+
+      <ModuleOverviewVisuals rows={moduleVisualRows} />
 
       <DataTable
         title="Module Overview"
@@ -1105,6 +1296,334 @@ function GenericPanel({
         columns={data.table.columns}
         rows={data.table.rows}
       />
+    </div>
+  );
+}
+
+function ModuleOverviewVisuals({
+  rows,
+}: {
+  rows: ModuleOverviewVisualRow[];
+}) {
+  const activeRows = rows.filter(
+    (row) =>
+      row.module &&
+      row.module !== "—" &&
+      row.module.toLowerCase() !== "no data yet"
+  );
+
+  if (!activeRows.length) return null;
+
+  const healthCount = activeRows.filter((row) => normalizeModuleStatus(row.status) === "Healthy").length;
+  const warningCount = activeRows.filter((row) => normalizeModuleStatus(row.status) === "Warning").length;
+  const criticalCount = activeRows.filter((row) => normalizeModuleStatus(row.status) === "Critical").length;
+  const totalModules = activeRows.length;
+  const totalTasks = activeRows.reduce((sum, row) => sum + row.tasks, 0);
+  const totalAlerts = activeRows.reduce((sum, row) => sum + row.alerts, 0);
+  const maxPressure = Math.max(
+    ...activeRows.map((row) => row.tasks + row.alerts * 2),
+    1
+  );
+  const maxStack = Math.max(
+    ...activeRows.map((row) => row.tasks + row.alerts),
+    1
+  );
+
+  const healthyPct = Math.round((healthCount / totalModules) * 100);
+  const warningPct = Math.round((warningCount / totalModules) * 100);
+  const criticalPct = Math.max(0, 100 - healthyPct - warningPct);
+  const donutFill = `conic-gradient(
+    #34d399 0 ${healthyPct}%,
+    #fbbf24 ${healthyPct}% ${healthyPct + warningPct}%,
+    #f87171 ${healthyPct + warningPct}% ${healthyPct + warningPct + criticalPct}%,
+    color-mix(in srgb, var(--border-soft) 58%, transparent) ${healthyPct + warningPct + criticalPct}% 100%
+  )`;
+
+  const pressureRows = [...activeRows].sort(
+    (a, b) => b.tasks + b.alerts * 2 - (a.tasks + a.alerts * 2)
+  );
+
+  return (
+    <div style={{ display: "grid", gap: "12px", marginBottom: "12px" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: "12px",
+        }}
+      >
+        <Card
+          title="Module Health Distribution"
+          subtitle="Visual split of healthy, warning and critical module states."
+        >
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "14px" }}>
+            <div style={{ position: "relative", width: "112px", height: "112px" }}>
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  borderRadius: "50%",
+                  background: donutFill,
+                  border: "1px solid var(--border-soft)",
+                  padding: "12px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: "50%",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border-soft)",
+                    display: "grid",
+                    placeItems: "center",
+                    textAlign: "center",
+                  }}
+                >
+                  <span style={{ fontSize: "19px", fontWeight: 700, lineHeight: 1 }}>
+                    {totalModules}
+                  </span>
+                </div>
+              </div>
+              <div
+                style={{
+                  position: "absolute",
+                  right: "-6px",
+                  bottom: "-6px",
+                  width: "26px",
+                  height: "26px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-soft)",
+                  background: "var(--bg-elevated)",
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                <PieChart size={13} color="var(--accent)" />
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "8px",
+                flex: 1,
+                minWidth: "170px",
+              }}
+            >
+              <LegendItem label="Healthy" count={healthCount} color="#34d399" />
+              <LegendItem label="Warning" count={warningCount} color="#fbbf24" />
+              <LegendItem label="Critical" count={criticalCount} color="#f87171" />
+              <div
+                style={{
+                  marginTop: "2px",
+                  paddingTop: "8px",
+                  borderTop: "1px solid var(--border-soft)",
+                  display: "grid",
+                  gap: "4px",
+                  fontSize: "11px",
+                  color: "var(--text-subtle)",
+                }}
+              >
+                <span>Tasks open: {totalTasks}</span>
+                <span>Alerts open: {totalAlerts}</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card
+          title="Operational Pressure Map"
+          subtitle="Weighted pressure by module (alerts carry higher risk)."
+        >
+          <div style={{ display: "grid", gap: "8px" }}>
+            {pressureRows.map((row) => {
+              const normalizedStatus = normalizeModuleStatus(row.status);
+              const statusStyle =
+                MODULE_STATUS_STYLE[normalizedStatus] || MODULE_STATUS_STYLE.default;
+              const pressure = row.tasks + row.alerts * 2;
+              const width = Math.max(
+                pressure > 0 ? 10 : 6,
+                Math.round((pressure / maxPressure) * 100)
+              );
+              return (
+                <div key={`pressure-${row.module}`} style={{ display: "grid", gap: "4px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--text-primary)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {row.module}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        padding: "2px 7px",
+                        borderRadius: "999px",
+                        border: `1px solid ${statusStyle.border}`,
+                        background: statusStyle.soft,
+                        color: statusStyle.color,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <Gauge size={10} />
+                      {pressure} load
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: "8px",
+                      borderRadius: "999px",
+                      background: "var(--bg-panel)",
+                      border: "1px solid var(--border-soft)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${width}%`,
+                        height: "100%",
+                        borderRadius: "999px",
+                        background: `linear-gradient(90deg, color-mix(in srgb, ${statusStyle.color} 86%, #ffffff 14%), ${statusStyle.color})`,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+
+      <Card
+        title="Tasks vs Alerts Matrix"
+        subtitle="Stacked module lanes to compare workload and risk signals."
+      >
+        <div style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-subtle)" }}>
+              <BarChart3 size={12} color="var(--accent)" />
+              Stacked load lanes
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "10px", fontSize: "10px", color: "var(--text-quiet)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399" }} />
+                Tasks
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#f87171" }} />
+                Alerts
+              </span>
+            </div>
+          </div>
+
+          {activeRows.map((row) => {
+            const combined = row.tasks + row.alerts;
+            const rowWidth = Math.max(
+              combined > 0 ? 14 : 8,
+              Math.round((combined / maxStack) * 100)
+            );
+            const tasksWidth = combined > 0 ? (row.tasks / combined) * 100 : 0;
+            const alertsWidth = combined > 0 ? (row.alerts / combined) * 100 : 0;
+            return (
+              <div
+                key={`matrix-${row.module}`}
+                style={{
+                  border: "1px solid var(--border-soft)",
+                  borderRadius: "10px",
+                  padding: "8px 10px",
+                  display: "grid",
+                  gap: "6px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}
+                >
+                  <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>
+                    {row.module}
+                  </span>
+                  <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>{row.lastActivity}</span>
+                </div>
+                <div
+                  style={{
+                    width: `${rowWidth}%`,
+                    minWidth: "40px",
+                    height: "10px",
+                    borderRadius: "999px",
+                    overflow: "hidden",
+                    border: "1px solid var(--border-soft)",
+                    background: "var(--bg-panel)",
+                    display: "flex",
+                  }}
+                >
+                  <div style={{ width: `${tasksWidth}%`, background: "#34d399" }} />
+                  <div style={{ width: `${alertsWidth}%`, background: "#f87171" }} />
+                </div>
+                <div style={{ display: "inline-flex", gap: "8px", fontSize: "10px", color: "var(--text-subtle)" }}>
+                  <span>Tasks: {row.tasks}</span>
+                  <span>Alerts: {row.alerts}</span>
+                  {row.score !== null ? <span>Score: {row.score}/100</span> : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function LegendItem({
+  label,
+  count,
+  color,
+}: {
+  label: string;
+  count: number;
+  color: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "8px",
+        border: "1px solid var(--border-soft)",
+        borderRadius: "9px",
+        padding: "6px 8px",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "11px",
+          color: "var(--text-subtle)",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+        }}
+      >
+        <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: color }} />
+        {label}
+      </span>
+      <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{count}</span>
     </div>
   );
 }

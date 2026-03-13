@@ -443,7 +443,7 @@ export default function AdminAITrainerPage() {
   }
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1480px", margin: "0 auto" }}>
+    <div className="admin-page-shell" style={{ maxWidth: "1480px", margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "22px", color: "var(--text-primary)", fontWeight: 700 }}>

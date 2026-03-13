@@ -26,6 +26,7 @@ from api.marketplace import router as marketplace_router
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
 from api.notifications import router as notifications_router
+from api.client_account import router as client_account_router
 from api.internal_chat import router as internal_chat_router
 from api.internal_chat import dispatch_due_reminders_job, process_telegram_bot_updates_job
 from database.connection import Base, engine, SessionLocal
@@ -56,6 +57,10 @@ from database.models import (
     InternalChatTask,
     InternalChatTaskReminder,
     InternalChatTelegramLink,
+    InternalChatZoomLink,
+    ClientWorkspaceAccount,
+    ClientBusinessDocument,
+    ClientPlatformReport,
     AITrainerProfile,
     AITrainerSource,
     AITrainerChunk,
@@ -221,6 +226,7 @@ def _ensure_internal_chat_schema():
     InternalChatTask.__table__.create(bind=engine, checkfirst=True)
     InternalChatTaskReminder.__table__.create(bind=engine, checkfirst=True)
     InternalChatTelegramLink.__table__.create(bind=engine, checkfirst=True)
+    InternalChatZoomLink.__table__.create(bind=engine, checkfirst=True)
 
 
 def _should_auto_create_ai_trainer_tables() -> bool:
@@ -235,6 +241,19 @@ def _ensure_ai_trainer_schema():
     AITrainerProfile.__table__.create(bind=engine, checkfirst=True)
     AITrainerSource.__table__.create(bind=engine, checkfirst=True)
     AITrainerChunk.__table__.create(bind=engine, checkfirst=True)
+
+
+def _should_auto_create_client_account_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_CLIENT_ACCOUNT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_CLIENT_ACCOUNT_TABLES", True)
+    return True
+
+
+def _ensure_client_account_schema():
+    ClientWorkspaceAccount.__table__.create(bind=engine, checkfirst=True)
+    ClientBusinessDocument.__table__.create(bind=engine, checkfirst=True)
+    ClientPlatformReport.__table__.create(bind=engine, checkfirst=True)
 
 
 def _should_run_internal_chat_reminder_worker() -> bool:
@@ -264,7 +283,8 @@ def _internal_chat_reminder_worker_loop():
         try:
             _telegram_updates_offset = process_telegram_bot_updates_job(db, _telegram_updates_offset)
             processed = dispatch_due_reminders_job(db)
-            if processed or db.new or db.dirty or db.deleted:
+            force_commit = bool(db.info.pop("force_commit", False))
+            if processed or db.new or db.dirty or db.deleted or force_commit:
                 db.commit()
                 if processed:
                     logger.info("Internal chat reminder worker dispatched %s due reminder(s).", processed)
@@ -340,6 +360,7 @@ def _register_routes(prefix: str = ""):
     app.include_router(dashboard_router, prefix=prefix)
     app.include_router(chat_router, prefix=prefix)
     app.include_router(notifications_router, prefix=prefix)
+    app.include_router(client_account_router, prefix=prefix)
     app.include_router(internal_chat_router, prefix=prefix)
 
 
@@ -410,6 +431,11 @@ def bootstrap_database():
             targeted_bootstraps.append(("ai_trainer", _ensure_ai_trainer_schema))
         else:
             logger.info("AUTO_CREATE_AI_TRAINER_TABLES disabled; skipping AI trainer schema checks")
+
+        if _should_auto_create_client_account_tables():
+            targeted_bootstraps.append(("client_account", _ensure_client_account_schema))
+        else:
+            logger.info("AUTO_CREATE_CLIENT_ACCOUNT_TABLES disabled; skipping client account schema checks")
 
         if not targeted_bootstraps:
             return

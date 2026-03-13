@@ -18,20 +18,6 @@ export const PRICING_STORAGE_KEY = "benela_admin_pricing_plans_v1";
 
 export const DEFAULT_PRICING_PLANS: PricingPlanDefinition[] = [
   {
-    id: "trial",
-    name: "Trial",
-    description: "Fast onboarding for early teams validating workflows.",
-    priceMonthly: 0,
-    priceYearly: 0,
-    users: "Up to 5 users",
-    features: [
-      { label: "Core dashboard and AI assistant", included: true },
-      { label: "Finance + HR modules", included: true },
-      { label: "Advanced automations", included: false },
-      { label: "Priority support", included: false },
-    ],
-  },
-  {
     id: "starter",
     name: "Starter",
     description: "For small organizations building their ERP foundation.",

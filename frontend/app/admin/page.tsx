@@ -12,6 +12,7 @@ export default function AdminPage() {
   }, [router]);
   return (
     <div
+      className="admin-auth-loading"
       style={{
         display: "flex",
         alignItems: "center",
@@ -22,11 +23,11 @@ export default function AdminPage() {
     >
       <div
         style={{
-          width: "28px",
-          height: "28px",
+          width: "34px",
+          height: "34px",
           borderRadius: "50%",
-          border: "2px solid #1e1e2a",
-          borderTopColor: "#ef4444",
+          border: "2px solid color-mix(in srgb, var(--border-default) 85%, transparent)",
+          borderTopColor: "var(--accent)",
           animation: "spin 0.8s linear infinite",
         }}
       />

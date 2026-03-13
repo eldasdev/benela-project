@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, X, TrendingUp, TrendingDown, Headset, Clock3, AlertTriangle } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -116,6 +117,7 @@ const toIsoOrNull = (value: string): string | null => (value ? new Date(value).t
 const shortDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "—");
 
 export default function SupportPage() {
+  const isMobile = useIsMobile(900);
   const [summary, setSummary] = useState<SupportSummary | null>(null);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [modal, setModal] = useState<null | "add" | "edit">(null);
@@ -249,7 +251,7 @@ export default function SupportPage() {
   };
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1240px", margin: "0 auto" }}>
+    <div style={{ padding: isMobile ? "12px" : "24px", maxWidth: "1240px", margin: "0 auto" }}>
       {error ? (
         <div
           style={{
@@ -333,7 +335,7 @@ export default function SupportPage() {
                   <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{card.label}</span>
                   <span style={{ color: card.color }}>{card.icon}</span>
                 </div>
-                <div style={{ marginTop: "7px", fontSize: "28px", fontWeight: 650, color: "var(--text-primary)" }}>{card.value}</div>
+                <div style={{ marginTop: "7px", fontSize: isMobile ? "22px" : "28px", fontWeight: 650, color: "var(--text-primary)", lineHeight: 1.1 }}>{card.value}</div>
                 <div style={{ marginTop: "3px", fontSize: "11px", color: card.color }}>{card.meta}</div>
                 <div
                   style={{
@@ -352,7 +354,7 @@ export default function SupportPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+              gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(5, minmax(0, 1fr))",
               gap: "8px",
               marginBottom: "14px",
             }}
@@ -368,14 +370,14 @@ export default function SupportPage() {
             ).map(([key, label]) => (
               <div
                 key={key}
-                style={{
-                  border: "1px solid var(--border-soft)",
-                  background: "var(--bg-panel)",
-                  borderRadius: "9px",
-                  padding: "8px 10px",
-                  display: "grid",
-                  gap: "2px",
-                }}
+              style={{
+                border: "1px solid var(--border-soft)",
+                background: "var(--bg-panel)",
+                borderRadius: "9px",
+                padding: isMobile ? "8px" : "8px 10px",
+                display: "grid",
+                gap: "2px",
+              }}
               >
                 <span style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
                   {label}
@@ -395,7 +397,7 @@ export default function SupportPage() {
             justifyContent: "space-between",
             gap: "12px",
             flexWrap: "wrap",
-            padding: "16px 20px",
+            padding: isMobile ? "14px 12px" : "16px 20px",
             borderBottom: "1px solid var(--border-default)",
           }}
         >
@@ -419,6 +421,8 @@ export default function SupportPage() {
               fontSize: "13px",
               fontWeight: 600,
               cursor: "pointer",
+              width: isMobile ? "100%" : "auto",
+              justifyContent: "center",
             }}
           >
             <Plus size={14} />
@@ -426,119 +430,166 @@ export default function SupportPage() {
           </button>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "0.9fr 1.7fr 1fr 0.8fr 0.8fr 0.9fr 0.8fr 92px",
-            gap: "10px",
-            padding: "10px 18px",
-            borderBottom: "1px solid var(--border-soft)",
-            background: "var(--bg-panel)",
-          }}
-        >
-          {["Ticket", "Subject", "Customer", "Module", "Priority", "Status", "SLA", "Actions"].map((head) => (
-            <span
-              key={head}
-              style={{
-                fontSize: "10px",
-                color: "var(--text-quiet)",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                fontFamily: "monospace",
-                fontWeight: 600,
-              }}
-            >
-              {head}
-            </span>
-          ))}
-        </div>
-        {tickets.map((ticket, index) => (
-          <div
-            key={ticket.id}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "0.9fr 1.7fr 1fr 0.8fr 0.8fr 0.9fr 0.8fr 92px",
-              gap: "10px",
-              padding: "12px 18px",
-              borderBottom: index < tickets.length - 1 ? "1px solid var(--table-row-divider)" : "none",
-              alignItems: "center",
-            }}
-          >
-            <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{ticket.ticket_number}</span>
-            <div style={{ display: "grid", gap: "2px" }}>
-              <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{ticket.subject}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Assignee: {ticket.assignee || "Unassigned"}</span>
-            </div>
-            <div style={{ display: "grid", gap: "2px" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{ticket.customer_name}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{ticket.channel}</span>
-            </div>
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{ticket.module || "general"}</span>
-            <span
-              style={{
-                fontSize: "11px",
-                color: priorityColor[ticket.priority],
-                background: `${priorityColor[ticket.priority]}1A`,
-                border: `1px solid ${priorityColor[ticket.priority]}55`,
-                borderRadius: "999px",
-                padding: "3px 8px",
-                width: "fit-content",
-                textTransform: "capitalize",
-              }}
-            >
-              {ticket.priority}
-            </span>
-            <span
-              style={{
-                fontSize: "11px",
-                color: statusColor[ticket.status],
-                background: `${statusColor[ticket.status]}1A`,
-                border: `1px solid ${statusColor[ticket.status]}55`,
-                borderRadius: "999px",
-                padding: "3px 8px",
-                width: "fit-content",
-                textTransform: "capitalize",
-              }}
-            >
-              {ticket.status.replace("_", " ")}
-            </span>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{shortDate(ticket.sla_due_at)}</span>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <button
-                onClick={() => openEdit(ticket)}
+        {isMobile ? (
+          <div style={{ display: "grid", gap: "10px", padding: "12px" }}>
+            {tickets.map((ticket) => (
+              <div
+                key={ticket.id}
                 style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "8px",
                   border: "1px solid var(--border-default)",
-                  background: "var(--bg-elevated)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
+                  borderRadius: "12px",
+                  background: "color-mix(in srgb, var(--bg-panel) 90%, var(--bg-surface) 10%)",
+                  padding: "10px",
+                  display: "grid",
+                  gap: "8px",
                 }}
               >
-                <Pencil size={12} color="var(--text-muted)" />
-              </button>
-              <button
-                onClick={() => void deleteTicket(ticket.id)}
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-elevated)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <Trash2 size={12} color="var(--danger)" />
-              </button>
-            </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{ticket.ticket_number}</div>
+                    <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 600, marginTop: "2px" }}>{ticket.subject}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "2px" }}>Assignee: {ticket.assignee || "Unassigned"}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button onClick={() => openEdit(ticket)} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid var(--border-default)", background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                      <Pencil size={12} color="var(--text-muted)" />
+                    </button>
+                    <button onClick={() => void deleteTicket(ticket.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid var(--border-default)", background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                      <Trash2 size={12} color="var(--danger)" />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
+                  <span>{ticket.customer_name}</span>
+                  <span>{ticket.module || "general"}</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    <span style={{ fontSize: "11px", color: priorityColor[ticket.priority], background: `${priorityColor[ticket.priority]}1A`, border: `1px solid ${priorityColor[ticket.priority]}55`, borderRadius: "999px", padding: "3px 8px", textTransform: "capitalize" }}>{ticket.priority}</span>
+                    <span style={{ fontSize: "11px", color: statusColor[ticket.status], background: `${statusColor[ticket.status]}1A`, border: `1px solid ${statusColor[ticket.status]}55`, borderRadius: "999px", padding: "3px 8px", textTransform: "capitalize" }}>{ticket.status.replace("_", " ")}</span>
+                  </div>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>SLA: {shortDate(ticket.sla_due_at)}</span>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        ) : (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "0.9fr 1.7fr 1fr 0.8fr 0.8fr 0.9fr 0.8fr 92px",
+                gap: "10px",
+                padding: "10px 18px",
+                borderBottom: "1px solid var(--border-soft)",
+                background: "var(--bg-panel)",
+              }}
+            >
+              {["Ticket", "Subject", "Customer", "Module", "Priority", "Status", "SLA", "Actions"].map((head) => (
+                <span
+                  key={head}
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-quiet)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                  }}
+                >
+                  {head}
+                </span>
+              ))}
+            </div>
+            {tickets.map((ticket, index) => (
+              <div
+                key={ticket.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "0.9fr 1.7fr 1fr 0.8fr 0.8fr 0.9fr 0.8fr 92px",
+                  gap: "10px",
+                  padding: "12px 18px",
+                  borderBottom: index < tickets.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{ticket.ticket_number}</span>
+                <div style={{ display: "grid", gap: "2px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{ticket.subject}</span>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Assignee: {ticket.assignee || "Unassigned"}</span>
+                </div>
+                <div style={{ display: "grid", gap: "2px" }}>
+                  <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{ticket.customer_name}</span>
+                  <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{ticket.channel}</span>
+                </div>
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{ticket.module || "general"}</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: priorityColor[ticket.priority],
+                    background: `${priorityColor[ticket.priority]}1A`,
+                    border: `1px solid ${priorityColor[ticket.priority]}55`,
+                    borderRadius: "999px",
+                    padding: "3px 8px",
+                    width: "fit-content",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {ticket.priority}
+                </span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: statusColor[ticket.status],
+                    background: `${statusColor[ticket.status]}1A`,
+                    border: `1px solid ${statusColor[ticket.status]}55`,
+                    borderRadius: "999px",
+                    padding: "3px 8px",
+                    width: "fit-content",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {ticket.status.replace("_", " ")}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{shortDate(ticket.sla_due_at)}</span>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    onClick={() => openEdit(ticket)}
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-default)",
+                      background: "var(--bg-elevated)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Pencil size={12} color="var(--text-muted)" />
+                  </button>
+                  <button
+                    onClick={() => void deleteTicket(ticket.id)}
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-default)",
+                      background: "var(--bg-elevated)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Trash2 size={12} color="var(--danger)" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
         {!tickets.length ? (
           <div style={{ padding: "24px 18px", color: "var(--text-subtle)", fontSize: "13px" }}>No support tickets yet.</div>
         ) : null}
@@ -554,20 +605,20 @@ export default function SupportPage() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "18px",
+            padding: isMobile ? "10px" : "18px",
           }}
           onClick={() => setModal(null)}
         >
           <div
             style={{
-              width: "820px",
+              width: isMobile ? "100%" : "820px",
               maxWidth: "95vw",
               maxHeight: "90vh",
               overflow: "auto",
               background: "var(--bg-surface)",
               border: "1px solid var(--border-default)",
               borderRadius: "16px",
-              padding: "24px",
+              padding: isMobile ? "16px 14px" : "24px",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -594,7 +645,7 @@ export default function SupportPage() {
             </div>
 
             <div style={{ display: "grid", gap: "12px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1.2fr", gap: "10px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 2fr 1.2fr", gap: "10px" }}>
                 <div>
                   <label style={labelStyle}>Ticket #</label>
                   <input style={inputStyle} value={form.ticket_number} onChange={(e) => setForm((f) => ({ ...f, ticket_number: e.target.value }))} />
@@ -609,7 +660,7 @@ export default function SupportPage() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1fr", gap: "10px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.2fr 1.2fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={labelStyle}>Customer</label>
                   <input style={inputStyle} value={form.customer_name} onChange={(e) => setForm((f) => ({ ...f, customer_name: e.target.value }))} />
@@ -624,7 +675,7 @@ export default function SupportPage() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={labelStyle}>Channel</label>
                   <select style={inputStyle} value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value as SupportTicket["channel"] }))}>
@@ -660,7 +711,7 @@ export default function SupportPage() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={labelStyle}>First Response</label>
                   <input style={inputStyle} type="datetime-local" value={form.first_response_at} onChange={(e) => setForm((f) => ({ ...f, first_response_at: e.target.value }))} />
@@ -679,7 +730,7 @@ export default function SupportPage() {
                 <label style={labelStyle}>Notes</label>
                 <textarea style={{ ...inputStyle, minHeight: "90px", resize: "vertical" }} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexDirection: isMobile ? "column-reverse" : "row" }}>
                 <button
                   onClick={() => setModal(null)}
                   style={{
@@ -689,6 +740,7 @@ export default function SupportPage() {
                     background: "var(--bg-elevated)",
                     color: "var(--text-muted)",
                     cursor: "pointer",
+                    width: isMobile ? "100%" : "auto",
                   }}
                 >
                   Cancel
@@ -704,6 +756,7 @@ export default function SupportPage() {
                     color: "white",
                     fontWeight: 600,
                     cursor: "pointer",
+                    width: isMobile ? "100%" : "auto",
                   }}
                 >
                   {loading ? "Saving..." : "Save Ticket"}

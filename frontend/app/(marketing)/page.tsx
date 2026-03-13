@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
-import { ArrowRight, Sparkles, BarChart3, Users, ShieldCheck, Zap, Globe, ChevronRight, Layers, Monitor, Building2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowRight, Sparkles, BarChart3, Users, ShieldCheck, Zap, Globe, ChevronRight, CheckCircle2, Clock3, BellRing, Monitor, Building2 } from "lucide-react";
 import { PricingModule, type PricingPlan } from "@/components/ui/pricing-module";
 import {
   DEFAULT_PRICING_PLANS,
@@ -23,7 +23,6 @@ const FEATURES = [
 ];
 
 const PLAN_ICONS: Record<string, ReactNode> = {
-  trial: <Layers className="w-8 h-8 text-primary" />,
   starter: <Monitor className="w-8 h-8 text-primary" />,
   pro: <Users className="w-8 h-8 text-primary" />,
   enterprise: <Building2 className="w-8 h-8 text-primary" />,
@@ -32,14 +31,13 @@ const PLAN_ICONS: Record<string, ReactNode> = {
 function toMarketingPlans(plans: PricingPlanDefinition[]): PricingPlan[] {
   return plans.map((plan) => ({
     ...plan,
-    icon: PLAN_ICONS[plan.id] || <Layers className="w-8 h-8 text-primary" />,
+    icon: PLAN_ICONS[plan.id] || <Monitor className="w-8 h-8 text-primary" />,
   }));
 }
 
 const INITIAL_MARKETING_PRICING_PLANS = toMarketingPlans(DEFAULT_PRICING_PLANS);
 
 function readStoredMarketingPlans(): PricingPlan[] {
-  if (typeof window === "undefined") return INITIAL_MARKETING_PRICING_PLANS;
   const stored = window.localStorage.getItem(PRICING_STORAGE_KEY);
   if (!stored) return INITIAL_MARKETING_PRICING_PLANS;
   try {
@@ -62,7 +60,14 @@ const TESTIMONIALS = [
 ];
 
 export default function LandingPage() {
-  const [pricingPlans] = useState<PricingPlan[]>(() => readStoredMarketingPlans());
+  const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>(INITIAL_MARKETING_PRICING_PLANS);
+
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => {
+      setPricingPlans(readStoredMarketingPlans());
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, []);
 
   return (
     <div style={{ background: "var(--bg-canvas)", color: "var(--text-primary)", fontFamily: "system-ui, -apple-system, sans-serif", minHeight: "100vh" }}>
@@ -161,14 +166,14 @@ export default function LandingPage() {
 
           <div className="marketing-hero-actions">
             <Link href="/signup" className="marketing-hero-primary">
-              Start free trial <ArrowRight size={16} />
+              Start 7-day trial <ArrowRight size={16} />
             </Link>
             <Link href="/login" className="marketing-hero-secondary">
               Watch platform demo
             </Link>
           </div>
 
-          <p className="marketing-hero-note">No credit card required · 14-day free trial · Enterprise-ready security</p>
+          <p className="marketing-hero-note">No free plan · 7-day trial on paid plans · Enterprise-ready security</p>
 
           <div className="marketing-hero-stats">
             <div className="marketing-hero-stat">
@@ -215,7 +220,7 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section id="features" style={{ padding: "100px 40px", maxWidth: "1200px", margin: "0 auto" }}>
+      <section id="features" className="marketing-section marketing-section-features" style={{ padding: "100px 40px", maxWidth: "1200px", margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: "64px" }}>
           <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.1em", fontFamily: "monospace", marginBottom: "12px" }}>FEATURES</div>
           <h2 style={{ fontSize: "42px", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "16px" }}>
@@ -226,7 +231,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
+        <div className="marketing-feature-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
           {FEATURES.map((f) => {
             const Icon = f.icon;
             return (
@@ -245,13 +250,133 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <section
+        className="marketing-section"
+        style={{ padding: "0 40px 80px", maxWidth: "1200px", margin: "0 auto" }}
+      >
+        <div
+          style={{
+            borderRadius: "22px",
+            border: "1px solid var(--border-default)",
+            background:
+              "linear-gradient(140deg, color-mix(in srgb, var(--bg-surface) 88%, var(--accent) 12%), var(--bg-surface))",
+            padding: "30px",
+            display: "grid",
+            gridTemplateColumns: "minmax(280px, 1.2fr) minmax(260px, 1fr)",
+            gap: "24px",
+            boxShadow: "0 14px 48px color-mix(in srgb, var(--brand-glow) 28%, transparent)",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "12px",
+                color: "var(--accent)",
+                border: "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default))",
+                borderRadius: "999px",
+                padding: "6px 10px",
+                marginBottom: "14px",
+                background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+              }}
+            >
+              <Sparkles size={13} />
+              Judith AI Assistant
+            </div>
+            <h3 style={{ margin: 0, fontSize: "34px", lineHeight: 1.2, color: "var(--text-primary)" }}>
+              Delegate task operations to Judith in one workspace.
+            </h3>
+            <p style={{ marginTop: "14px", marginBottom: 0, fontSize: "15px", lineHeight: 1.75, color: "var(--text-subtle)" }}>
+              Judith captures notes from chat and voice, turns plans into checklists, tracks deadlines in Uzbekistan time,
+              and sends reminders in both Benela and Telegram when linked.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "18px" }}>
+              {[
+                "Natural-language task creation",
+                "Deadline reminders (+30 min)",
+                "Voice-to-task workflows",
+                "Team and owner direct collaboration",
+              ].map((item) => (
+                <span
+                  key={item}
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--text-muted)",
+                    borderRadius: "999px",
+                    border: "1px solid var(--border-default)",
+                    background: "var(--bg-elevated)",
+                    padding: "6px 10px",
+                  }}
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div
+            style={{
+              borderRadius: "16px",
+              border: "1px solid var(--border-default)",
+              background: "var(--bg-panel)",
+              padding: "18px",
+              display: "grid",
+              gap: "10px",
+              alignContent: "start",
+            }}
+          >
+            {[
+              { icon: CheckCircle2, title: "Smart Task Breakdown", desc: "Converts complex requests into actionable steps." },
+              { icon: Clock3, title: "Deadline Timeline", desc: "Creates due times with timezone-aware reminders." },
+              { icon: BellRing, title: "Mutual Updates", desc: "Syncs reminder updates between web chat and Telegram bot." },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.title}
+                  style={{
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "12px",
+                    background: "var(--bg-surface)",
+                    padding: "12px",
+                    display: "flex",
+                    gap: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "9px",
+                      border: "1px solid color-mix(in srgb, var(--accent) 35%, var(--border-default))",
+                      background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon size={15} color="var(--accent)" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{item.title}</div>
+                    <div style={{ fontSize: "12px", color: "var(--text-subtle)", marginTop: "2px", lineHeight: 1.5 }}>{item.desc}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing */}
       <div id="pricing">
         <PricingModule
           title="Simple, Transparent Pricing"
           subtitle="Choose monthly or annual billing and scale Benela with your operations."
           annualBillingLabel="Pay annually and save"
-          buttonLabel="Start free trial"
+          buttonLabel="Start 7-day trial"
           plans={pricingPlans}
           defaultAnnual={false}
           className="py-24 px-10 border-y border-[var(--bg-elevated)]"
@@ -259,13 +384,13 @@ export default function LandingPage() {
       </div>
 
       {/* Testimonials */}
-      <section style={{ padding: "100px 40px", maxWidth: "1100px", margin: "0 auto" }}>
+      <section className="marketing-section marketing-section-testimonials" style={{ padding: "100px 40px", maxWidth: "1100px", margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: "64px" }}>
           <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.1em", fontFamily: "monospace", marginBottom: "12px" }}>TESTIMONIALS</div>
           <h2 style={{ fontSize: "42px", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>Loved by finance and ops teams</h2>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px" }}>
+        <div className="marketing-testimonials-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px" }}>
           {TESTIMONIALS.map((t) => (
             <div key={t.name} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px" }}>
               <div style={{ fontSize: "32px", color: "var(--accent)", marginBottom: "16px", lineHeight: 1 }}>&ldquo;</div>
@@ -285,14 +410,14 @@ export default function LandingPage() {
       </section>
 
       {/* CTA */}
-      <section style={{ padding: "100px 40px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+      <section className="marketing-section marketing-section-cta" style={{ padding: "100px 40px", textAlign: "center", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ maxWidth: "600px", margin: "0 auto", position: "relative" }}>
           <h2 style={{ fontSize: "48px", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "20px", letterSpacing: "-0.5px" }}>
             Ready to modernize your ERP?
           </h2>
           <p style={{ fontSize: "17px", color: "var(--text-subtle)", marginBottom: "40px", lineHeight: 1.7 }}>
-            Join the waitlist and get early access to Benela AI. Free for the first 100 companies.
+            Launch with any paid plan and validate your setup during a full 7-day trial period.
           </p>
           <Link href="/signup" style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "16px 36px", borderRadius: "14px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", color: "white", fontSize: "16px", fontWeight: 600, textDecoration: "none", boxShadow: "0 0 40px rgba(124,106,255,0.3)" }}>
             Get early access <ArrowRight size={18} />
@@ -302,7 +427,7 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer style={{ padding: "40px", borderTop: "1px solid var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+      <footer className="marketing-footer" style={{ padding: "40px", borderTop: "1px solid var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <svg width="12" height="12" viewBox="0 0 18 18" fill="none">
@@ -703,6 +828,19 @@ export default function LandingPage() {
             top: -1630px;
             left: -320px;
           }
+
+          .marketing-section {
+            padding: 72px 20px !important;
+          }
+
+          .marketing-feature-grid,
+          .marketing-testimonials-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+
+          .marketing-footer {
+            padding: 24px 20px !important;
+          }
         }
 
         @media (max-width: 680px) {
@@ -766,6 +904,30 @@ export default function LandingPage() {
           .marketing-hero-partner-row span {
             font-size: 11px;
             letter-spacing: 0.08em;
+          }
+
+          .marketing-section {
+            padding: 54px 14px !important;
+          }
+
+          .marketing-feature-grid,
+          .marketing-testimonials-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+
+          .marketing-section-cta h2 {
+            font-size: 34px !important;
+          }
+
+          .marketing-section-cta p {
+            font-size: 15px !important;
+          }
+
+          .marketing-footer {
+            flex-direction: column;
+            align-items: flex-start !important;
+            gap: 12px !important;
           }
         }
       `}</style>

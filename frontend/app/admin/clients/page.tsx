@@ -252,7 +252,7 @@ export default function AdminClientsPage() {
   };
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1450px", margin: "0 auto" }}>
+    <div className="admin-page-shell" style={{ maxWidth: "1450px", margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
         <div>
           <h1 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Clients</h1>
@@ -594,7 +594,7 @@ const primaryBtn: React.CSSProperties = {
   height: "33px",
   borderRadius: "8px",
   border: "none",
-  background: "linear-gradient(135deg, #ef4444, #b91c1c)",
+  background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, #fff 18%), var(--accent-2))",
   color: "white",
   fontSize: "12px",
   fontWeight: 600,

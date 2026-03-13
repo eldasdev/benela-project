@@ -423,6 +423,7 @@ html[data-theme="emerald"] {
   --border-soft: var(--glass-border-soft);
   position: relative;
   isolation: isolate;
+  overflow: hidden;
 }
 
 .platform-glass-app::before,
@@ -479,6 +480,62 @@ html[data-theme="emerald"] {
   box-shadow: var(--glass-control-shadow);
 }
 
+.admin-route-shell {
+  --glass-blur: 14px;
+  --glass-saturate: 138%;
+}
+
+.admin-route-shell .admin-main-shell {
+  padding: clamp(8px, 1.4vw, 18px);
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.admin-route-shell .admin-page-shell {
+  padding: clamp(14px, 2.4vw, 28px);
+  animation: fadeUp 0.28s ease both;
+}
+
+.admin-overview-kpis,
+.admin-overview-plans,
+.admin-overview-split {
+  width: 100%;
+}
+
+.admin-auth-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-auth-loading::before {
+  content: "";
+  position: absolute;
+  top: -16%;
+  left: -10%;
+  width: min(58vw, 720px);
+  height: min(58vw, 720px);
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.admin-auth-loading::after {
+  content: "";
+  position: absolute;
+  right: -18%;
+  bottom: -24%;
+  width: min(48vw, 620px);
+  height: min(48vw, 620px);
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 18%, transparent) 0%, transparent 72%);
+  pointer-events: none;
+}
+
+.admin-sidebar a:hover {
+  background: color-mix(in srgb, var(--sidebar-active-bg) 86%, var(--accent-soft) 14%);
+  border-color: color-mix(in srgb, var(--border-default) 80%, var(--accent) 20%);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
@@ -487,6 +544,7 @@ html, body {
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   height: 100%;
+  overflow-x: hidden;
 }
 
 ::-webkit-scrollbar { width: 6px; }
@@ -504,3 +562,140 @@ html, body {
 
 .fade-up { animation: fadeUp 0.4s ease forwards; }
 .blink   { animation: blink 2s ease-in-out infinite; }
+
+.mobile-shell-backdrop {
+  position: fixed;
+  inset: 0;
+  border: none;
+  background: var(--overlay-backdrop-soft);
+  z-index: 80;
+  cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-main-shell {
+    width: 100%;
+  }
+
+  .dashboard-topbar {
+    padding: 8px 12px !important;
+    height: auto !important;
+    min-height: 54px !important;
+  }
+
+  .dashboard-title-block h1 {
+    font-size: 15px !important;
+    line-height: 1.2;
+  }
+
+  .dashboard-title-block p {
+    font-size: 10px !important;
+  }
+
+  .dashboard-topbar-actions {
+    gap: 8px !important;
+    margin-left: auto !important;
+  }
+
+  .dashboard-content-scroll {
+    padding-bottom: calc(104px + env(safe-area-inset-bottom));
+  }
+
+  .dashboard-btn-refresh,
+  .dashboard-btn-ai {
+    padding: 7px 10px !important;
+    font-size: 12px !important;
+  }
+
+  .responsive-page-container {
+    padding: 16px !important;
+  }
+
+  .responsive-page-header {
+    align-items: flex-start !important;
+  }
+
+  .client-settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .notifications-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .ai-panel-shell {
+    border-radius: 0 !important;
+  }
+
+  .ai-panel-toolbar {
+    gap: 6px !important;
+  }
+
+  .ai-panel-toolbar-actions {
+    margin-left: 0 !important;
+  }
+
+  .ai-panel-composer-meta {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+
+  .ai-panel-composer-hints {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .internal-chat-shell {
+    border-radius: 14px !important;
+  }
+
+  .admin-login-shell {
+    grid-template-columns: 1fr !important;
+  }
+
+  .admin-login-intro {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .admin-overview-split {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-title-subtitle {
+    display: none;
+  }
+
+  .dashboard-btn-label,
+  .ai-panel-hint-text {
+    display: none;
+  }
+
+  .dashboard-btn-ai,
+  .dashboard-btn-refresh {
+    padding: 7px !important;
+    min-width: 34px;
+    justify-content: center !important;
+  }
+
+  .client-sidebar,
+  .admin-sidebar {
+    width: min(90vw, 320px) !important;
+  }
+
+  .responsive-page-container {
+    padding: 12px !important;
+  }
+
+  .admin-overview-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .admin-overview-plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}

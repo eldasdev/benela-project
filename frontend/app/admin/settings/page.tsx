@@ -174,7 +174,7 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
+    <div className="admin-page-shell" style={{ maxWidth: "1400px", margin: "0 auto" }}>
       <div
         style={{
           marginBottom: "18px",
@@ -376,8 +376,8 @@ export default function AdminSettingsPage() {
             </div>
           </section>
 
-          <section style={{ ...panelStyle, borderColor: "rgba(239,68,68,0.25)" }}>
-            <div style={{ ...panelHeader, color: "#ef4444" }}>
+          <section style={{ ...panelStyle, borderColor: "var(--danger-soft-border)" }}>
+            <div style={{ ...panelHeader, color: "var(--danger)" }}>
               <AlertTriangle size={14} />
               Danger Zone
             </div>
@@ -538,7 +538,7 @@ const spinnerStyle: React.CSSProperties = {
   height: "30px",
   borderRadius: "50%",
   border: "2px solid #1e1e2a",
-  borderTopColor: "#ef4444",
+  borderTopColor: "var(--accent)",
   animation: "spin 0.8s linear infinite",
 };
 
@@ -584,7 +584,7 @@ const primaryBtn: React.CSSProperties = {
   borderRadius: "8px",
   border: "none",
   padding: "0 14px",
-  background: "linear-gradient(135deg, #ef4444, #b91c1c)",
+  background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, #fff 18%), var(--accent-2))",
   color: "white",
   fontSize: "12px",
   fontWeight: 600,
@@ -612,9 +612,9 @@ const dangerBtn: React.CSSProperties = {
   width: "100%",
   height: "34px",
   borderRadius: "8px",
-  border: "1px solid rgba(239,68,68,0.35)",
-  background: "rgba(239,68,68,0.08)",
-  color: "#ef4444",
+  border: "1px solid var(--danger-soft-border)",
+  background: "var(--danger-soft-bg)",
+  color: "var(--danger)",
   fontSize: "12px",
   fontWeight: 600,
   display: "inline-flex",

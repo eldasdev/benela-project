@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, ChevronLeft, Calendar, User } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -49,6 +50,18 @@ type Summary = {
   total_tasks: number;
 };
 
+type ProjectHealth = "healthy" | "watch" | "risk";
+
+type ProjectMetrics = {
+  totalTasks: number;
+  completedTasks: number;
+  openTasks: number;
+  criticalOpenTasks: number;
+  progressPercent: number;
+  health: ProjectHealth;
+  healthLabel: string;
+};
+
 type ModalType =
   | null
   | "add_project"
@@ -92,6 +105,68 @@ const PRIORITY_COLOR: Record<TaskPriority, string> = {
   low: "var(--text-subtle)",
 };
 
+const PROJECT_HEALTH_COLOR: Record<ProjectHealth, string> = {
+  healthy: "#34d399",
+  watch: "#fbbf24",
+  risk: "#f87171",
+};
+
+const DONE_COLUMN_KEYWORDS = ["done", "complete", "completed", "closed", "approved", "released", "resolved", "finished"];
+
+const isDoneColumnName = (name?: string | null): boolean => {
+  const normalized = (name || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return DONE_COLUMN_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
+
+const buildProjectMetrics = (
+  project: Project,
+  projectColumns: KanbanColumn[],
+  projectTasks: KanbanTask[],
+): ProjectMetrics => {
+  const totalTasks = projectTasks.length;
+  const completedColumnIds = new Set(
+    projectColumns.filter((column) => isDoneColumnName(column.name)).map((column) => column.id),
+  );
+
+  let completedTasks = projectTasks.filter((task) => completedColumnIds.has(task.column_id)).length;
+  if (project.status === "completed" && totalTasks > 0) {
+    completedTasks = totalTasks;
+  }
+
+  const openTasks = Math.max(totalTasks - completedTasks, 0);
+  const criticalOpenTasks = projectTasks.filter(
+    (task) =>
+      !completedColumnIds.has(task.column_id) &&
+      (task.priority === "critical" || task.priority === "high"),
+  ).length;
+  const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  let health: ProjectHealth = "watch";
+  if (project.status === "on_hold" || criticalOpenTasks >= 3 || (totalTasks > 0 && progressPercent < 30)) {
+    health = "risk";
+  } else if (
+    project.status === "completed" ||
+    (progressPercent >= 80 && criticalOpenTasks === 0) ||
+    (totalTasks === 0 && project.status === "active")
+  ) {
+    health = "healthy";
+  }
+
+  const healthLabel =
+    health === "healthy" ? "Healthy" : health === "watch" ? "Needs attention" : "At risk";
+
+  return {
+    totalTasks,
+    completedTasks,
+    openTasks,
+    criticalOpenTasks,
+    progressPercent,
+    health,
+    healthLabel,
+  };
+};
+
 const emptyProjectForm = {
   name: "",
   description: "",
@@ -114,6 +189,10 @@ const emptyTaskForm = {
 };
 
 export default function ProjectsPage() {
+  const isMobile = useIsMobile(980);
+  const isCompact = useIsMobile(1280);
+  const isDenseLayout = isMobile || isCompact;
+
   const [view, setView] = useState<View>("projects_list");
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -126,6 +205,7 @@ export default function ProjectsPage() {
   const [dragTask, setDragTask] = useState<KanbanTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<number | null>(null);
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
+  const [projectMetrics, setProjectMetrics] = useState<Record<number, ProjectMetrics>>({});
 
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
   const [columnForm, setColumnForm] = useState(emptyColumnForm);
@@ -143,21 +223,28 @@ export default function ProjectsPage() {
       setProjects(p);
 
       const counts: Record<number, number> = {};
+      const metrics: Record<number, ProjectMetrics> = {};
       await Promise.all(
         p.map(async (proj) => {
-          const res = await fetch(`${API}/projects/${proj.id}/tasks`);
-          if (res.ok) {
-            const tsks: KanbanTask[] = await res.json();
-            counts[proj.id] = tsks.length;
-          }
+          const [columnsRes, tasksRes] = await Promise.all([
+            fetch(`${API}/projects/${proj.id}/columns`),
+            fetch(`${API}/projects/${proj.id}/tasks`),
+          ]);
+          const cols: KanbanColumn[] = columnsRes.ok ? await columnsRes.json() : [];
+          const tsks: KanbanTask[] = tasksRes.ok ? await tasksRes.json() : [];
+
+          counts[proj.id] = tsks.length;
+          metrics[proj.id] = buildProjectMetrics(proj, cols, tsks);
         })
       );
       setTaskCounts(counts);
+      setProjectMetrics(metrics);
     } catch (err) {
       console.error("Failed to load projects", err);
       setSummary(null);
       setProjects([]);
       setTaskCounts({});
+      setProjectMetrics({});
     }
   };
 
@@ -480,13 +567,20 @@ export default function ProjectsPage() {
 
   // ── Render ───────────────────────────────────────────
   return (
-    <div style={{ padding: "24px", maxWidth: "1200px", margin: "0 auto" }}>
+    <div
+      style={{
+        padding: isDenseLayout ? "14px" : "24px",
+        maxWidth: isDenseLayout ? "100%" : "1200px",
+        margin: "0 auto",
+        overflowX: "hidden",
+      }}
+    >
       {/* KPI Cards (list view only) */}
       {view === "projects_list" && summary && (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4,1fr)",
+            gridTemplateColumns: isDenseLayout ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
             gap: "12px",
             marginBottom: "24px",
           }}
@@ -519,7 +613,7 @@ export default function ProjectsPage() {
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border-default)",
                 borderRadius: "12px",
-                padding: "18px 20px",
+                padding: isDenseLayout ? "14px 14px" : "18px 20px",
                 position: "relative",
                 overflow: "hidden",
               }}
@@ -529,7 +623,7 @@ export default function ProjectsPage() {
               </p>
               <p
                 style={{
-                  fontSize: "28px",
+                  fontSize: isDenseLayout ? "24px" : "28px",
                   fontWeight: 600,
                   color: "var(--text-primary)",
                   lineHeight: 1,
@@ -556,12 +650,21 @@ export default function ProjectsPage() {
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: isDenseLayout ? "stretch" : "center",
           justifyContent: "space-between",
+          flexDirection: isDenseLayout ? "column" : "row",
           marginBottom: "16px",
+          gap: isDenseLayout ? "10px" : 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: isDenseLayout ? "flex-start" : "center",
+            gap: "10px",
+            width: isDenseLayout ? "100%" : "auto",
+          }}
+        >
           {view === "kanban_board" && (
             <button
               onClick={() => {
@@ -581,6 +684,7 @@ export default function ProjectsPage() {
                 color: "var(--text-muted)",
                 fontSize: "12px",
                 cursor: "pointer",
+                flexShrink: 0,
               }}
             >
               <ChevronLeft size={14} />
@@ -629,6 +733,8 @@ export default function ProjectsPage() {
               fontSize: "13px",
               fontWeight: 500,
               cursor: "pointer",
+              width: isDenseLayout ? "100%" : "auto",
+              justifyContent: "center",
             }}
           >
             <Plus size={14} />
@@ -648,6 +754,8 @@ export default function ProjectsPage() {
               color: "var(--text-muted)",
               fontSize: "13px",
               cursor: "pointer",
+              width: isDenseLayout ? "100%" : "auto",
+              justifyContent: "center",
             }}
           >
             <Plus size={14} />
@@ -663,19 +771,30 @@ export default function ProjectsPage() {
             background: "var(--bg-surface)",
             border: "1px solid var(--border-default)",
             borderRadius: "14px",
-            padding: "20px",
+            padding: isDenseLayout ? "14px" : "20px",
           }}
         >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : isDenseLayout
+                  ? "repeat(2, minmax(0, 1fr))"
+                  : "repeat(3, minmax(0, 1fr))",
               gap: "14px",
             }}
           >
             {projects.map((project) => {
               const color = project.color || "var(--accent)";
-              const count = taskCounts[project.id] ?? 0;
+              const metrics = projectMetrics[project.id];
+              const count = metrics?.totalTasks ?? taskCounts[project.id] ?? 0;
+              const completedCount = metrics?.completedTasks ?? 0;
+              const progressPercent = metrics?.progressPercent ?? 0;
+              const health = metrics?.health ?? "watch";
+              const healthLabel = metrics?.healthLabel ?? "Needs attention";
+              const healthColor = PROJECT_HEALTH_COLOR[health];
+              const criticalOpenTasks = metrics?.criticalOpenTasks ?? 0;
               return (
                 <div
                   key={project.id}
@@ -684,7 +803,7 @@ export default function ProjectsPage() {
                     background: "var(--bg-canvas)",
                     borderRadius: "14px",
                     border: "1px solid var(--border-default)",
-                    padding: "16px 16px 14px 18px",
+                    padding: isDenseLayout ? "14px 14px 12px 16px" : "16px 16px 14px 18px",
                     display: "flex",
                     flexDirection: "column",
                     gap: "10px",
@@ -716,6 +835,7 @@ export default function ProjectsPage() {
                           alignItems: "center",
                           justifyContent: "space-between",
                           gap: "8px",
+                          flexWrap: isDenseLayout ? "wrap" : "nowrap",
                         }}
                       >
                         <h3
@@ -724,9 +844,13 @@ export default function ProjectsPage() {
                             fontWeight: 600,
                             color: "var(--text-primary)",
                             margin: 0,
-                            whiteSpace: "nowrap",
+                            whiteSpace: isDenseLayout ? "normal" : "nowrap",
                             overflow: "hidden",
-                            textOverflow: "ellipsis",
+                            textOverflow: isDenseLayout ? "clip" : "ellipsis",
+                            display: isDenseLayout ? "-webkit-box" : "block",
+                            WebkitLineClamp: isDenseLayout ? 2 : undefined,
+                            WebkitBoxOrient: isDenseLayout ? "vertical" : undefined,
+                            maxWidth: "100%",
                           }}
                         >
                           {project.name}
@@ -743,7 +867,7 @@ export default function ProjectsPage() {
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             display: "-webkit-box",
-                            WebkitLineClamp: 2,
+                            WebkitLineClamp: isDenseLayout ? 3 : 2,
                             WebkitBoxOrient: "vertical",
                           }}
                         >
@@ -755,9 +879,81 @@ export default function ProjectsPage() {
 
                   <div
                     style={{
+                      border: "1px solid var(--border-soft)",
+                      borderRadius: "10px",
+                      background: "var(--bg-elevated)",
+                      padding: "8px 10px",
+                      display: "grid",
+                      gap: "7px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={{ fontSize: "10px", color: "var(--text-subtle)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Progress
+                      </span>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            borderRadius: "999px",
+                            border: `1px solid ${healthColor}30`,
+                            background: `${healthColor}16`,
+                            color: healthColor,
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                          }}
+                        >
+                          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: healthColor }} />
+                          {healthLabel}
+                        </span>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>
+                          {progressPercent}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        height: "7px",
+                        borderRadius: "999px",
+                        border: "1px solid var(--border-soft)",
+                        background: "var(--bg-canvas)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${progressPercent}%`,
+                          background: `linear-gradient(90deg, ${color}B0, ${color})`,
+                          transition: "width 260ms ease",
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ fontSize: "10.5px", color: "var(--text-quiet)" }}>
+                      {completedCount}/{count} completed
+                      {criticalOpenTasks > 0 ? ` · ${criticalOpenTasks} high-priority open` : ""}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: isDenseLayout ? "stretch" : "center",
                       justifyContent: "space-between",
+                      flexDirection: isDenseLayout ? "column" : "row",
                       marginTop: "4px",
                       gap: "8px",
                     }}
@@ -766,9 +962,11 @@ export default function ProjectsPage() {
                       style={{
                         display: "flex",
                         alignItems: "center",
+                        flexWrap: "wrap",
                         gap: "8px",
                         color: "var(--text-subtle)",
                         fontSize: "11px",
+                        width: isDenseLayout ? "100%" : "auto",
                       }}
                     >
                       {project.owner && (
@@ -801,6 +999,8 @@ export default function ProjectsPage() {
                         display: "flex",
                         alignItems: "center",
                         gap: "6px",
+                        width: isDenseLayout ? "100%" : "auto",
+                        justifyContent: "flex-start",
                       }}
                     >
                       <span
@@ -815,38 +1015,47 @@ export default function ProjectsPage() {
                       >
                         {count} task{count === 1 ? "" : "s"}
                       </span>
-                      <button
-                        onClick={() => openEditProject(project)}
+                      <div
                         style={{
-                          width: "24px",
-                          height: "24px",
-                          borderRadius: "7px",
-                          background: "var(--bg-elevated)",
-                          border: "1px solid var(--border-default)",
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
+                          gap: "6px",
+                          marginLeft: "auto",
                         }}
                       >
-                        <Pencil size={11} color="var(--text-muted)" />
-                      </button>
-                      <button
-                        onClick={() => deleteProject(project.id)}
-                        style={{
-                          width: "24px",
-                          height: "24px",
-                          borderRadius: "7px",
-                          background: "var(--bg-elevated)",
-                          border: "1px solid var(--border-default)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <Trash2 size={11} color="#f87171" />
-                      </button>
+                        <button
+                          onClick={() => openEditProject(project)}
+                          style={{
+                            width: "24px",
+                            height: "24px",
+                            borderRadius: "7px",
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-default)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <Pencil size={11} color="var(--text-muted)" />
+                        </button>
+                        <button
+                          onClick={() => deleteProject(project.id)}
+                          style={{
+                            width: "24px",
+                            height: "24px",
+                            borderRadius: "7px",
+                            background: "var(--bg-elevated)",
+                            border: "1px solid var(--border-default)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <Trash2 size={11} color="#f87171" />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -854,7 +1063,11 @@ export default function ProjectsPage() {
                     onClick={() => openBoard(project)}
                     style={{
                       marginTop: "8px",
-                      alignSelf: "flex-start",
+                      alignSelf: isDenseLayout ? "stretch" : "flex-start",
+                      width: isDenseLayout ? "100%" : "auto",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       fontSize: "12px",
                       padding: "6px 10px",
                       borderRadius: "8px",

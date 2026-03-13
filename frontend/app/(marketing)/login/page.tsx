@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
+import { syncWorkspaceFromClientAccount } from "@/lib/client-account";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,9 +21,21 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     const sb = getSupabase();
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) { setError(error.message); setLoading(false); }
-    else router.push("/dashboard");
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+    try {
+      const userId = data.user?.id;
+      if (userId) {
+        await syncWorkspaceFromClientAccount(userId);
+      }
+    } catch {
+      // non-blocking: dashboard can still load and retry profile sync
+    }
+    router.push("/dashboard");
   };
 
   const handleGoogle = async () => {
@@ -101,7 +114,7 @@ export default function LoginPage() {
           </form>
         </div>
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "var(--text-subtle)" }}>
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link href="/signup" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>Sign up</Link>
         </p>
       </div>

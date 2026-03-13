@@ -1419,6 +1419,29 @@ class InternalChatTelegramLinkOut(BaseModel):
         from_attributes = True
 
 
+class InternalChatZoomLinkCreate(BaseModel):
+    user_id: str
+    user_role: str = "client"
+    zoom_join_base_url: str
+    use_for_meetings: bool = True
+
+
+class InternalChatZoomLinkOut(BaseModel):
+    id: int
+    workspace_id: str
+    thread_id: int
+    user_id: str
+    user_role: str
+    zoom_join_base_url: str
+    use_for_meetings: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Client Notification Feed ──────────────────────────
 class ClientNotificationOut(BaseModel):
     id: int

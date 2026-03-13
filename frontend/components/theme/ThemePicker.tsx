@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Palette } from "lucide-react";
 import { THEMES, ThemeId } from "@/lib/theme";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 interface ThemePickerProps {
   activeTheme: ThemeId;
@@ -10,6 +11,7 @@ interface ThemePickerProps {
 }
 
 export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps) {
+  const isMobile = useIsMobile(900);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -27,8 +29,8 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
       ref={ref}
       style={{
         position: "fixed",
-        right: "20px",
-        bottom: "20px",
+        right: isMobile ? "12px" : "20px",
+        bottom: isMobile ? "12px" : "20px",
         zIndex: 200,
       }}
     >
@@ -36,7 +38,7 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
         <div
           style={{
             marginBottom: "10px",
-            width: "320px",
+            width: isMobile ? "min(360px, calc(100vw - 24px))" : "320px",
             borderRadius: "14px",
             background: "var(--bg-surface)",
             border: "1px solid var(--border-default)",
@@ -125,8 +127,8 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
       <button
         onClick={() => setOpen((value) => !value)}
         style={{
-          width: "46px",
-          height: "46px",
+          width: isMobile ? "44px" : "46px",
+          height: isMobile ? "44px" : "46px",
           borderRadius: "12px",
           border: "1px solid var(--border-default)",
           background: "var(--bg-surface)",

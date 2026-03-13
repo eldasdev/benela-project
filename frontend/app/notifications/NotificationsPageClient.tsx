@@ -7,6 +7,7 @@ import {
   CheckCheck,
   CheckCircle2,
   RefreshCcw,
+  PanelLeft,
   ShieldAlert,
   Info,
   AlertTriangle,
@@ -16,12 +17,14 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
+import { pathForSection } from "@/lib/section-routes";
 import {
   markNotificationsAsRead,
   readSeenNotificationIds,
   writeSeenNotificationIds,
 } from "@/lib/notifications";
 import { Section } from "@/types";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -67,6 +70,7 @@ const TYPE_META: Record<
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
 
   const [authed, setAuthed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -75,6 +79,7 @@ export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [seenIds, setSeenIds] = useState<number[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const loadNotifications = useCallback(async () => {
     const workspaceId = getClientWorkspaceId();
@@ -152,17 +157,13 @@ export default function NotificationsPage() {
   };
 
   const handleSectionChange = (section: Section) => {
-    if (section === "settings") {
-      router.push("/settings");
-      return;
-    }
-    const target =
-      section === "dashboard" ? "/dashboard" : `/dashboard?section=${encodeURIComponent(section)}`;
-    router.push(target);
+    setMobileSidebarOpen(false);
+    router.push(pathForSection(section));
   };
 
   const handleLogout = async () => {
     await getSupabase().auth.signOut();
+    setMobileSidebarOpen(false);
     router.push("/login");
   };
 
@@ -177,11 +178,26 @@ export default function NotificationsPage() {
 
   return (
     <div className="platform-glass-app" style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-canvas)" }}>
-      <Sidebar onSectionChange={handleSectionChange} onLogout={handleLogout} />
+      <Sidebar
+        onSectionChange={handleSectionChange}
+        onLogout={handleLogout}
+        isMobile={isMobile}
+        mobileOpen={isMobile ? mobileSidebarOpen : false}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+      />
+      {isMobile && mobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="mobile-shell-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
 
       <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px" }}>
+        <div className="responsive-page-container notifications-container" style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px" }}>
           <header
+            className="responsive-page-header"
             style={{
               display: "flex",
               alignItems: "center",
@@ -192,6 +208,12 @@ export default function NotificationsPage() {
             }}
           >
             <div>
+              {isMobile ? (
+                <button onClick={() => setMobileSidebarOpen((prev) => !prev)} style={{ ...secondaryBtn, marginBottom: "10px" }}>
+                  <PanelLeft size={13} />
+                  Menu
+                </button>
+              ) : null}
               <h1 style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
                 Notifications
               </h1>
@@ -212,7 +234,7 @@ export default function NotificationsPage() {
             </div>
           </header>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "10px", marginBottom: "14px" }}>
+          <div className="notifications-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "10px", marginBottom: "14px" }}>
             <StatCard label="Total" value={String(items.length)} />
             <StatCard label="Unread" value={String(unreadCount)} />
             <StatCard

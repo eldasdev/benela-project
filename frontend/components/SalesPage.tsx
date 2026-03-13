@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ClipboardList,
 } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -342,6 +343,10 @@ const shortDate = (value?: string | null) => {
 };
 
 export default function SalesPage() {
+  const isMobile = useIsMobile(900);
+  const isTablet = useIsMobile(1180);
+  const isDenseLayout = isMobile || isTablet;
+
   const [tab, setTab] = useState<TabType>("products");
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [products, setProducts] = useState<SalesProduct[]>([]);
@@ -743,8 +748,14 @@ export default function SalesPage() {
     return Math.max(...reports.revenue_trend.revenue, 1);
   }, [reports]);
 
+  const productTableMinWidth = 1040;
+  const orderTableMinWidth = 980;
+  const inventoryWatchlistMinWidth = 560;
+  const inventoryLedgerMinWidth = 760;
+  const reportTableMinWidth = 640;
+
   return (
-    <div style={{ padding: "24px", maxWidth: "1320px", margin: "0 auto" }}>
+    <div style={{ padding: isDenseLayout ? "14px" : "24px", maxWidth: "1320px", margin: "0 auto", overflowX: "hidden" }}>
       {loadError ? (
         <div
           style={{
@@ -861,8 +872,10 @@ export default function SalesPage() {
           border: "1px solid var(--border-default)",
           borderRadius: "10px",
           padding: "4px",
-          width: "fit-content",
-          flexWrap: "wrap",
+          width: isDenseLayout ? "100%" : "fit-content",
+          flexWrap: "nowrap",
+          overflowX: "auto",
+          scrollbarWidth: "thin",
         }}
       >
         {(
@@ -888,6 +901,8 @@ export default function SalesPage() {
               fontWeight: 600,
               background: tab === item.key ? "var(--bg-elevated)" : "transparent",
               color: tab === item.key ? "var(--text-primary)" : "var(--text-subtle)",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
             {item.icon}
@@ -939,46 +954,49 @@ export default function SalesPage() {
             </button>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "0.9fr 1.8fr 1fr 1fr 0.9fr 0.8fr 0.8fr 92px",
-              gap: "10px",
-              padding: "10px 18px",
-              borderBottom: "1px solid var(--border-soft)",
-              background: "var(--bg-panel)",
-            }}
-          >
-            {["SKU", "Product", "Category", "Price / Cost", "Stock", "Status", "Revenue", "Actions"].map((head) => (
-              <span
-                key={head}
-                style={{
-                  fontSize: "10px",
-                  color: "var(--text-quiet)",
-                  fontFamily: "monospace",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  fontWeight: 600,
-                }}
-              >
-                {head}
-              </span>
-            ))}
-          </div>
-          {products.map((row, index) => (
+          <div style={{ overflowX: "auto", scrollbarWidth: "thin" }}>
             <div
-              key={row.id}
               style={{
+                minWidth: `${productTableMinWidth}px`,
                 display: "grid",
                 gridTemplateColumns: "0.9fr 1.8fr 1fr 1fr 0.9fr 0.8fr 0.8fr 92px",
                 gap: "10px",
-                padding: "12px 18px",
-                borderBottom: index < products.length - 1 ? "1px solid var(--table-row-divider)" : "none",
-                alignItems: "center",
+                padding: "10px 18px",
+                borderBottom: "1px solid var(--border-soft)",
+                background: "var(--bg-panel)",
               }}
             >
-              <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{row.sku}</span>
-              <div style={{ display: "grid", gap: "2px" }}>
+              {["SKU", "Product", "Category", "Price / Cost", "Stock", "Status", "Revenue", "Actions"].map((head) => (
+                <span
+                  key={head}
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-quiet)",
+                    fontFamily: "monospace",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    fontWeight: 600,
+                  }}
+                >
+                  {head}
+                </span>
+              ))}
+            </div>
+            {products.map((row, index) => (
+              <div
+                key={row.id}
+                style={{
+                  minWidth: `${productTableMinWidth}px`,
+                  display: "grid",
+                  gridTemplateColumns: "0.9fr 1.8fr 1fr 1fr 0.9fr 0.8fr 0.8fr 92px",
+                  gap: "10px",
+                  padding: "12px 18px",
+                  borderBottom: index < products.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{row.sku}</span>
+                <div style={{ display: "grid", gap: "2px" }}>
                 <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{row.name}</span>
                 <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
                   {row.brand || "Unbranded"} · sold {row.total_sold_units}
@@ -995,20 +1013,21 @@ export default function SalesPage() {
                 </span>
                 <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>reorder {row.reorder_level}</span>
               </div>
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: statusColor[row.status] || "var(--text-muted)",
-                  background: `${statusColor[row.status] || "#6b7280"}1A`,
-                  border: `1px solid ${statusColor[row.status] || "#6b7280"}44`,
-                  borderRadius: "999px",
-                  padding: "3px 9px",
-                  width: "fit-content",
-                  textTransform: "capitalize",
-                }}
-              >
-                {row.status.replace("_", " ")}
-              </span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: statusColor[row.status] || "var(--text-muted)",
+                    background: `${statusColor[row.status] || "#6b7280"}1A`,
+                    border: `1px solid ${statusColor[row.status] || "#6b7280"}44`,
+                    borderRadius: "999px",
+                    padding: "3px 9px",
+                    width: "fit-content",
+                    textTransform: "capitalize",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.status.replace("_", " ")}
+                </span>
               <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{fmtMoney(row.total_revenue)}</span>
               <div style={{ display: "flex", gap: "6px" }}>
                 <button
@@ -1044,8 +1063,9 @@ export default function SalesPage() {
                   <Trash2 size={12} color="var(--danger)" />
                 </button>
               </div>
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
           {!products.length ? (
             <div style={{ padding: "26px 18px", color: "var(--text-subtle)", fontSize: "13px" }}>
               No products in the catalog yet.
@@ -1096,46 +1116,49 @@ export default function SalesPage() {
               Add Sold Order
             </button>
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "0.9fr 1.2fr 0.8fr 0.8fr 0.7fr 0.7fr 0.7fr 96px",
-              gap: "10px",
-              padding: "10px 18px",
-              borderBottom: "1px solid var(--border-soft)",
-              background: "var(--bg-panel)",
-            }}
-          >
-            {["Order #", "Customer", "Items", "Total", "Channel", "Status", "Date", "Actions"].map((head) => (
-              <span
-                key={head}
-                style={{
-                  fontSize: "10px",
-                  color: "var(--text-quiet)",
-                  fontFamily: "monospace",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  fontWeight: 600,
-                }}
-              >
-                {head}
-              </span>
-            ))}
-          </div>
-          {orders.map((row, index) => (
+          <div style={{ overflowX: "auto", scrollbarWidth: "thin" }}>
             <div
-              key={row.id}
               style={{
+                minWidth: `${orderTableMinWidth}px`,
                 display: "grid",
                 gridTemplateColumns: "0.9fr 1.2fr 0.8fr 0.8fr 0.7fr 0.7fr 0.7fr 96px",
                 gap: "10px",
-                padding: "12px 18px",
-                borderBottom: index < orders.length - 1 ? "1px solid var(--table-row-divider)" : "none",
-                alignItems: "center",
+                padding: "10px 18px",
+                borderBottom: "1px solid var(--border-soft)",
+                background: "var(--bg-panel)",
               }}
             >
-              <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{row.order_number}</span>
-              <div style={{ display: "grid", gap: "2px" }}>
+              {["Order #", "Customer", "Items", "Total", "Channel", "Status", "Date", "Actions"].map((head) => (
+                <span
+                  key={head}
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-quiet)",
+                    fontFamily: "monospace",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    fontWeight: 600,
+                  }}
+                >
+                  {head}
+                </span>
+              ))}
+            </div>
+            {orders.map((row, index) => (
+              <div
+                key={row.id}
+                style={{
+                  minWidth: `${orderTableMinWidth}px`,
+                  display: "grid",
+                  gridTemplateColumns: "0.9fr 1.2fr 0.8fr 0.8fr 0.7fr 0.7fr 0.7fr 96px",
+                  gap: "10px",
+                  padding: "12px 18px",
+                  borderBottom: index < orders.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{row.order_number}</span>
+                <div style={{ display: "grid", gap: "2px" }}>
                 <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{row.customer_name}</span>
                 <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{row.customer_email || "No email"}</span>
               </div>
@@ -1147,20 +1170,21 @@ export default function SalesPage() {
               </div>
               <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{fmtMoney(row.total)}</span>
               <span style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "capitalize" }}>{row.channel}</span>
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: statusColor[row.status] || "var(--text-muted)",
-                  background: `${statusColor[row.status] || "#6b7280"}1A`,
-                  border: `1px solid ${statusColor[row.status] || "#6b7280"}44`,
-                  borderRadius: "999px",
-                  padding: "3px 9px",
-                  width: "fit-content",
-                  textTransform: "capitalize",
-                }}
-              >
-                {row.status}
-              </span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: statusColor[row.status] || "var(--text-muted)",
+                    background: `${statusColor[row.status] || "#6b7280"}1A`,
+                    border: `1px solid ${statusColor[row.status] || "#6b7280"}44`,
+                    borderRadius: "999px",
+                    padding: "3px 9px",
+                    width: "fit-content",
+                    textTransform: "capitalize",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.status}
+                </span>
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{shortDate(row.order_date)}</span>
               <div style={{ display: "flex", gap: "6px" }}>
                 <button
@@ -1196,8 +1220,9 @@ export default function SalesPage() {
                   <Trash2 size={12} color="var(--danger)" />
                 </button>
               </div>
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
           {!orders.length ? (
             <div style={{ padding: "26px 18px", color: "var(--text-subtle)", fontSize: "13px" }}>
               No sold orders yet.
@@ -1208,46 +1233,50 @@ export default function SalesPage() {
 
       {tab === "inventory" ? (
         <div style={{ display: "grid", gap: "12px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1.15fr 0.85fr", gap: "12px" }}>
             <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
               <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border-default)" }}>
                 <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Inventory Watchlist</span>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1.1fr 0.7fr 0.6fr 0.8fr",
-                  gap: "10px",
-                  padding: "10px 18px",
-                  borderBottom: "1px solid var(--border-soft)",
-                  background: "var(--bg-panel)",
-                }}
-              >
-                {["Product", "Stock", "Reorder", "Status"].map((head) => (
-                  <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, fontFamily: "monospace" }}>
-                    {head}
-                  </span>
-                ))}
-              </div>
-              {(reports?.low_stock_products || []).slice(0, 10).map((row, idx, arr) => (
+              <div style={{ overflowX: "auto", scrollbarWidth: "thin" }}>
                 <div
-                  key={row.id}
                   style={{
+                    minWidth: `${inventoryWatchlistMinWidth}px`,
                     display: "grid",
                     gridTemplateColumns: "1.1fr 0.7fr 0.6fr 0.8fr",
                     gap: "10px",
-                    padding: "11px 18px",
-                    borderBottom: idx < arr.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                    padding: "10px 18px",
+                    borderBottom: "1px solid var(--border-soft)",
+                    background: "var(--bg-panel)",
                   }}
                 >
-                  <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{row.name}</span>
-                  <span style={{ fontSize: "12px", color: row.stock_qty <= 0 ? "var(--danger)" : "var(--warning)" }}>{row.stock_qty}</span>
-                  <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.reorder_level}</span>
-                  <span style={{ fontSize: "11px", color: statusColor[row.status] || "var(--text-muted)" }}>
-                    {row.status.replace("_", " ")}
-                  </span>
+                  {["Product", "Stock", "Reorder", "Status"].map((head) => (
+                    <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, fontFamily: "monospace" }}>
+                      {head}
+                    </span>
+                  ))}
                 </div>
-              ))}
+                {(reports?.low_stock_products || []).slice(0, 10).map((row, idx, arr) => (
+                  <div
+                    key={row.id}
+                    style={{
+                      minWidth: `${inventoryWatchlistMinWidth}px`,
+                      display: "grid",
+                      gridTemplateColumns: "1.1fr 0.7fr 0.6fr 0.8fr",
+                      gap: "10px",
+                      padding: "11px 18px",
+                      borderBottom: idx < arr.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{row.name}</span>
+                    <span style={{ fontSize: "12px", color: row.stock_qty <= 0 ? "var(--danger)" : "var(--warning)" }}>{row.stock_qty}</span>
+                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.reorder_level}</span>
+                    <span style={{ fontSize: "11px", color: statusColor[row.status] || "var(--text-muted)", whiteSpace: "nowrap" }}>
+                      {row.status.replace("_", " ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
               {!reports?.low_stock_products?.length ? (
                 <div style={{ padding: "22px 18px", color: "var(--text-subtle)", fontSize: "13px" }}>
                   No inventory risks detected.
@@ -1322,6 +1351,7 @@ export default function SalesPage() {
                     fontSize: "13px",
                     fontWeight: 600,
                     cursor: "pointer",
+                    width: isDenseLayout ? "100%" : "auto",
                   }}
                 >
                   Apply Adjustment
@@ -1334,45 +1364,49 @@ export default function SalesPage() {
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border-default)" }}>
               <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Inventory Movement Ledger</span>
             </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "0.8fr 1.3fr 0.6fr 1fr 1fr 0.7fr",
-                gap: "10px",
-                padding: "10px 18px",
-                borderBottom: "1px solid var(--border-soft)",
-                background: "var(--bg-panel)",
-              }}
-            >
-              {["Date", "Product", "Change", "Reason", "Reference", "Actor"].map((head) => (
-                <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, fontFamily: "monospace" }}>
-                  {head}
-                </span>
-              ))}
-            </div>
-            {adjustmentRows.slice(0, 120).map((row, idx) => (
+            <div style={{ overflowX: "auto", scrollbarWidth: "thin" }}>
               <div
-                key={row.id}
                 style={{
+                  minWidth: `${inventoryLedgerMinWidth}px`,
                   display: "grid",
                   gridTemplateColumns: "0.8fr 1.3fr 0.6fr 1fr 1fr 0.7fr",
                   gap: "10px",
-                  padding: "11px 18px",
-                  borderBottom: idx < adjustmentRows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
-                  alignItems: "center",
+                  padding: "10px 18px",
+                  borderBottom: "1px solid var(--border-soft)",
+                  background: "var(--bg-panel)",
                 }}
               >
-                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{shortDate(row.created_at)}</span>
-                <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{row.product_label}</span>
-                <span style={{ fontSize: "12px", color: row.change_qty >= 0 ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>
-                  {row.change_qty >= 0 ? "+" : ""}
-                  {row.change_qty}
-                </span>
-                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.reason}</span>
-                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.reference || "—"}</span>
-                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.actor || "system"}</span>
+                {["Date", "Product", "Change", "Reason", "Reference", "Actor"].map((head) => (
+                  <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, fontFamily: "monospace" }}>
+                    {head}
+                  </span>
+                ))}
               </div>
-            ))}
+              {adjustmentRows.slice(0, 120).map((row, idx) => (
+                <div
+                  key={row.id}
+                  style={{
+                    minWidth: `${inventoryLedgerMinWidth}px`,
+                    display: "grid",
+                    gridTemplateColumns: "0.8fr 1.3fr 0.6fr 1fr 1fr 0.7fr",
+                    gap: "10px",
+                    padding: "11px 18px",
+                    borderBottom: idx < adjustmentRows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{shortDate(row.created_at)}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{row.product_label}</span>
+                  <span style={{ fontSize: "12px", color: row.change_qty >= 0 ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>
+                    {row.change_qty >= 0 ? "+" : ""}
+                    {row.change_qty}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.reason}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.reference || "—"}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{row.actor || "system"}</span>
+                </div>
+              ))}
+            </div>
             {!adjustmentRows.length ? (
               <div style={{ padding: "24px 18px", color: "var(--text-subtle)", fontSize: "13px" }}>
                 No inventory movements recorded.
@@ -1384,7 +1418,7 @@ export default function SalesPage() {
 
       {tab === "reports" ? (
         <div style={{ display: "grid", gap: "12px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr", gap: "12px" }}>
             <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", padding: "16px" }}>
               <div style={{ display: "grid", gap: "2px", marginBottom: "10px" }}>
                 <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Revenue Trend (6 months)</span>
@@ -1436,7 +1470,7 @@ export default function SalesPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr", gap: "12px" }}>
             {[
               { title: "Current Products", rows: reports?.current_products || [], tone: "var(--success)" },
               { title: "Non-current Products", rows: reports?.non_current_products || [], tone: "var(--warning)" },
@@ -1445,42 +1479,46 @@ export default function SalesPage() {
                 <div style={{ padding: "13px 16px", borderBottom: "1px solid var(--border-default)" }}>
                   <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{block.title}</span>
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1.3fr 0.7fr 0.7fr 0.8fr",
-                    gap: "10px",
-                    padding: "9px 16px",
-                    borderBottom: "1px solid var(--border-soft)",
-                    background: "var(--bg-panel)",
-                  }}
-                >
-                  {["Product", "Stock", "Revenue", "Status"].map((head) => (
-                    <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", fontWeight: 600 }}>
-                      {head}
-                    </span>
-                  ))}
-                </div>
-                {block.rows.slice(0, 8).map((row, idx) => (
+                <div style={{ overflowX: "auto", scrollbarWidth: "thin" }}>
                   <div
-                    key={row.id}
                     style={{
+                      minWidth: `${reportTableMinWidth}px`,
                       display: "grid",
                       gridTemplateColumns: "1.3fr 0.7fr 0.7fr 0.8fr",
                       gap: "10px",
-                      padding: "10px 16px",
-                      borderBottom: idx < block.rows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                      padding: "9px 16px",
+                      borderBottom: "1px solid var(--border-soft)",
+                      background: "var(--bg-panel)",
                     }}
                   >
-                    <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>
-                      {row.name}
-                      <span style={{ color: "var(--text-subtle)" }}> ({row.sku})</span>
-                    </span>
-                    <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.stock_qty}</span>
-                    <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{fmtMoney(row.total_revenue)}</span>
-                    <span style={{ fontSize: "11px", color: statusColor[row.status] || block.tone }}>{row.status.replace("_", " ")}</span>
+                    {["Product", "Stock", "Revenue", "Status"].map((head) => (
+                      <span key={head} style={{ fontSize: "10px", color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", fontWeight: 600 }}>
+                        {head}
+                      </span>
+                    ))}
                   </div>
-                ))}
+                  {block.rows.slice(0, 8).map((row, idx) => (
+                    <div
+                      key={row.id}
+                      style={{
+                        minWidth: `${reportTableMinWidth}px`,
+                        display: "grid",
+                        gridTemplateColumns: "1.3fr 0.7fr 0.7fr 0.8fr",
+                        gap: "10px",
+                        padding: "10px 16px",
+                        borderBottom: idx < block.rows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                      }}
+                    >
+                      <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>
+                        {row.name}
+                        <span style={{ color: "var(--text-subtle)" }}> ({row.sku})</span>
+                      </span>
+                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{row.stock_qty}</span>
+                      <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>{fmtMoney(row.total_revenue)}</span>
+                      <span style={{ fontSize: "11px", color: statusColor[row.status] || block.tone, whiteSpace: "nowrap" }}>{row.status.replace("_", " ")}</span>
+                    </div>
+                  ))}
+                </div>
                 {!block.rows.length ? (
                   <div style={{ padding: "18px 16px", fontSize: "12px", color: "var(--text-subtle)" }}>No entries.</div>
                 ) : null}
@@ -1500,7 +1538,7 @@ export default function SalesPage() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "18px",
+            padding: isMobile ? "10px" : "18px",
           }}
           onClick={() => {
             setModal(null);
@@ -1514,11 +1552,11 @@ export default function SalesPage() {
               background: "var(--bg-surface)",
               border: "1px solid var(--border-default)",
               borderRadius: "16px",
-              width: modal === "inventory_adjust" ? "500px" : modal?.includes("order") ? "940px" : "680px",
-              maxWidth: "95vw",
-              maxHeight: "90vh",
+              width: isMobile ? "100%" : modal === "inventory_adjust" ? "500px" : modal?.includes("order") ? "940px" : "680px",
+              maxWidth: "min(95vw, 1000px)",
+              maxHeight: isMobile ? "92vh" : "90vh",
               overflow: "auto",
-              padding: "24px",
+              padding: isMobile ? "16px 14px" : "24px",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1559,7 +1597,7 @@ export default function SalesPage() {
 
             {(modal === "add_product" || modal === "edit_product") && (
               <div style={{ display: "grid", gap: "14px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1fr", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1.3fr 1fr", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>SKU</label>
                     <input
@@ -1589,7 +1627,7 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Brand</label>
                     <input style={inputStyle} value={productForm.brand} onChange={(e) => setProductForm((f) => ({ ...f, brand: e.target.value }))} />
@@ -1620,7 +1658,7 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Unit Price</label>
                     <input style={inputStyle} type="number" value={productForm.unit_price} onChange={(e) => setProductForm((f) => ({ ...f, unit_price: e.target.value }))} />
@@ -1639,7 +1677,7 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Location</label>
                     <input style={inputStyle} value={productForm.location} onChange={(e) => setProductForm((f) => ({ ...f, location: e.target.value }))} placeholder="Warehouse A / Cloud license" />
@@ -1658,7 +1696,7 @@ export default function SalesPage() {
                     placeholder="Product details, value proposition, and commercial notes..."
                   />
                 </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexDirection: isDenseLayout ? "column-reverse" : "row" }}>
                   <button
                     onClick={() => {
                       setModal(null);
@@ -1671,6 +1709,7 @@ export default function SalesPage() {
                       background: "var(--bg-elevated)",
                       color: "var(--text-muted)",
                       cursor: "pointer",
+                      width: isDenseLayout ? "100%" : "auto",
                     }}
                   >
                     Cancel
@@ -1686,6 +1725,7 @@ export default function SalesPage() {
                       color: "white",
                       cursor: "pointer",
                       fontWeight: 600,
+                      width: isDenseLayout ? "100%" : "auto",
                     }}
                   >
                     {loading ? "Saving..." : "Save Product"}
@@ -1696,7 +1736,7 @@ export default function SalesPage() {
 
             {(modal === "add_order" || modal === "edit_order") && (
               <div style={{ display: "grid", gap: "14px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Order Number</label>
                     <input style={inputStyle} value={orderForm.order_number} onChange={(e) => setOrderForm((f) => ({ ...f, order_number: e.target.value }))} placeholder="SO-2026-0041" />
@@ -1715,7 +1755,7 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Channel</label>
                     <select
@@ -1798,7 +1838,7 @@ export default function SalesPage() {
                         key={item.row_id}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "1.3fr 0.8fr 0.8fr 0.8fr 0.7fr 32px",
+                          gridTemplateColumns: isDenseLayout ? "1fr" : "1.3fr 0.8fr 0.8fr 0.8fr 0.7fr 32px",
                           gap: "8px",
                           alignItems: "end",
                         }}
@@ -1837,12 +1877,13 @@ export default function SalesPage() {
                         <button
                           onClick={() => removeOrderItem(item.row_id)}
                           style={{
-                            height: "34px",
+                            height: isDenseLayout ? "36px" : "34px",
                             borderRadius: "8px",
                             border: "1px solid var(--border-default)",
                             background: "var(--bg-elevated)",
                             color: "var(--danger)",
                             cursor: "pointer",
+                            width: isDenseLayout ? "100%" : "auto",
                           }}
                           title="Remove item"
                         >
@@ -1853,7 +1894,7 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: "10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "repeat(4, minmax(0,1fr))", gap: "10px" }}>
                   <div>
                     <label style={labelStyle}>Order Discount</label>
                     <input style={inputStyle} type="number" value={orderForm.discount_total} onChange={(e) => setOrderForm((f) => ({ ...f, discount_total: e.target.value }))} />
@@ -1877,7 +1918,7 @@ export default function SalesPage() {
                   <label style={labelStyle}>Notes</label>
                   <textarea style={{ ...inputStyle, minHeight: "74px", resize: "vertical" }} value={orderForm.notes} onChange={(e) => setOrderForm((f) => ({ ...f, notes: e.target.value }))} />
                 </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexDirection: isDenseLayout ? "column-reverse" : "row" }}>
                   <button
                     onClick={() => {
                       setModal(null);
@@ -1890,6 +1931,7 @@ export default function SalesPage() {
                       background: "var(--bg-elevated)",
                       color: "var(--text-muted)",
                       cursor: "pointer",
+                      width: isDenseLayout ? "100%" : "auto",
                     }}
                   >
                     Cancel
@@ -1905,6 +1947,7 @@ export default function SalesPage() {
                       color: "white",
                       cursor: "pointer",
                       fontWeight: 600,
+                      width: isDenseLayout ? "100%" : "auto",
                     }}
                   >
                     {loading ? "Saving..." : "Save Order"}

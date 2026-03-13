@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 
@@ -32,7 +33,15 @@ const NAV = [
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
 
-export default function AdminSidebar() {
+export default function AdminSidebar({
+  isMobile = false,
+  mobileOpen = false,
+  onCloseMobile,
+}: {
+  isMobile?: boolean;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}) {
   const pathname = usePathname();
   const [quickStats, setQuickStats] = useState<{
     monthly_recurring_revenue?: number;
@@ -52,47 +61,92 @@ export default function AdminSidebar() {
     window.location.href = "/admin/login";
   };
 
+  const closeDrawer = () => {
+    if (isMobile) onCloseMobile?.();
+  };
+
   return (
     <aside
+      className={isMobile ? "admin-sidebar admin-sidebar-mobile" : "admin-sidebar"}
       style={{
-        width: "240px",
-        minWidth: "240px",
+        width: isMobile ? "min(86vw, 340px)" : "240px",
+        minWidth: isMobile ? "unset" : "240px",
         height: "100vh",
-        background: "var(--bg-panel)",
-        borderRight: "1px solid #1e1e2a",
+        background:
+          "linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 84%, var(--accent-soft) 16%) 0%, color-mix(in srgb, var(--bg-panel) 94%, transparent) 100%)",
+        borderRight: "1px solid var(--border-default)",
         display: "flex",
         flexDirection: "column",
+        position: isMobile ? "fixed" : "relative",
+        top: 0,
+        left: 0,
+        zIndex: isMobile ? 90 : "auto",
+        transform: isMobile ? (mobileOpen ? "translateX(0)" : "translateX(-105%)") : "none",
+        transition: isMobile ? "transform 0.22s ease" : "none",
+        boxShadow: isMobile ? "0 28px 58px rgba(0, 0, 0, 0.38)" : "none",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
       }}
     >
-      <div style={{ padding: "18px 16px", borderBottom: "1px solid #1e1e2a" }}>
+      <div
+        style={{
+          padding: "18px 16px",
+          borderBottom: "1px solid var(--border-default)",
+          background:
+            "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 86%, var(--accent-soft) 14%), color-mix(in srgb, var(--bg-surface) 94%, transparent))",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <div
             style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "10px",
-              background: "linear-gradient(135deg, #ef4444, #b91c1c)",
+              width: "34px",
+              height: "34px",
+              borderRadius: "11px",
+              background:
+                "linear-gradient(135deg, color-mix(in srgb, var(--accent) 78%, #fff 22%), var(--accent-2))",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
+              boxShadow: "0 14px 26px color-mix(in srgb, var(--accent) 30%, transparent)",
             }}
           >
             <LayoutDashboard size={16} color="white" />
           </div>
           <div>
-            <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>BENELA ADMIN</div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "0.04em" }}>BENELA ADMIN</div>
             <div
               style={{
                 fontSize: "9px",
-                color: "#ef4444",
+                color: "var(--accent)",
                 fontFamily: "monospace",
                 letterSpacing: "0.1em",
               }}
             >
-              OWNER
+              CONTROL CENTER
             </div>
           </div>
+          {isMobile ? (
+            <button
+              onClick={closeDrawer}
+              aria-label="Close menu"
+              style={{
+                marginLeft: "auto",
+                width: "28px",
+                height: "28px",
+                borderRadius: "8px",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-subtle)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={14} />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -100,7 +154,7 @@ export default function AdminSidebar() {
         <div
           style={{
             fontSize: "9px",
-            color: "#3a3a4a",
+            color: "var(--text-quiet)",
             letterSpacing: "0.12em",
             padding: "6px 10px 10px",
             fontFamily: "monospace",
@@ -115,16 +169,17 @@ export default function AdminSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={closeDrawer}
               style={{
                 width: "100%",
                 display: "flex",
                 alignItems: "center",
                 gap: "10px",
                 padding: "9px 12px",
-                borderRadius: "8px",
+                borderRadius: "10px",
                 marginBottom: "2px",
-                background: isActive ? "#141418" : "transparent",
-                border: isActive ? "1px solid #1e1e2a" : "1px solid transparent",
+                background: isActive ? "var(--sidebar-active-bg)" : "transparent",
+                border: isActive ? "1px solid var(--sidebar-active-border)" : "1px solid transparent",
                 cursor: "pointer",
                 textDecoration: "none",
                 transition: "all 0.15s ease",
@@ -142,16 +197,16 @@ export default function AdminSidebar() {
                     width: "2px",
                     height: "14px",
                     borderRadius: "0 2px 2px 0",
-                    background: "#ef4444",
+                    background: "var(--accent)",
                   }}
                 />
               )}
-              <Icon size={14} color={isActive ? "#ef4444" : "var(--text-subtle)"} />
+              <Icon size={14} color={isActive ? "var(--accent)" : "var(--text-subtle)"} />
               <span
                 style={{
                   fontSize: "12px",
                   fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "var(--text-primary)" : "#6a6a7a",
+                  color: isActive ? "var(--sidebar-active-text)" : "var(--text-muted)",
                 }}
               >
                 {item.label}
@@ -163,7 +218,7 @@ export default function AdminSidebar() {
         <div
           style={{
             fontSize: "9px",
-            color: "#3a3a4a",
+            color: "var(--text-quiet)",
             letterSpacing: "0.12em",
             padding: "16px 10px 8px",
             fontFamily: "monospace",
@@ -174,11 +229,12 @@ export default function AdminSidebar() {
         <div
           style={{
             padding: "10px 12px",
-            background: "var(--bg-surface)",
-            border: "1px solid #1e1e2a",
-            borderRadius: "8px",
+            background: "color-mix(in srgb, var(--bg-surface) 84%, var(--accent-soft) 16%)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "10px",
             fontSize: "11px",
             color: "var(--text-muted)",
+            boxShadow: "0 12px 28px rgba(5, 10, 24, 0.25)",
           }}
         >
           <div style={{ marginBottom: "6px" }}>
@@ -202,9 +258,10 @@ export default function AdminSidebar() {
         </div>
       </nav>
 
-      <div style={{ padding: "12px", borderTop: "1px solid #1e1e2a" }}>
+      <div style={{ padding: "12px", borderTop: "1px solid var(--border-default)" }}>
         <Link
           href="/dashboard"
+          onClick={closeDrawer}
           style={{
             display: "flex",
             alignItems: "center",
@@ -216,6 +273,7 @@ export default function AdminSidebar() {
             textDecoration: "none",
             marginBottom: "6px",
             transition: "background 0.15s",
+            border: "1px solid transparent",
           }}
         >
           <ArrowLeft size={14} />
@@ -230,9 +288,9 @@ export default function AdminSidebar() {
             gap: "8px",
             padding: "8px 12px",
             borderRadius: "8px",
-            border: "1px solid #1e1e2a",
-            background: "transparent",
-            color: "#f87171",
+            border: "1px solid color-mix(in srgb, var(--danger) 35%, var(--border-default) 65%)",
+            background: "color-mix(in srgb, var(--danger) 10%, transparent)",
+            color: "var(--danger)",
             fontSize: "12px",
             cursor: "pointer",
             transition: "background 0.15s",

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Section } from "@/types";
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   X,
   Send,
@@ -1110,6 +1111,7 @@ const findModelOption = (modelId: AssistantModelId): AssistantModelOption =>
   MODEL_OPTIONS.find((model) => model.id === modelId) ?? MODEL_OPTIONS[0];
 
 export default function AIPanel({ isOpen, section, onClose, onSectionChange }: Props) {
+  const isMobile = useIsMobile(980);
   const [authUserId, setAuthUserId] = useState("");
   const [workspaceId, setWorkspaceId] = useState("default-workspace");
   const [identityReady, setIdentityReady] = useState(false);
@@ -1130,6 +1132,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
   const [hasSpeechFallback, setHasSpeechFallback] = useState(false);
+  const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2005,25 +2008,47 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     void loadHistory(activeThread);
   }, [activeThread?.sessionId, activeThreadId, section, isOpen, threadsReady, storageIdentity]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setMobileThreadsOpen(false);
+      return;
+    }
+    if (!isMobile) {
+      setMobileThreadsOpen(false);
+    }
+  }, [isMobile, isOpen]);
+
   return (
     <>
       {isOpen && (
         <div
           onClick={onClose}
-          style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop-soft)", zIndex: 48 }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "color-mix(in srgb, var(--overlay-backdrop) 78%, var(--bg-canvas) 22%)",
+            zIndex: 48,
+          }}
         />
       )}
 
       <div
+        className="ai-panel-shell"
         style={{
+          "--ai-bg-panel": "color-mix(in srgb, var(--bg-canvas) 86%, var(--bg-panel) 14%)",
+          "--ai-bg-surface": "color-mix(in srgb, var(--bg-canvas) 80%, var(--bg-surface) 20%)",
+          "--ai-bg-elevated": "color-mix(in srgb, var(--bg-canvas) 74%, var(--bg-elevated) 26%)",
+          "--ai-border-default": "color-mix(in srgb, var(--border-default) 72%, var(--text-quiet) 28%)",
+          "--ai-overlay-backdrop": "color-mix(in srgb, var(--overlay-backdrop) 78%, var(--bg-canvas) 22%)",
           position: "fixed",
-          top: "12px",
-          right: "12px",
-          width: "min(980px, calc(100vw - 24px))",
-          height: "calc(100vh - 24px)",
-          background: "var(--bg-panel)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "16px",
+          top: isMobile ? "0" : "12px",
+          right: isMobile ? "0" : "12px",
+          left: isMobile ? "0" : "auto",
+          width: isMobile ? "100vw" : "min(980px, calc(100vw - 24px))",
+          height: isMobile ? "100vh" : "calc(100vh - 24px)",
+          background: "var(--ai-bg-panel)",
+          border: "1px solid var(--ai-border-default)",
+          borderRadius: isMobile ? "0" : "16px",
           overflow: "hidden",
           display: "flex",
           zIndex: 50,
@@ -2031,18 +2056,27 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
           transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
           boxShadow: isOpen ? "var(--drawer-shadow)" : "none",
           pointerEvents: isOpen ? "auto" : "none",
-        }}
+        } as CSSProperties}
       >
         <aside
+          className="ai-panel-thread-list"
           style={{
-            width: "clamp(240px, 28%, 296px)",
-            borderRight: "1px solid var(--border-default)",
-            background: "linear-gradient(180deg, var(--bg-panel), var(--bg-surface))",
+            width: isMobile ? "min(88vw, 320px)" : "clamp(240px, 28%, 296px)",
+            borderRight: "1px solid var(--ai-border-default)",
+            background: "linear-gradient(180deg, var(--ai-bg-panel), var(--ai-bg-surface))",
             display: "flex",
             flexDirection: "column",
+            position: isMobile ? "absolute" : "relative",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            zIndex: isMobile ? 3 : "auto",
+            transform: isMobile ? (mobileThreadsOpen ? "translateX(0)" : "translateX(-104%)") : "none",
+            transition: isMobile ? "transform 0.22s ease" : "none",
+            boxShadow: isMobile ? "0 22px 42px rgba(0, 0, 0, 0.28)" : "none",
           }}
         >
-          <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--border-default)" }}>
+          <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid var(--ai-border-default)" }}>
             <div
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}
             >
@@ -2074,8 +2108,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   width: "30px",
                   height: "30px",
                   borderRadius: "9px",
-                  background: "var(--bg-elevated)",
-                  border: "1px solid var(--border-default)",
+                  background: "var(--ai-bg-elevated)",
+                  border: "1px solid var(--ai-border-default)",
                   color: "var(--text-muted)",
                   cursor: "pointer",
                   display: "flex",
@@ -2085,13 +2119,33 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               >
                 <Plus size={14} />
               </button>
+              {isMobile ? (
+                <button
+                  onClick={() => setMobileThreadsOpen(false)}
+                  title="Close chats"
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    borderRadius: "9px",
+                    background: "var(--ai-bg-elevated)",
+                    border: "1px solid var(--ai-border-default)",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
             </div>
 
             <div
               style={{
-                border: "1px solid var(--border-default)",
+                border: "1px solid var(--ai-border-default)",
                 borderRadius: "10px",
-                background: "var(--bg-surface)",
+                background: "var(--ai-bg-surface)",
                 padding: "8px 10px",
                 display: "flex",
                 alignItems: "center",
@@ -2120,7 +2174,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             {filteredThreads.length === 0 ? (
               <div
                 style={{
-                  border: "1px dashed var(--border-default)",
+                  border: "1px dashed var(--ai-border-default)",
                   borderRadius: "10px",
                   padding: "14px",
                   color: "var(--text-subtle)",
@@ -2139,6 +2193,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       setActiveThreadId(thread.id);
                       setPdfNotice("");
                       setShowClearConfirm(false);
+                      if (isMobile) {
+                        setMobileThreadsOpen(false);
+                      }
                     }}
                     style={{
                       width: "100%",
@@ -2146,9 +2203,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       textAlign: "left",
                       borderRadius: "11px",
                       border: isActive
-                        ? "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default))"
-                        : "1px solid var(--border-default)",
-                      background: isActive ? "var(--accent-soft)" : "var(--bg-surface)",
+                        ? "1px solid color-mix(in srgb, var(--accent) 45%, var(--ai-border-default))"
+                        : "1px solid var(--ai-border-default)",
+                      background: isActive ? "var(--accent-soft)" : "var(--ai-bg-surface)",
                       padding: "10px",
                       cursor: "pointer",
                       color: "var(--text-primary)",
@@ -2191,11 +2248,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       <span
                         style={{
                           fontSize: "9px",
-                          border: "1px solid var(--border-default)",
+                          border: "1px solid var(--ai-border-default)",
                           borderRadius: "999px",
                           padding: "2px 6px",
                           color: "var(--text-muted)",
-                          background: "var(--bg-panel)",
+                          background: "var(--ai-bg-panel)",
                         }}
                       >
                         {findModelOption(thread.model).label}
@@ -2211,8 +2268,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                             width: "24px",
                             height: "24px",
                             borderRadius: "7px",
-                            border: "1px solid var(--border-default)",
-                            background: "var(--bg-panel)",
+                            border: "1px solid var(--ai-border-default)",
+                            background: "var(--ai-bg-panel)",
                             color: "var(--text-subtle)",
                             display: "inline-flex",
                             alignItems: "center",
@@ -2249,7 +2306,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             )}
           </div>
 
-          <div style={{ borderTop: "1px solid var(--border-default)", padding: "10px 12px" }}>
+          <div style={{ borderTop: "1px solid var(--ai-border-default)", padding: "10px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: "10px", color: "var(--text-subtle)" }}>Chats</span>
               <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "monospace" }}>
@@ -2259,17 +2316,53 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
           </div>
         </aside>
 
+        {isMobile && mobileThreadsOpen ? (
+          <button
+            type="button"
+            aria-label="Close chats overlay"
+            onClick={() => setMobileThreadsOpen(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              background: "var(--ai-overlay-backdrop)",
+              border: "none",
+              cursor: "pointer",
+            }}
+          />
+        ) : null}
+
         <section style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div style={{ borderBottom: "1px solid var(--border-default)", padding: "12px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <div style={{ borderBottom: "1px solid var(--ai-border-default)", padding: "12px 14px" }}>
+            <div className="ai-panel-toolbar" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              {isMobile ? (
+                <button
+                  onClick={() => setMobileThreadsOpen(true)}
+                  title="Open chats"
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--ai-border-default)",
+                    background: "var(--ai-bg-elevated)",
+                    color: "var(--text-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <MessageSquareText size={13} />
+                </button>
+              ) : null}
               <div
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "6px",
-                  border: "1px solid var(--border-default)",
+                  border: "1px solid var(--ai-border-default)",
                   borderRadius: "9px",
-                  background: "var(--bg-elevated)",
+                  background: "var(--ai-bg-elevated)",
                   padding: "5px 8px",
                 }}
               >
@@ -2305,9 +2398,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "6px",
-                  border: "1px solid var(--border-default)",
+                  border: "1px solid var(--ai-border-default)",
                   borderRadius: "9px",
-                  background: "var(--bg-elevated)",
+                  background: "var(--ai-bg-elevated)",
                   padding: "5px 8px",
                 }}
               >
@@ -2348,7 +2441,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 </select>
               </div>
 
-              <div style={{ marginLeft: "auto", display: "inline-flex", gap: "6px" }}>
+              <div className="ai-panel-toolbar-actions" style={{ marginLeft: "auto", display: "inline-flex", gap: "6px" }}>
                 <button
                   onClick={() => void exportFullConversation()}
                   disabled={!messages.length || historyLoading || pdfLoading}
@@ -2357,10 +2450,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     height: "30px",
                     borderRadius: "8px",
                     padding: "0 10px",
-                    border: "1px solid var(--border-default)",
+                    border: "1px solid var(--ai-border-default)",
                     background:
                       messages.length && !historyLoading && !pdfLoading
-                        ? "var(--bg-elevated)"
+                        ? "var(--ai-bg-elevated)"
                         : "transparent",
                     color:
                       messages.length && !historyLoading && !pdfLoading
@@ -2389,7 +2482,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     width: "30px",
                     height: "30px",
                     borderRadius: "8px",
-                    border: `1px solid ${showClearConfirm ? "var(--danger-soft-border)" : "var(--border-default)"}`,
+                    border: `1px solid ${showClearConfirm ? "var(--danger-soft-border)" : "var(--ai-border-default)"}`,
                     background: "transparent",
                     color: showClearConfirm ? "var(--danger)" : "var(--text-subtle)",
                     cursor: "pointer",
@@ -2408,7 +2501,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     width: "30px",
                     height: "30px",
                     borderRadius: "8px",
-                    border: "1px solid var(--border-default)",
+                    border: "1px solid var(--ai-border-default)",
                     background: "transparent",
                     color: "var(--text-subtle)",
                     cursor: "pointer",
@@ -2438,11 +2531,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               <span
                 style={{
                   fontSize: "10px",
-                  border: "1px solid var(--border-default)",
+                  border: "1px solid var(--ai-border-default)",
                   borderRadius: "999px",
                   padding: "2px 7px",
                   color: "var(--text-subtle)",
-                  background: "var(--bg-surface)",
+                  background: "var(--ai-bg-surface)",
                 }}
               >
                 {selectedModel.label}
@@ -2475,7 +2568,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     fontSize: "11px",
                     borderRadius: "7px",
                     padding: "4px 10px",
-                    border: "1px solid var(--border-default)",
+                    border: "1px solid var(--ai-border-default)",
                     background: "transparent",
                     color: "var(--text-subtle)",
                     cursor: "pointer",
@@ -2523,8 +2616,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   style={{
                     padding: "16px",
                     borderRadius: "14px",
-                    border: "1px solid var(--border-default)",
-                    background: "linear-gradient(130deg, var(--bg-surface), var(--bg-elevated))",
+                    border: "1px solid var(--ai-border-default)",
+                    background: "linear-gradient(130deg, var(--ai-bg-surface), var(--ai-bg-elevated))",
                     marginBottom: "16px",
                   }}
                 >
@@ -2557,8 +2650,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       width: "100%",
                       textAlign: "left",
                       borderRadius: "10px",
-                      border: "1px solid var(--border-default)",
-                      background: "var(--bg-surface)",
+                      border: "1px solid var(--ai-border-default)",
+                      background: "var(--ai-bg-surface)",
                       color: "var(--text-muted)",
                       padding: "10px 12px",
                       marginBottom: "7px",
@@ -2589,11 +2682,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                           width: "30px",
                           height: "30px",
                           borderRadius: "9px",
-                          border: "1px solid var(--border-default)",
+                          border: "1px solid var(--ai-border-default)",
                           background:
                             msg.role === "user"
                               ? "color-mix(in srgb, var(--accent) 18%, transparent)"
-                              : "var(--bg-surface)",
+                              : "var(--ai-bg-surface)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -2613,11 +2706,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                           padding: msg.role === "assistant" ? "13px 14px" : "11px 12px",
                           borderRadius:
                             msg.role === "assistant" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
-                          border: "1px solid var(--border-default)",
+                          border: "1px solid var(--ai-border-default)",
                           background:
                             msg.role === "assistant"
-                              ? "var(--bg-surface)"
-                              : "color-mix(in srgb, var(--accent) 16%, var(--bg-surface))",
+                              ? "var(--ai-bg-surface)"
+                              : "color-mix(in srgb, var(--accent) 16%, var(--ai-bg-surface))",
                           color: "var(--text-primary)",
                           fontSize: "12.5px",
                           lineHeight: 1.58,
@@ -2634,10 +2727,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                                   alignItems: "center",
                                   gap: "5px",
                                   fontSize: "10px",
-                                  border: "1px solid var(--border-default)",
+                                  border: "1px solid var(--ai-border-default)",
                                   borderRadius: "999px",
                                   padding: "3px 8px",
-                                  background: "var(--bg-elevated)",
+                                  background: "var(--ai-bg-elevated)",
                                   color: "var(--text-subtle)",
                                   maxWidth: "100%",
                                 }}
@@ -2672,10 +2765,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                                 gap: "5px",
                                 textDecoration: "none",
                                 fontSize: "10px",
-                                border: "1px solid var(--border-default)",
+                                border: "1px solid var(--ai-border-default)",
                                 borderRadius: "8px",
                                 padding: "4px 9px",
-                                background: "var(--bg-elevated)",
+                                background: "var(--ai-bg-elevated)",
                                 color: "var(--text-subtle)",
                               }}
                             >
@@ -2696,8 +2789,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                         width: "30px",
                         height: "30px",
                         borderRadius: "9px",
-                        border: "1px solid var(--border-default)",
-                        background: "var(--bg-surface)",
+                        border: "1px solid var(--ai-border-default)",
+                        background: "var(--ai-bg-surface)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -2707,8 +2800,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     </div>
                     <div
                       style={{
-                        border: "1px solid var(--border-default)",
-                        background: "var(--bg-surface)",
+                        border: "1px solid var(--ai-border-default)",
+                        background: "var(--ai-bg-surface)",
                         borderRadius: "4px 12px 12px 12px",
                         padding: "10px 12px",
                         display: "inline-flex",
@@ -2729,7 +2822,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ borderTop: "1px solid var(--border-default)", padding: "12px 14px" }}>
+          <div style={{ borderTop: "1px solid var(--ai-border-default)", padding: "12px 14px" }}>
             {attachmentNotice && (
               <div
                 style={{
@@ -2764,9 +2857,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
             <div
               style={{
-                border: "1px solid var(--border-default)",
+                border: "1px solid var(--ai-border-default)",
                 borderRadius: "12px",
-                background: "var(--bg-surface)",
+                background: "var(--ai-bg-surface)",
                 padding: "10px 10px 8px",
               }}
             >
@@ -2789,8 +2882,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "6px",
-                        border: "1px solid var(--border-default)",
-                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--ai-border-default)",
+                        background: "var(--ai-bg-elevated)",
                         color: "var(--text-subtle)",
                         borderRadius: "999px",
                         padding: "4px 8px",
@@ -2860,8 +2953,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 }}
               />
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px" }}>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--text-quiet)", fontSize: "10px" }}>
+              <div className="ai-panel-composer-meta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px" }}>
+                <div className="ai-panel-composer-hints" style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--text-quiet)", fontSize: "10px" }}>
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={
@@ -2874,8 +2967,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     style={{
                       height: "24px",
                       borderRadius: "7px",
-                      border: "1px solid var(--border-default)",
-                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--ai-border-default)",
+                      background: "var(--ai-bg-elevated)",
                       color: "var(--text-subtle)",
                       display: "inline-flex",
                       alignItems: "center",
@@ -2916,10 +3009,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     style={{
                       height: "24px",
                       borderRadius: "7px",
-                      border: "1px solid var(--border-default)",
+                      border: "1px solid var(--ai-border-default)",
                       background: isRecordingAudio
-                        ? "color-mix(in srgb, var(--danger) 16%, var(--bg-elevated))"
-                        : "var(--bg-elevated)",
+                        ? "color-mix(in srgb, var(--danger) 16%, var(--ai-bg-elevated))"
+                        : "var(--ai-bg-elevated)",
                       color: isRecordingAudio ? "var(--danger)" : "var(--text-subtle)",
                       display: "inline-flex",
                       alignItems: "center",
@@ -2934,16 +3027,16 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     {isRecordingAudio ? <Square size={10} /> : <Mic size={10} />}
                     {isRecordingAudio ? "Stop" : "Record"}
                   </button>
-                  <span style={{ fontFamily: "monospace" }}>ENTER send</span>
-                  <span style={{ fontFamily: "monospace" }}>SHIFT+ENTER newline</span>
-                  <span style={{ fontFamily: "monospace" }}>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>ENTER send</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>SHIFT+ENTER newline</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>
                     {isTranscribingAudio
                       ? "transcribing audio..."
                       : hasSpeechFallback
                         ? "voice prompts enabled (api+browser fallback)"
                         : "voice prompts enabled"}
                   </span>
-                  <span style={{ fontFamily: "monospace" }}>auto-report enabled</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>auto-report enabled</span>
                 </div>
 
                 <button
@@ -2967,7 +3060,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       !isRecordingAudio &&
                       !isTranscribingAudio
                         ? "var(--accent)"
-                        : "var(--bg-elevated)",
+                        : "var(--ai-bg-elevated)",
                     color:
                       (input.trim() || pendingAttachments.length > 0) &&
                       !loading &&

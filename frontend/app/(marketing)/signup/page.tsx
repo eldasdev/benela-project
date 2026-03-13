@@ -2,133 +2,266 @@
 export const dynamic = "force-dynamic";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { CheckCircle, Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
-import { Loader2, CheckCircle } from "lucide-react";
+import { readClientSettings, saveClientSettings } from "@/lib/client-settings";
+import { upsertClientOnboarding, type PaidPlanTier } from "@/lib/client-account";
+
+const PLAN_OPTIONS: Array<{ value: PaidPlanTier; label: string; subtitle: string }> = [
+  { value: "starter", label: "Starter", subtitle: "$49/mo · up to 10 users" },
+  { value: "pro", label: "Pro", subtitle: "$149/mo · up to 50 users" },
+  { value: "enterprise", label: "Enterprise", subtitle: "$499/mo · unlimited scale" },
+];
 
 export default function SignupPage() {
-  const router = useRouter();
-  const [email, setEmail]       = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const [trialNotice, setTrialNotice] = useState("");
+
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName]         = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
-  const [done, setDone]         = useState(false);
+
+  const [businessName, setBusinessName] = useState("");
+  const [country, setCountry] = useState("Uzbekistan");
+  const [city, setCity] = useState("");
+  const [employeeCount, setEmployeeCount] = useState("10");
+  const [planTier, setPlanTier] = useState<PaidPlanTier>("starter");
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError("");
-    const { error } = await getSupabase().auth.signUp({
-      email, password,
-      options: { data: { full_name: name } },
-    });
-    if (error) { setError(error.message); setLoading(false); }
-    else setDone(true);
+    setLoading(true);
+    setError("");
+    setTrialNotice("");
+
+    try {
+      const supabase = getSupabase();
+      const { data, error: signupError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            role: "client",
+          },
+        },
+      });
+
+      if (signupError) {
+        throw signupError;
+      }
+
+      const userId = data.user?.id;
+      if (userId) {
+        const account = await upsertClientOnboarding({
+          user_id: userId,
+          user_email: email.trim(),
+          owner_name: fullName.trim(),
+          business_name: businessName.trim(),
+          country: country.trim(),
+          city: city.trim() || null,
+          employee_count: Number.parseInt(employeeCount, 10) || null,
+          plan_tier: planTier,
+        });
+
+        if (account.workspace_id) {
+          const current = readClientSettings();
+          saveClientSettings({
+            workspaceId: account.workspace_id,
+            defaultSection: current.defaultSection || "dashboard",
+            notifications: current.notifications,
+          });
+        }
+
+        if (account.payment_required) {
+          setTrialNotice(
+            "This business already exists on Benela. Trial is not applied on this account and payment is required to activate access."
+          );
+        } else {
+          setTrialNotice("Your 7-day trial is active from the first login. Complete business profile and docs in Settings.");
+        }
+      }
+
+      setDone(true);
+    } catch (signupErr: unknown) {
+      setError(signupErr instanceof Error ? signupErr.message : "Could not create account.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGoogle = async () => {
-    await getSupabase().auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-  };
-
-  const input = {
-    width: "100%", padding: "11px 14px", borderRadius: "10px",
-    background: "var(--bg-surface)", border: "1px solid var(--border-default)",
-    color: "var(--text-primary)", fontSize: "14px", outline: "none",
+  const input: React.CSSProperties = {
+    width: "100%",
+    padding: "11px 14px",
+    borderRadius: "10px",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border-default)",
+    color: "var(--text-primary)",
+    fontSize: "14px",
+    outline: "none",
     fontFamily: "inherit",
+    boxSizing: "border-box",
   };
 
-  if (done) return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-canvas)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ textAlign: "center", maxWidth: "400px", padding: "24px" }}>
-        <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.2)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
-          <CheckCircle size={24} color="#34d399" />
+  if (done) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg-canvas)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", maxWidth: "500px", padding: "24px" }}>
+          <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.2)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+            <CheckCircle size={24} color="#34d399" />
+          </div>
+          <h2 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "8px" }}>
+            Account created
+          </h2>
+          <p style={{ fontSize: "14px", color: "var(--text-subtle)", lineHeight: 1.7 }}>
+            We sent a confirmation link to <strong style={{ color: "var(--text-muted)" }}>{email}</strong>. Open it to activate your workspace.
+          </p>
+          {trialNotice ? (
+            <p
+              style={{
+                marginTop: "12px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-muted)",
+                fontSize: "13px",
+                lineHeight: 1.6,
+              }}
+            >
+              {trialNotice}
+            </p>
+          ) : null}
+          <Link href="/login" style={{ display: "inline-block", marginTop: "24px", fontSize: "13px", color: "var(--accent)", textDecoration: "none" }}>
+            Back to login →
+          </Link>
         </div>
-        <h2 style={{ fontSize: "20px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "8px" }}>Check your email</h2>
-        <p style={{ fontSize: "14px", color: "var(--text-subtle)", lineHeight: 1.6 }}>
-          We sent a confirmation link to <strong style={{ color: "var(--text-muted)" }}>{email}</strong>. Click it to activate your account.
-        </p>
-        <Link href="/login" style={{ display: "inline-block", marginTop: "24px", fontSize: "13px", color: "var(--accent)", textDecoration: "none" }}>
-          Back to login →
-        </Link>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <div style={{ position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
-
-      <div style={{ width: "100%", maxWidth: "400px", position: "relative" }}>
-        <div style={{ textAlign: "center", marginBottom: "40px" }}>
+      <div style={{ width: "100%", maxWidth: "560px", position: "relative" }}>
+        <div style={{ textAlign: "center", marginBottom: "26px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
             <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px rgba(124,106,255,0.3)" }}>
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <polygon points="9,2 16,6 16,12 9,16 2,12 2,6" stroke="white" strokeWidth="1.5" fill="none"/>
-                <path d="M9 5 L12 9 L9 13 L6 9 Z" stroke="white" strokeWidth="1.5" fill="none"/>
-                <circle cx="9" cy="9" r="1.5" fill="white"/>
+                <polygon points="9,2 16,6 16,12 9,16 2,12 2,6" stroke="white" strokeWidth="1.5" fill="none" />
+                <path d="M9 5 L12 9 L9 13 L6 9 Z" stroke="white" strokeWidth="1.5" fill="none" />
+                <circle cx="9" cy="9" r="1.5" fill="white" />
               </svg>
             </div>
             <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "1px" }}>BENELA</span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>Create your workspace</p>
+          <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>
+            Create your business workspace · 7-day trial on every paid plan
+          </p>
         </div>
 
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "32px" }}>
-          <button onClick={handleGoogle} style={{ width: "100%", padding: "11px", borderRadius: "10px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginBottom: "24px" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24">
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-            </svg>
-            Continue with Google
-          </button>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-default)" }} />
-            <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>or</span>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-default)" }} />
-          </div>
-
-          <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "24px" }}>
+          <form onSubmit={handleSignup} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Full Name</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Smith" style={input}
-                onFocus={e => (e.target as HTMLInputElement).style.borderColor = "var(--accent)"}
-                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "var(--border-default)"} required />
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Jane Smith"
+                style={input}
+                required
+              />
             </div>
-            <div>
+            <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Work Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" style={input}
-                onFocus={e => (e.target as HTMLInputElement).style.borderColor = "var(--accent)"}
-                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "var(--border-default)"} required />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" style={input} required />
             </div>
-            <div>
+            <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" style={input}
-                onFocus={e => (e.target as HTMLInputElement).style.borderColor = "var(--accent)"}
-                onBlur={e => (e.target as HTMLInputElement).style.borderColor = "var(--border-default)"} minLength={8} required />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" style={input} minLength={8} required />
             </div>
 
-            {error && (
-              <div style={{ padding: "10px 14px", borderRadius: "9px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", fontSize: "13px", color: "#f87171" }}>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Business Name</label>
+              <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Acme Holdings" style={input} required />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Country</label>
+              <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Uzbekistan" style={input} required />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>City</label>
+              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Tashkent" style={input} />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Employees</label>
+              <input
+                type="number"
+                min={1}
+                value={employeeCount}
+                onChange={(e) => setEmployeeCount(e.target.value)}
+                placeholder="10"
+                style={input}
+                required
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Plan</label>
+              <select value={planTier} onChange={(e) => setPlanTier(e.target.value as PaidPlanTier)} style={input}>
+                {PLAN_OPTIONS.map((plan) => (
+                  <option key={plan.value} value={plan.value}>
+                    {plan.label} · {plan.subtitle}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {error ? (
+              <div style={{ gridColumn: "1 / -1", padding: "10px 12px", borderRadius: "9px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", fontSize: "13px", color: "#f87171" }}>
                 {error}
               </div>
-            )}
+            ) : null}
 
-            <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
-              {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Creating account...</> : "Create account"}
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                gridColumn: "1 / -1",
+                width: "100%",
+                padding: "12px",
+                borderRadius: "10px",
+                background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+                border: "none",
+                color: "white",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: loading ? "not-allowed" : "pointer",
+                opacity: loading ? 0.7 : 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                marginTop: "4px",
+              }}
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} />
+                  Creating account...
+                </>
+              ) : (
+                "Create account"
+              )}
             </button>
           </form>
         </div>
 
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "var(--text-subtle)" }}>
           Already have an account?{" "}
-          <Link href="/login" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>Sign in</Link>
+          <Link href="/login" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>
+            Sign in
+          </Link>
         </p>
       </div>
     </div>

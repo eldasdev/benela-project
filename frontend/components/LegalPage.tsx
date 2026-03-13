@@ -15,6 +15,7 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 
@@ -407,6 +408,9 @@ const getSectionBadge = (key: string): string | null => {
 };
 
 export default function LegalPage() {
+  const isMobile = useIsMobile(980);
+  const isCompact = useIsMobile(1280);
+  const isDenseLayout = isMobile || isCompact;
   const [tab, setTab] = useState<TabType>("research");
   const [summary, setSummary] = useState<LegalSummary | null>(null);
   const [benchmarks, setBenchmarks] = useState<LegalBenchmarks | null>(null);
@@ -828,7 +832,7 @@ export default function LegalPage() {
   ];
 
   return (
-    <div style={{ padding: "24px", display: "grid", gap: "14px" }}>
+    <div style={{ padding: isDenseLayout ? "14px" : "24px", display: "grid", gap: "14px", overflowX: "hidden" }}>
       {loadError ? (
         <div
           style={{
@@ -844,7 +848,7 @@ export default function LegalPage() {
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(180px, 1fr))", gap: "12px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "12px" }}>
         {topCards.map((card) => (
           <div
             key={card.label}
@@ -861,7 +865,7 @@ export default function LegalPage() {
               <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{card.label}</span>
               {card.icon}
             </div>
-            <div style={{ fontSize: "30px", fontWeight: 600, lineHeight: 1, color: "var(--text-primary)" }}>
+            <div style={{ fontSize: isDenseLayout ? "24px" : "30px", fontWeight: 600, lineHeight: 1, color: "var(--text-primary)" }}>
               {card.value}
             </div>
             <div style={{ fontSize: "11px", color: "var(--text-quiet)" }}>{card.note}</div>
@@ -874,10 +878,12 @@ export default function LegalPage() {
           background: "var(--bg-surface)",
           border: "1px solid var(--border-default)",
           borderRadius: "12px",
-          padding: "10px",
+          padding: isDenseLayout ? "8px" : "10px",
           display: "flex",
           alignItems: "center",
           gap: "8px",
+          overflowX: "auto",
+          scrollbarWidth: "thin",
         }}
       >
         {([
@@ -902,6 +908,8 @@ export default function LegalPage() {
               fontSize: "12px",
               fontWeight: 600,
               cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
             {label}
@@ -910,7 +918,7 @@ export default function LegalPage() {
       </div>
 
       {tab === "research" && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(520px, 1fr) minmax(360px, 460px)", gap: "12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))", gap: "12px" }}>
           <div
             style={{
               background: "var(--bg-surface)",
@@ -941,7 +949,7 @@ export default function LegalPage() {
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                 <div>
                   <label style={labelStyle}>Jurisdiction</label>
                   <input
@@ -988,7 +996,7 @@ export default function LegalPage() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <button
                   onClick={() => void runSearch()}
                   disabled={researchLoading || !searchQuery.trim()}
@@ -1006,6 +1014,8 @@ export default function LegalPage() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
+                    width: isDenseLayout ? "100%" : "auto",
+                    justifyContent: "center",
                   }}
                 >
                   {researchLoading ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Search size={12} />}
@@ -1026,12 +1036,20 @@ export default function LegalPage() {
                     fontSize: "12px",
                     padding: "0 12px",
                     cursor: "pointer",
+                    width: isDenseLayout ? "100%" : "auto",
                   }}
                 >
                   Clear Results
                 </button>
                 {searchMeta ? (
-                  <span style={{ ...mutedMonoStyle, marginLeft: "auto" }}>
+                  <span
+                    style={{
+                      ...mutedMonoStyle,
+                      marginLeft: isDenseLayout ? 0 : "auto",
+                      width: isDenseLayout ? "100%" : "auto",
+                      wordBreak: "break-word",
+                    }}
+                  >
                     {searchMeta.total} results | provider {searchMeta.provider}
                   </span>
                 ) : null}
@@ -1061,7 +1079,7 @@ export default function LegalPage() {
               >
                 <div
                   style={{
-                    display: "grid",
+                    display: isDenseLayout ? "none" : "grid",
                     gridTemplateColumns: "2fr 0.9fr 0.9fr 0.7fr",
                     padding: "10px 12px",
                     borderBottom: "1px solid var(--border-soft)",
@@ -1089,26 +1107,48 @@ export default function LegalPage() {
                         gap: "5px",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "2fr 0.9fr 0.9fr 0.7fr",
-                          alignItems: "start",
-                          gap: "8px",
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)", ...compactTextStyle }}>
+                      {isDenseLayout ? (
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.4 }}>
                             {row.title}
                           </div>
-                          <div style={{ fontSize: "10px", color: "var(--text-quiet)", marginTop: "2px" }}>
-                            #{row.document_number || "N/A"} | {row.jurisdiction} | {fmtDate(row.published_at)}
+                          <div style={{ fontSize: "10px", color: "var(--text-quiet)" }}>
+                            #{row.document_number || "N/A"} · {row.jurisdiction} · {fmtDate(row.published_at)}
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                            <span style={{ fontSize: "10px", color: "var(--text-subtle)", border: "1px solid var(--border-soft)", borderRadius: "999px", padding: "2px 7px", background: "var(--bg-elevated)" }}>
+                              {row.category}
+                            </span>
+                            <span style={{ fontSize: "10px", color: "var(--text-subtle)", border: "1px solid var(--border-soft)", borderRadius: "999px", padding: "2px 7px", background: "var(--bg-elevated)" }}>
+                              {row.source}
+                            </span>
+                            <span style={{ fontSize: "10px", color: "var(--text-subtle)", border: "1px solid var(--border-soft)", borderRadius: "999px", padding: "2px 7px", background: "var(--bg-elevated)" }}>
+                              Score {row.relevance_score.toFixed(2)}
+                            </span>
                           </div>
                         </div>
-                        <span style={{ fontSize: "11px", color: "var(--text-subtle)", ...compactTextStyle }}>{row.category}</span>
-                        <span style={{ fontSize: "11px", color: "var(--text-subtle)", ...compactTextStyle }}>{row.source}</span>
-                        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{row.relevance_score.toFixed(2)}</span>
-                      </div>
+                      ) : (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "2fr 0.9fr 0.9fr 0.7fr",
+                            alignItems: "start",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)", ...compactTextStyle }}>
+                              {row.title}
+                            </div>
+                            <div style={{ fontSize: "10px", color: "var(--text-quiet)", marginTop: "2px" }}>
+                              #{row.document_number || "N/A"} | {row.jurisdiction} | {fmtDate(row.published_at)}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: "11px", color: "var(--text-subtle)", ...compactTextStyle }}>{row.category}</span>
+                          <span style={{ fontSize: "11px", color: "var(--text-subtle)", ...compactTextStyle }}>{row.source}</span>
+                          <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{row.relevance_score.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div style={{ fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.45 }}>{row.excerpt || "No excerpt."}</div>
                       {normalizeHttpUrl(row.source_url) ? (
                         <a
@@ -1431,7 +1471,7 @@ export default function LegalPage() {
               <div style={{ fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.55 }}>
                 Source: {benchmarks?.source || "N/A"}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                 <div style={{ border: "1px solid var(--border-default)", borderRadius: "8px", padding: "8px" }}>
                   <div style={mutedMonoStyle}>Contract Review SLA</div>
                   <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>
@@ -1464,6 +1504,7 @@ export default function LegalPage() {
 
       {tab === "documents" && (
         <DataSection
+          isMobile={isDenseLayout}
           title="Document Library"
           subtitle="Curated legal documents and regulation references"
           onAdd={() => {
@@ -1494,6 +1535,7 @@ export default function LegalPage() {
 
       {tab === "contracts" && (
         <DataSection
+          isMobile={isDenseLayout}
           title="Contract Registry"
           subtitle="Track contract lifecycle, risk and renewal windows"
           onAdd={() => {
@@ -1524,6 +1566,7 @@ export default function LegalPage() {
 
       {tab === "tasks" && (
         <DataSection
+          isMobile={isDenseLayout}
           title="Compliance Tasks"
           subtitle="Operational obligations, audits and remediation workflows"
           onAdd={() => {
@@ -1561,13 +1604,13 @@ export default function LegalPage() {
             display: "grid",
             placeItems: "center",
             zIndex: 60,
-            padding: "20px",
+            padding: isMobile ? "10px" : "20px",
           }}
         >
           <div
             style={{
-              width: "min(960px, 100%)",
-              maxHeight: "88vh",
+              width: isMobile ? "100%" : "min(960px, 100%)",
+              maxHeight: isMobile ? "92vh" : "88vh",
               overflowY: "auto",
               background: "var(--bg-panel)",
               border: "1px solid var(--border-default)",
@@ -1617,7 +1660,7 @@ export default function LegalPage() {
 
             {modal.includes("document") && (
               <div style={{ padding: "14px", display: "grid", gap: "10px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1.5fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Title">
                     <input value={documentForm.title} onChange={(e) => setDocumentForm((p) => ({ ...p, title: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1632,7 +1675,7 @@ export default function LegalPage() {
                   </Field>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Issuing Authority">
                     <input value={documentForm.issuing_authority} onChange={(e) => setDocumentForm((p) => ({ ...p, issuing_authority: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1661,7 +1704,7 @@ export default function LegalPage() {
                   <input value={documentForm.source_url} onChange={(e) => setDocumentForm((p) => ({ ...p, source_url: e.target.value }))} style={inputStyle} />
                 </Field>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Published">
                     <input type="date" value={documentForm.published_at} onChange={(e) => setDocumentForm((p) => ({ ...p, published_at: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1684,13 +1727,13 @@ export default function LegalPage() {
                   <textarea value={documentForm.full_text} onChange={(e) => setDocumentForm((p) => ({ ...p, full_text: e.target.value }))} rows={7} style={{ ...inputStyle, resize: "vertical" }} />
                 </Field>
 
-                <ActionBar loading={loading} onCancel={closeModal} onSave={() => void saveDocument()} saveLabel="Save Document" />
+                <ActionBar isMobile={isDenseLayout} loading={loading} onCancel={closeModal} onSave={() => void saveDocument()} saveLabel="Save Document" />
               </div>
             )}
 
             {modal.includes("contract") && (
               <div style={{ padding: "14px", display: "grid", gap: "10px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1.5fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Reference">
                     <input value={contractForm.contract_ref} onChange={(e) => setContractForm((p) => ({ ...p, contract_ref: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1705,7 +1748,7 @@ export default function LegalPage() {
                   </Field>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Status">
                     <select value={contractForm.status} onChange={(e) => setContractForm((p) => ({ ...p, status: e.target.value }))} style={inputStyle}>
                       <option value="draft">draft</option>
@@ -1742,7 +1785,7 @@ export default function LegalPage() {
                   </Field>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Start Date">
                     <input type="date" value={contractForm.start_date} onChange={(e) => setContractForm((p) => ({ ...p, start_date: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1761,13 +1804,13 @@ export default function LegalPage() {
                   <textarea value={contractForm.notes} onChange={(e) => setContractForm((p) => ({ ...p, notes: e.target.value }))} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
                 </Field>
 
-                <ActionBar loading={loading} onCancel={closeModal} onSave={() => void saveContract()} saveLabel="Save Contract" />
+                <ActionBar isMobile={isDenseLayout} loading={loading} onCancel={closeModal} onSave={() => void saveContract()} saveLabel="Save Contract" />
               </div>
             )}
 
             {modal.includes("task") && (
               <div style={{ padding: "14px", display: "grid", gap: "10px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1.4fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Title">
                     <input value={taskForm.title} onChange={(e) => setTaskForm((p) => ({ ...p, title: e.target.value }))} style={inputStyle} />
                   </Field>
@@ -1782,7 +1825,7 @@ export default function LegalPage() {
                   </Field>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isDenseLayout ? "1fr" : "1fr 1fr 1fr 1fr", gap: "8px" }}>
                   <Field label="Status">
                     <select value={taskForm.status} onChange={(e) => setTaskForm((p) => ({ ...p, status: e.target.value }))} style={inputStyle}>
                       <option value="open">open</option>
@@ -1829,7 +1872,7 @@ export default function LegalPage() {
                   <textarea value={taskForm.remediation_plan} onChange={(e) => setTaskForm((p) => ({ ...p, remediation_plan: e.target.value }))} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
                 </Field>
 
-                <ActionBar loading={loading} onCancel={closeModal} onSave={() => void saveTask()} saveLabel="Save Task" />
+                <ActionBar isMobile={isDenseLayout} loading={loading} onCancel={closeModal} onSave={() => void saveTask()} saveLabel="Save Task" />
               </div>
             )}
           </div>
@@ -1851,18 +1894,20 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function ActionBar({
+  isMobile = false,
   loading,
   onCancel,
   onSave,
   saveLabel,
 }: {
+  isMobile?: boolean;
   loading: boolean;
   onCancel: () => void;
   onSave: () => void;
   saveLabel: string;
 }) {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+    <div style={{ display: "flex", justifyContent: "flex-end", flexDirection: isMobile ? "column-reverse" : "row", gap: "8px", marginTop: "4px" }}>
       <button
         onClick={onCancel}
         disabled={loading}
@@ -1874,6 +1919,7 @@ function ActionBar({
           color: "var(--text-subtle)",
           padding: "0 12px",
           cursor: loading ? "not-allowed" : "pointer",
+          width: isMobile ? "100%" : "auto",
         }}
       >
         Cancel
@@ -1891,6 +1937,7 @@ function ActionBar({
           padding: "0 12px",
           cursor: loading ? "not-allowed" : "pointer",
           opacity: loading ? 0.65 : 1,
+          width: isMobile ? "100%" : "auto",
         }}
       >
         {loading ? "Saving..." : saveLabel}
@@ -1900,6 +1947,7 @@ function ActionBar({
 }
 
 function DataSection({
+  isMobile = false,
   title,
   subtitle,
   onAdd,
@@ -1908,6 +1956,7 @@ function DataSection({
   rows,
   emptyLabel,
 }: {
+  isMobile?: boolean;
   title: string;
   subtitle: string;
   onAdd: () => void;
@@ -1922,6 +1971,73 @@ function DataSection({
   }>;
   emptyLabel: string;
 }) {
+  const renderStatusValue = (value: string, showStatus?: boolean) => {
+    const color = statusColor[(value || "").toLowerCase()] || statusColor[value];
+    if (showStatus && color) {
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            borderRadius: "999px",
+            border: `1px solid ${color}30`,
+            background: `${color}14`,
+            color,
+            padding: "2px 8px",
+            fontSize: "11px",
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: color }} />
+          {value}
+        </span>
+      );
+    }
+    return value || "-";
+  };
+
+  const renderActionButtons = (row: { onEdit: () => void; onDelete: () => void; key: number }) => (
+    <span style={{ display: "inline-flex", gap: "6px", justifyContent: "flex-start" }}>
+      <button
+        onClick={row.onEdit}
+        style={{
+          width: "28px",
+          height: "28px",
+          borderRadius: "7px",
+          border: "1px solid var(--border-soft)",
+          background: "var(--bg-elevated)",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        title="Edit"
+      >
+        <Pencil size={12} />
+      </button>
+      <button
+        onClick={row.onDelete}
+        style={{
+          width: "28px",
+          height: "28px",
+          borderRadius: "7px",
+          border: "1px solid var(--danger-soft-border)",
+          background: "var(--danger-soft-bg)",
+          color: "var(--danger)",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        title="Delete"
+      >
+        <Trash2 size={12} />
+      </button>
+    </span>
+  );
+
   return (
     <div
       style={{
@@ -1934,10 +2050,12 @@ function DataSection({
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: isMobile ? "stretch" : "center",
           justifyContent: "space-between",
+          flexDirection: isMobile ? "column" : "row",
           padding: "14px 16px",
           borderBottom: "1px solid var(--border-default)",
+          gap: isMobile ? "10px" : "8px",
         }}
       >
         <div>
@@ -1959,6 +2077,8 @@ function DataSection({
             display: "inline-flex",
             alignItems: "center",
             gap: "6px",
+            width: isMobile ? "100%" : "auto",
+            justifyContent: "center",
           }}
         >
           <Plus size={12} />
@@ -1966,103 +2086,96 @@ function DataSection({
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, padding: "10px 16px", borderBottom: "1px solid var(--border-soft)", background: "var(--bg-panel)" }}>
-        {columns.map((column) => (
-          <span key={column} style={mutedMonoStyle}>
-            {column}
-          </span>
-        ))}
-      </div>
-
-      {rows.length === 0 ? (
-        <div style={{ padding: "16px", fontSize: "12px", color: "var(--text-subtle)" }}>{emptyLabel}</div>
+      {isMobile ? (
+        <div style={{ padding: "10px" }}>
+          {rows.length === 0 ? (
+            <div style={{ padding: "10px 6px", fontSize: "12px", color: "var(--text-subtle)" }}>{emptyLabel}</div>
+          ) : (
+            <div style={{ display: "grid", gap: "8px" }}>
+              {rows.map((row) => (
+                <div
+                  key={row.key}
+                  style={{
+                    border: "1px solid var(--border-soft)",
+                    borderRadius: "10px",
+                    background: "var(--bg-panel)",
+                    padding: "10px",
+                    display: "grid",
+                    gap: "8px",
+                  }}
+                >
+                  {columns.map((column, colIndex) => {
+                    const value = row.values[colIndex];
+                    if (value === "actions") return null;
+                    return (
+                      <div
+                        key={`${row.key}-${colIndex}-mobile`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "94px minmax(0, 1fr)",
+                          gap: "8px",
+                          alignItems: "start",
+                        }}
+                      >
+                        <span style={{ ...mutedMonoStyle, fontSize: "9px", paddingTop: "2px" }}>{column}</span>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color: "var(--text-subtle)",
+                            whiteSpace: "pre-line",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {renderStatusValue(value, row.statusIndex?.includes(colIndex))}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "4px", borderTop: "1px solid var(--border-soft)" }}>
+                    {renderActionButtons(row)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
-        rows.map((row, rowIndex) => (
-          <div
-            key={row.key}
-            style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${columns.length}, 1fr)`,
-              padding: "12px 16px",
-              borderBottom: rowIndex < rows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
-              alignItems: "start",
-              gap: "8px",
-            }}
-          >
-            {row.values.map((value, colIndex) => {
-              const showStatus = row.statusIndex?.includes(colIndex);
-              const color = statusColor[(value || "").toLowerCase()] || statusColor[value];
-              if (value === "actions") {
-                return (
-                  <span key={`action-${row.key}`} style={{ display: "inline-flex", gap: "6px", justifyContent: "flex-start" }}>
-                    <button
-                      onClick={row.onEdit}
-                      style={{
-                        width: "28px",
-                        height: "28px",
-                        borderRadius: "7px",
-                        border: "1px solid var(--border-soft)",
-                        background: "var(--bg-elevated)",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      title="Edit"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    <button
-                      onClick={row.onDelete}
-                      style={{
-                        width: "28px",
-                        height: "28px",
-                        borderRadius: "7px",
-                        border: "1px solid var(--danger-soft-border)",
-                        background: "var(--danger-soft-bg)",
-                        color: "var(--danger)",
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      title="Delete"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </span>
-                );
-              }
-
-              return (
-                <span key={`${row.key}-${colIndex}`} style={{ fontSize: "12px", color: "var(--text-subtle)", whiteSpace: "pre-line" }}>
-                  {showStatus && color ? (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        borderRadius: "999px",
-                        border: `1px solid ${color}30`,
-                        background: `${color}14`,
-                        color,
-                        padding: "2px 8px",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                      }}
-                    >
-                      <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: color }} />
-                      {value}
-                    </span>
-                  ) : (
-                    value || "-"
-                  )}
-                </span>
-              );
-            })}
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, padding: "10px 16px", borderBottom: "1px solid var(--border-soft)", background: "var(--bg-panel)" }}>
+            {columns.map((column) => (
+              <span key={column} style={mutedMonoStyle}>
+                {column}
+              </span>
+            ))}
           </div>
-        ))
+
+          {rows.length === 0 ? (
+            <div style={{ padding: "16px", fontSize: "12px", color: "var(--text-subtle)" }}>{emptyLabel}</div>
+          ) : (
+            rows.map((row, rowIndex) => (
+              <div
+                key={row.key}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${columns.length}, 1fr)`,
+                  padding: "12px 16px",
+                  borderBottom: rowIndex < rows.length - 1 ? "1px solid var(--table-row-divider)" : "none",
+                  alignItems: "start",
+                  gap: "8px",
+                }}
+              >
+                {row.values.map((value, colIndex) => {
+                  if (value === "actions") return <span key={`action-${row.key}`}>{renderActionButtons(row)}</span>;
+                  return (
+                    <span key={`${row.key}-${colIndex}`} style={{ fontSize: "12px", color: "var(--text-subtle)", whiteSpace: "pre-line" }}>
+                      {renderStatusValue(value, row.statusIndex?.includes(colIndex))}
+                    </span>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </>
       )}
     </div>
   );

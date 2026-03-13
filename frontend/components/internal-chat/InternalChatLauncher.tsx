@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Bot,
@@ -18,11 +18,14 @@ import {
   StopCircle,
   Trash2,
   Users,
+  Video,
   X,
 } from "lucide-react";
 
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
+import { isClientModulePath } from "@/lib/section-routes";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type Viewer = {
   id: string;
@@ -109,6 +112,24 @@ type InternalChatTelegramLink = {
   updated_at: string;
 };
 
+type InternalChatZoomLink = {
+  id: number;
+  workspace_id: string;
+  thread_id: number;
+  user_id: string;
+  user_role: string;
+  zoom_join_base_url: string;
+  use_for_meetings: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type InternalChatOpenRequest = {
+  scope?: "judith" | "owner_direct" | "general";
+  open_task_composer?: boolean;
+};
+
 const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
 const JUDITH_ASSISTANT_USER_ID = "judith-ai";
 const TELEGRAM_BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "judith_aibot").replace("@", "");
@@ -118,11 +139,10 @@ const REMINDER_REFRESH_MS = 120000;
 const NOTICE_AUTO_HIDE_MS = 5000;
 const UZ_TZ = "Asia/Tashkent";
 const AUDIO_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+const URL_CHUNK_REGEX = /(https?:\/\/[^\s]+)/gi;
 
 const shouldShowOnPath = (pathname: string) => {
-  if (pathname.startsWith("/dashboard")) return true;
-  if (pathname.startsWith("/settings")) return true;
-  if (pathname.startsWith("/notifications")) return true;
+  if (isClientModulePath(pathname)) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
 };
@@ -168,6 +188,47 @@ const formatDateTimeUZ = (value?: string | null) => {
   }).format(d);
 };
 
+const renderMessageBodyWithLinks = (body: string): ReactNode => {
+  const lines = (body || "").split("\n");
+  return lines.map((line, lineIndex) => {
+    const chunks = line.split(URL_CHUNK_REGEX);
+    return (
+      <span key={`line-${lineIndex}`}>
+        {chunks.map((chunk, chunkIndex) => {
+          const isLink = /^https?:\/\/[^\s]+$/i.test(chunk);
+          if (!isLink) return <span key={`chunk-${lineIndex}-${chunkIndex}`}>{chunk}</span>;
+          return (
+            <a
+              key={`chunk-${lineIndex}-${chunkIndex}`}
+              href={chunk}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--accent)", textDecoration: "underline" }}
+            >
+              {chunk}
+            </a>
+          );
+        })}
+        {lineIndex < lines.length - 1 ? <br /> : null}
+      </span>
+    );
+  });
+};
+
+const extractFirstUrl = (value?: string | null): string | null => {
+  if (!value) return null;
+  const match = value.match(/https?:\/\/[^\s]+/i);
+  return match ? match[0] : null;
+};
+
+const getTelegramAccountLabel = (link: InternalChatTelegramLink): string => {
+  const firstName = (link.telegram_first_name || "").trim();
+  if (firstName) return firstName;
+  const username = (link.telegram_username || "").trim().replace(/^@+/, "");
+  if (username) return `@${username}`;
+  return `Chat ${link.telegram_chat_id}`;
+};
+
 const sortThreads = (threads: InternalChatThread[]) => {
   const priority = (scope: string) => {
     if (scope === "judith_assistant") return 0;
@@ -210,6 +271,7 @@ const isNearBottom = (node: HTMLDivElement | null) => {
 };
 
 export default function InternalChatLauncher() {
+  const isMobile = useIsMobile(980);
   const pathname = usePathname();
   const visible = useMemo(() => shouldShowOnPath(pathname || ""), [pathname]);
 
@@ -238,26 +300,84 @@ export default function InternalChatLauncher() {
   const [showJudithDesk, setShowJudithDesk] = useState(false);
   const [showTaskComposer, setShowTaskComposer] = useState(false);
   const [showTelegramSetup, setShowTelegramSetup] = useState(false);
+  const [showZoomSetup, setShowZoomSetup] = useState(false);
   const [telegramChatId, setTelegramChatId] = useState("");
   const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
   const [telegramLinkSaving, setTelegramLinkSaving] = useState(false);
   const [telegramLink, setTelegramLink] = useState<InternalChatTelegramLink | null>(null);
+  const [telegramLinks, setTelegramLinks] = useState<InternalChatTelegramLink[]>([]);
+  const [telegramLinksLoading, setTelegramLinksLoading] = useState(false);
+  const [removingTelegramLinkId, setRemovingTelegramLinkId] = useState<number | null>(null);
+  const [zoomJoinBaseUrl, setZoomJoinBaseUrl] = useState("");
+  const [zoomLinkLoading, setZoomLinkLoading] = useState(false);
+  const [zoomLinkSaving, setZoomLinkSaving] = useState(false);
+  const [zoomLink, setZoomLink] = useState<InternalChatZoomLink | null>(null);
   const [notice, setNotice] = useState("");
   const [taskLoading, setTaskLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null);
   const [clearingMessages, setClearingMessages] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [mobileThreadListOpen, setMobileThreadListOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesPaneRef = useRef<HTMLDivElement | null>(null);
   const pollingRef = useRef(false);
   const remindersPollingRef = useRef(false);
+  const viewerKeyRef = useRef("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const lastMessageSnapshotRef = useRef("0");
+
+  const resetConversationState = useCallback(
+    (closePanel: boolean) => {
+      if (closePanel) setOpen(false);
+      setLoadingThreads(false);
+      setLoadingMessages(false);
+      setThreads([]);
+      setActiveThreadId(null);
+      setMessages([]);
+      setContacts([]);
+      setJudithTasks([]);
+      setReminders([]);
+      setWorkspaceFilter("");
+      setPending("");
+      setSelectedContactId("");
+      setManualUserId("");
+      setManualName("");
+      setManualEmail("");
+      setManualRole("team_member");
+      setShowDirectChatForm(false);
+      setTaskTitle("");
+      setTaskNotes("");
+      setTaskDueLocal("");
+      setShowJudithDesk(false);
+      setShowTaskComposer(false);
+      setShowTelegramSetup(false);
+      setShowZoomSetup(false);
+      setTelegramChatId("");
+      setTelegramLinkLoading(false);
+      setTelegramLinkSaving(false);
+      setTelegramLink(null);
+      setTelegramLinks([]);
+      setTelegramLinksLoading(false);
+      setRemovingTelegramLinkId(null);
+      setZoomJoinBaseUrl("");
+      setZoomLinkLoading(false);
+      setZoomLinkSaving(false);
+      setZoomLink(null);
+      setNotice("");
+      setTaskLoading(false);
+      setUploading(false);
+      setDeletingMessageId(null);
+      setClearingMessages(false);
+      setIsRecordingAudio(false);
+      lastMessageSnapshotRef.current = "0";
+    },
+    [],
+  );
 
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) || null,
@@ -451,6 +571,48 @@ export default function InternalChatLauncher() {
     }
   }, [activeThreadId, isJudithThread, viewer]);
 
+  const loadJudithTelegramLinks = useCallback(async () => {
+    if (!viewer || !activeThreadId || !isJudithThread) {
+      setTelegramLinks([]);
+      return;
+    }
+
+    setTelegramLinksLoading(true);
+    try {
+      const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role });
+      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/telegram-links?${query.toString()}`);
+      if (!res.ok) {
+        return;
+      }
+      const payload = (await res.json()) as InternalChatTelegramLink[];
+      setTelegramLinks(Array.isArray(payload) ? payload : []);
+    } finally {
+      setTelegramLinksLoading(false);
+    }
+  }, [activeThreadId, isJudithThread, viewer]);
+
+  const loadJudithZoomLink = useCallback(async () => {
+    if (!viewer || !activeThreadId || !isJudithThread) {
+      setZoomLink(null);
+      setZoomJoinBaseUrl("");
+      return;
+    }
+
+    setZoomLinkLoading(true);
+    try {
+      const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role });
+      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/zoom-link?${query.toString()}`);
+      if (!res.ok) {
+        return;
+      }
+      const payload = (await res.json()) as InternalChatZoomLink | null;
+      setZoomLink(payload);
+      setZoomJoinBaseUrl(payload?.zoom_join_base_url || "");
+    } finally {
+      setZoomLinkLoading(false);
+    }
+  }, [activeThreadId, isJudithThread, viewer]);
+
   const loadReminders = useCallback(async () => {
     if (!viewer) return;
     const workspace = effectiveWorkspace;
@@ -470,39 +632,88 @@ export default function InternalChatLauncher() {
   useEffect(() => {
     if (!visible) {
       setOpen(false);
-      return;
     }
+  }, [visible]);
 
-    let mounted = true;
-    getSupabase()
-      .auth.getUser()
-      .then(({ data }) => {
-        const user = data.user;
-        if (!mounted || !user) {
-          setViewer(null);
-          return;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenChatRequest = (event: Event) => {
+      const detail = (event as CustomEvent<InternalChatOpenRequest>).detail;
+      setOpen(true);
+      if (isMobile) {
+        setMobileThreadListOpen(true);
+      }
+      if (!detail) return;
+
+      if (detail.scope === "judith") {
+        setShowJudithDesk(true);
+        if (detail.open_task_composer) {
+          setShowTaskComposer(true);
         }
-        const metadata = (user.user_metadata || {}) as Record<string, unknown>;
-        const role = normalizeRole(typeof metadata.role === "string" ? metadata.role : null, "client");
-        const displayName =
-          typeof metadata.full_name === "string" && metadata.full_name.trim()
-            ? metadata.full_name.trim()
-            : (user.email || "user").split("@")[0];
+        const judithThread = threads.find((thread) => thread.scope === "judith_assistant");
+        if (judithThread) {
+          setActiveThreadId(judithThread.id);
+        }
+      }
+      if (detail.scope === "owner_direct") {
+        const ownerThread = threads.find((thread) => thread.scope === "owner_direct");
+        if (ownerThread) {
+          setActiveThreadId(ownerThread.id);
+        }
+      }
+    };
 
-        setViewer({
-          id: user.id,
-          email: user.email ?? null,
-          name: displayName,
-          role,
-          isSuperAdmin: role === "admin" || role === "owner" || role === "super_admin",
-        });
-      })
-      .catch(() => setViewer(null));
+    window.addEventListener("benela:open-internal-chat", onOpenChatRequest as EventListener);
+    return () => {
+      window.removeEventListener("benela:open-internal-chat", onOpenChatRequest as EventListener);
+    };
+  }, [isMobile, threads]);
+
+  useEffect(() => {
+    let mounted = true;
+    const supabase = getSupabase();
+
+    const applyViewer = (user: { id: string; email?: string | null; user_metadata?: unknown } | null) => {
+      if (!mounted) return;
+      if (!user) {
+        viewerKeyRef.current = "";
+        setViewer(null);
+        resetConversationState(true);
+        return;
+      }
+
+      const metadata = (user.user_metadata || {}) as Record<string, unknown>;
+      const role = normalizeRole(typeof metadata.role === "string" ? metadata.role : null, "client");
+      const displayName =
+        typeof metadata.full_name === "string" && metadata.full_name.trim()
+          ? metadata.full_name.trim()
+          : (user.email || "user").split("@")[0];
+
+      const nextViewer: Viewer = {
+        id: user.id,
+        email: user.email ?? null,
+        name: displayName,
+        role,
+        isSuperAdmin: role === "admin" || role === "owner" || role === "super_admin",
+      };
+      const nextKey = `${nextViewer.id}:${nextViewer.role}`;
+      if (viewerKeyRef.current !== nextKey) {
+        viewerKeyRef.current = nextKey;
+        resetConversationState(true);
+      }
+      setViewer(nextViewer);
+    };
+
+    supabase.auth.getUser().then(({ data }) => applyViewer(data.user)).catch(() => applyViewer(null));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyViewer(session?.user ?? null);
+    });
 
     return () => {
       mounted = false;
+      data.subscription.unsubscribe();
     };
-  }, [visible]);
+  }, [resetConversationState]);
 
   useEffect(() => {
     if (!open || !viewer) return;
@@ -538,11 +749,16 @@ export default function InternalChatLauncher() {
     if (!open || !viewer) return;
     if (!isJudithThread || !activeThreadId) {
       setTelegramLink(null);
+      setTelegramLinks([]);
       setTelegramChatId("");
+      setZoomLink(null);
+      setZoomJoinBaseUrl("");
       return;
     }
     void loadJudithTelegramLink();
-  }, [activeThreadId, isJudithThread, loadJudithTelegramLink, open, viewer]);
+    void loadJudithTelegramLinks();
+    void loadJudithZoomLink();
+  }, [activeThreadId, isJudithThread, loadJudithTelegramLink, loadJudithTelegramLinks, loadJudithZoomLink, open, viewer]);
 
   useEffect(() => {
     if (!open || !viewer) return;
@@ -578,6 +794,15 @@ export default function InternalChatLauncher() {
       bottomRef.current?.scrollIntoView({ behavior: "auto" });
     });
   }, [activeThreadId, open]);
+
+  useEffect(() => {
+    if (!open || !showJudithDesk) return;
+    if (activeThread?.scope === "judith_assistant") return;
+    const judithThread = threads.find((thread) => thread.scope === "judith_assistant");
+    if (judithThread) {
+      setActiveThreadId(judithThread.id);
+    }
+  }, [activeThread?.scope, open, showJudithDesk, threads]);
 
   const buildAttachmentUrl = (attachment: InternalChatAttachment) => {
     if (!viewer) return "#";
@@ -1040,13 +1265,84 @@ export default function InternalChatLauncher() {
       const row = payload as InternalChatTelegramLink;
       setTelegramLink(row);
       setTelegramChatId(row.telegram_chat_id);
-      setNotice(`Telegram linked. Send /start to @${TELEGRAM_BOT_USERNAME} if this is your first time.`);
+      setNotice(
+        row.last_seen_at
+          ? `Telegram linked and verified with @${TELEGRAM_BOT_USERNAME}.`
+          : `Telegram chat ID saved. Send /start to @${TELEGRAM_BOT_USERNAME} once to verify.`,
+      );
+      await loadJudithTelegramLinks();
       await loadMessages({ background: true });
       await loadThreads({ background: true });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not link Telegram chat.");
     } finally {
       setTelegramLinkSaving(false);
+    }
+  };
+
+  const removeJudithTelegramLink = async (linkId: number) => {
+    if (!viewer || !activeThread || !isJudithThread) return;
+    if (!Number.isFinite(linkId)) return;
+
+    setRemovingTelegramLinkId(linkId);
+    try {
+      const query = new URLSearchParams({
+        user_id: viewer.id,
+        user_role: viewer.role,
+      });
+      const res = await fetch(
+        `${API}/internal-chat/threads/${activeThread.id}/judith/telegram-link/${linkId}?${query.toString()}`,
+        { method: "DELETE" },
+      );
+      const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
+      if (!res.ok) {
+        const detail = payload && typeof payload === "object" && "detail" in payload ? payload.detail : null;
+        throw new Error(detail || "Could not remove Telegram link.");
+      }
+      await Promise.all([loadJudithTelegramLink(), loadJudithTelegramLinks()]);
+      setNotice("Telegram link removed.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not remove Telegram link.");
+    } finally {
+      setRemovingTelegramLinkId(null);
+    }
+  };
+
+  const saveJudithZoomLink = async () => {
+    if (!viewer || !activeThread || !isJudithThread) return;
+    const zoomUrl = zoomJoinBaseUrl.trim();
+    if (!zoomUrl) {
+      setNotice("Zoom meeting URL is required.");
+      return;
+    }
+
+    setZoomLinkSaving(true);
+    try {
+      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/judith/zoom-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: viewer.id,
+          user_role: viewer.role,
+          zoom_join_base_url: zoomUrl,
+          use_for_meetings: true,
+        }),
+      });
+      const payload = (await res.json().catch(() => null)) as InternalChatZoomLink | { detail?: string } | null;
+      if (!res.ok) {
+        const detail = payload && typeof payload === "object" && "detail" in payload ? payload.detail : null;
+        throw new Error(detail || "Could not save Zoom setup.");
+      }
+      const row = payload as InternalChatZoomLink;
+      setZoomLink(row);
+      setZoomJoinBaseUrl(row.zoom_join_base_url);
+      setNotice("Zoom setup saved. Judith will attach this link for Zoom meetings.");
+      await loadMessages({ background: true });
+      await loadThreads({ background: true });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not save Zoom setup.");
+    } finally {
+      setZoomLinkSaving(false);
     }
   };
 
@@ -1063,6 +1359,7 @@ export default function InternalChatLauncher() {
       setShowJudithDesk(false);
       setShowTaskComposer(false);
       setShowTelegramSetup(false);
+      setShowZoomSetup(false);
     }
   }, [isJudithThread]);
 
@@ -1073,6 +1370,16 @@ export default function InternalChatLauncher() {
     }, NOTICE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!open) {
+      setMobileThreadListOpen(false);
+      return;
+    }
+    if (!isMobile) {
+      setMobileThreadListOpen(false);
+    }
+  }, [isMobile, open]);
 
   if (!visible || !viewer) return null;
 
@@ -1088,13 +1395,15 @@ export default function InternalChatLauncher() {
 
       {open ? (
         <div
+          className="internal-chat-shell"
           style={{
             position: "fixed",
-            right: "14px",
-            top: "74px",
-            bottom: "132px",
-            width: "min(980px, calc(100vw - 28px))",
-            borderRadius: "18px",
+            right: isMobile ? "8px" : "14px",
+            left: isMobile ? "8px" : "auto",
+            top: isMobile ? "56px" : "74px",
+            bottom: isMobile ? "84px" : "132px",
+            width: isMobile ? "auto" : "min(980px, calc(100vw - 28px))",
+            borderRadius: isMobile ? "14px" : "18px",
             border: "1px solid var(--border-default)",
             background:
               "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 95%, var(--accent) 5%) 0%, var(--bg-surface) 100%)",
@@ -1107,13 +1416,22 @@ export default function InternalChatLauncher() {
           }}
         >
           <aside
+            className="internal-chat-thread-pane"
             style={{
-              width: "320px",
+              width: isMobile ? "min(88vw, 320px)" : "320px",
               borderRight: "1px solid var(--border-default)",
               display: "flex",
               flexDirection: "column",
               background:
                 "linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 92%, var(--accent) 8%) 0%, var(--bg-panel) 64%)",
+              position: isMobile ? "absolute" : "relative",
+              top: 0,
+              left: 0,
+              bottom: 0,
+              zIndex: isMobile ? 3 : "auto",
+              transform: isMobile ? (mobileThreadListOpen ? "translateX(0)" : "translateX(-104%)") : "none",
+              transition: isMobile ? "transform 0.22s ease" : "none",
+              boxShadow: isMobile ? "0 20px 44px rgba(0, 0, 0, 0.28)" : "none",
             }}
           >
             <div style={{ padding: "14px", borderBottom: "1px solid var(--border-default)" }}>
@@ -1237,7 +1555,12 @@ export default function InternalChatLauncher() {
                   return (
                     <button
                       key={thread.id}
-                      onClick={() => setActiveThreadId(thread.id)}
+                      onClick={() => {
+                        setActiveThreadId(thread.id);
+                        if (isMobile) {
+                          setMobileThreadListOpen(false);
+                        }
+                      }}
                       style={{
                         ...threadBtnStyle,
                         borderColor: active ? "var(--accent)" : "var(--border-default)",
@@ -1267,6 +1590,22 @@ export default function InternalChatLauncher() {
               )}
             </div>
           </aside>
+
+          {isMobile && mobileThreadListOpen ? (
+            <button
+              type="button"
+              aria-label="Close conversations list"
+              onClick={() => setMobileThreadListOpen(false)}
+              style={{
+                position: "absolute",
+                inset: 0,
+                border: "none",
+                background: "var(--overlay-backdrop-soft)",
+                zIndex: 2,
+                cursor: "pointer",
+              }}
+            />
+          ) : null}
 
           <section
             style={{
@@ -1300,6 +1639,38 @@ export default function InternalChatLauncher() {
                 </p>
               </div>
               <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                {isMobile ? (
+                  <button
+                    onClick={() => setMobileThreadListOpen(true)}
+                    title="Open conversations"
+                    aria-label="Open conversations"
+                    style={{
+                      ...secondaryBtnStyle,
+                      width: "38px",
+                      height: "38px",
+                      padding: "0",
+                    }}
+                  >
+                    <MessageCircle size={15} />
+                  </button>
+                ) : null}
+                {isJudithThread ? (
+                  <button
+                    onClick={() => setShowZoomSetup((value) => !value)}
+                    title={showZoomSetup ? "Hide Zoom setup" : "Set up Zoom meetings"}
+                    aria-label={showZoomSetup ? "Hide Zoom setup" : "Set up Zoom meetings"}
+                    style={{
+                      ...secondaryBtnStyle,
+                      borderColor: showZoomSetup ? "var(--accent)" : "var(--border-default)",
+                      color: showZoomSetup ? "var(--accent)" : "var(--text-subtle)",
+                      width: "38px",
+                      height: "38px",
+                      padding: "0",
+                    }}
+                  >
+                    <Video size={15} />
+                  </button>
+                ) : null}
                 {isJudithThread ? (
                   <button
                     onClick={() => setShowTelegramSetup((value) => !value)}
@@ -1388,6 +1759,51 @@ export default function InternalChatLauncher() {
               </div>
             ) : null}
 
+            {isJudithThread && showZoomSetup ? (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderBottom: "1px solid var(--border-default)",
+                  background:
+                    "linear-gradient(90deg, color-mix(in srgb, var(--accent-soft) 18%, var(--bg-panel) 82%), color-mix(in srgb, var(--bg-panel) 92%, var(--accent-soft) 8%))",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px" }}>
+                  <input
+                    value={zoomJoinBaseUrl}
+                    onChange={(event) => setZoomJoinBaseUrl(event.target.value)}
+                    placeholder="Enter Zoom meeting URL"
+                    style={fieldStyle}
+                  />
+                  <button
+                    onClick={() => {
+                      void saveJudithZoomLink();
+                    }}
+                    disabled={zoomLinkSaving || zoomLinkLoading}
+                    style={{ ...primaryBtnStyle, opacity: zoomLinkSaving || zoomLinkLoading ? 0.65 : 1 }}
+                  >
+                    <Video size={14} />
+                    {zoomLinkSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+
+                <p style={{ fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+                  Judith asks for Zoom confirmation on every meeting request. When you reply <strong>Zoom yes</strong>,
+                  this link is attached to the meeting task and reminder updates.
+                </p>
+
+                <p style={{ fontSize: "11px", color: "var(--text-primary)" }}>
+                  {zoomLinkLoading
+                    ? "Checking Zoom setup..."
+                    : zoomLink
+                    ? `Zoom URL saved${zoomLink.updated_at ? ` • Updated ${formatDateTimeUZ(zoomLink.updated_at)}` : ""}`
+                    : "No Zoom URL saved yet for this Judith chat."}
+                </p>
+              </div>
+            ) : null}
+
             {isJudithThread && showTelegramSetup ? (
               <div
                 style={{
@@ -1440,6 +1856,83 @@ export default function InternalChatLauncher() {
                       }`
                     : "No Telegram chat linked yet for this user."}
                 </p>
+
+                <div style={{ marginTop: "2px", display: "grid", gap: "6px" }}>
+                  <p style={{ fontSize: "11px", color: "var(--text-primary)", fontWeight: 600 }}>
+                    Linked Telegram accounts: {telegramLinksLoading ? "..." : telegramLinks.length}
+                  </p>
+                  {telegramLinksLoading ? (
+                    <p style={{ fontSize: "11px", color: "var(--text-subtle)" }}>Loading linked accounts...</p>
+                  ) : telegramLinks.length ? (
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      {telegramLinks.map((link) => (
+                        <div
+                          key={link.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "8px",
+                            padding: "8px 10px",
+                            borderRadius: "10px",
+                            border: "1px solid var(--border-default)",
+                            background: "var(--bg-elevated)",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <p
+                              style={{
+                                fontSize: "12px",
+                                color: "var(--text-primary)",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {getTelegramAccountLabel(link)}
+                            </p>
+                            <p
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--text-subtle)",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {link.telegram_chat_id}
+                              {link.last_seen_at ? ` • Verified ${formatDateTimeUZ(link.last_seen_at)}` : ""}
+                            </p>
+                          </div>
+                          <button
+                            title="Remove Telegram link"
+                            aria-label={`Remove ${getTelegramAccountLabel(link)}`}
+                            onClick={() => {
+                              void removeJudithTelegramLink(link.id);
+                            }}
+                            disabled={removingTelegramLinkId === link.id}
+                            style={{
+                              ...secondaryBtnStyle,
+                              width: "32px",
+                              height: "32px",
+                              padding: "0",
+                              color: "var(--danger)",
+                              borderColor: "color-mix(in srgb, var(--danger) 35%, var(--border-default) 65%)",
+                              background: "color-mix(in srgb, var(--danger) 10%, var(--bg-elevated) 90%)",
+                              opacity: removingTelegramLinkId === link.id ? 0.65 : 1,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: "11px", color: "var(--text-subtle)" }}>No linked Telegram accounts yet.</p>
+                  )}
+                </div>
               </div>
             ) : null}
 
@@ -1510,7 +2003,7 @@ export default function InternalChatLauncher() {
                         {msg.sender_name} · {formatTimeUZ(msg.created_at)}
                       </div>
                       <p style={{ fontSize: "13px", lineHeight: 1.45, color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
-                        {msg.body}
+                        {renderMessageBodyWithLinks(msg.body)}
                       </p>
 
                       {msg.attachments?.length ? (
@@ -1630,7 +2123,9 @@ export default function InternalChatLauncher() {
                       {taskLoading ? (
                         <p style={subtleLineStyle}>Loading checklist...</p>
                       ) : judithTasks.length ? (
-                        judithTasks.slice(0, 20).map((task) => (
+                        judithTasks.slice(0, 20).map((task) => {
+                          const zoomTaskUrl = extractFirstUrl(task.notes);
+                          return (
                           <div
                             key={task.id}
                             style={{
@@ -1705,8 +2200,20 @@ export default function InternalChatLauncher() {
                                 </button>
                               ) : null}
                             </div>
+                            {zoomTaskUrl ? (
+                              <div style={{ marginTop: "6px", paddingLeft: "24px" }}>
+                                <a
+                                  href={zoomTaskUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ fontSize: "10px", color: "var(--accent)", textDecoration: "underline" }}
+                                >
+                                  Open Zoom meeting link
+                                </a>
+                              </div>
+                            ) : null}
                           </div>
-                        ))
+                        )})
                       ) : (
                         <p style={subtleLineStyle}>No checklist items yet.</p>
                       )}
@@ -1724,9 +2231,9 @@ export default function InternalChatLauncher() {
               style={{
                 borderTop: "1px solid var(--border-default)",
                 padding: "12px 12px 14px",
-                display: "flex",
+                display: isMobile ? "grid" : "flex",
                 gap: "8px",
-                alignItems: "flex-end",
+                alignItems: isMobile ? "stretch" : "flex-end",
                 background:
                   "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 95%, var(--accent-soft) 5%) 0%, var(--bg-surface) 100%)",
               }}
@@ -1760,7 +2267,11 @@ export default function InternalChatLauncher() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!activeThread || uploading}
-                  style={{ ...secondaryBtnStyle, opacity: !activeThread || uploading ? 0.6 : 1 }}
+                  style={{
+                    ...secondaryBtnStyle,
+                    opacity: !activeThread || uploading ? 0.6 : 1,
+                    flex: isMobile ? 1 : undefined,
+                  }}
                   title="Attach files"
                 >
                   <Paperclip size={14} />
@@ -1769,7 +2280,11 @@ export default function InternalChatLauncher() {
                 <button
                   onClick={isRecordingAudio ? stopRecordingAudio : startRecordingAudio}
                   disabled={!activeThread || uploading}
-                  style={{ ...secondaryBtnStyle, opacity: !activeThread || uploading ? 0.6 : 1 }}
+                  style={{
+                    ...secondaryBtnStyle,
+                    opacity: !activeThread || uploading ? 0.6 : 1,
+                    flex: isMobile ? 1 : undefined,
+                  }}
                   title={isRecordingAudio ? "Stop recording" : "Record audio"}
                 >
                   {isRecordingAudio ? <StopCircle size={14} /> : <Mic size={14} />}
@@ -1778,7 +2293,11 @@ export default function InternalChatLauncher() {
                 <button
                   onClick={send}
                   disabled={!activeThread || !pending.trim() || uploading}
-                  style={{ ...primaryBtnStyle, opacity: !activeThread || !pending.trim() || uploading ? 0.55 : 1 }}
+                  style={{
+                    ...primaryBtnStyle,
+                    opacity: !activeThread || !pending.trim() || uploading ? 0.55 : 1,
+                    flex: isMobile ? 1 : undefined,
+                  }}
                 >
                   <Send size={14} />
                 </button>
@@ -1789,14 +2308,22 @@ export default function InternalChatLauncher() {
       ) : null}
 
       <button
-        onClick={() => setOpen((value) => !value)}
+        onClick={() =>
+          setOpen((value) => {
+            const next = !value;
+            if (!next) {
+              setMobileThreadListOpen(false);
+            }
+            return next;
+          })
+        }
         style={{
           position: "fixed",
-          right: "16px",
-          bottom: "76px",
-          width: "52px",
-          height: "52px",
-          borderRadius: "16px",
+          right: isMobile ? "12px" : "16px",
+          bottom: isMobile ? "62px" : "76px",
+          width: isMobile ? "48px" : "52px",
+          height: isMobile ? "48px" : "52px",
+          borderRadius: isMobile ? "14px" : "16px",
           border: "1px solid var(--border-default)",
           background: open
             ? "linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 72%, var(--bg-panel) 28%), color-mix(in srgb, var(--accent) 16%, var(--bg-surface) 84%))"
