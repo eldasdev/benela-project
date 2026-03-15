@@ -1,26 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Sparkles, BarChart3, Users, ShieldCheck, Zap, Globe, ChevronRight, CheckCircle2, Clock3, BellRing, Monitor, Building2 } from "lucide-react";
 import { PricingModule, type PricingPlan } from "@/components/ui/pricing-module";
+import MarketingTopNav from "@/components/marketing/MarketingTopNav";
+import MarketingFooter from "@/components/marketing/MarketingFooter";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 import {
   DEFAULT_PRICING_PLANS,
-  PRICING_STORAGE_KEY,
-  normalizePricingPlan,
   type PricingPlanDefinition,
 } from "@/lib/pricing-plans";
+import { fetchPublicPricingPlans } from "@/lib/platform-pricing";
 
-const NAV_LINKS = ["Features", "Pricing", "About"];
-
-const FEATURES = [
-  { icon: Sparkles, title: "AI Copilot in Every Module", desc: "Context-aware AI assistant embedded in Finance, HR, Sales and every other module. Ask questions, get insights, take action.", color: "var(--accent)" },
-  { icon: BarChart3, title: "Real-Time Analytics", desc: "Live dashboards pulling from your actual data. No more spreadsheets or manual reports.", color: "#34d399" },
-  { icon: Users, title: "HR & People Management", desc: "Employees, positions, departments — all in one place with full CRUD operations.", color: "#60a5fa" },
-  { icon: ShieldCheck, title: "Enterprise Security", desc: "SOC2 compliant, end-to-end encryption, role-based access control and full audit logs.", color: "#f59e0b" },
-  { icon: Zap, title: "Instant Automation", desc: "AI agents handle repetitive tasks across modules automatically. Set rules, let AI execute.", color: "#f87171" },
-  { icon: Globe, title: "Multi-Region Deployment", desc: "Deploy in the region closest to your team. GDPR compliant. Data never leaves your region.", color: "#a78bfa" },
-];
+const FEATURE_META = [
+  { icon: Sparkles, color: "var(--accent)" },
+  { icon: BarChart3, color: "#34d399" },
+  { icon: Users, color: "#60a5fa" },
+  { icon: ShieldCheck, color: "#f59e0b" },
+  { icon: Zap, color: "#f87171" },
+  { icon: Globe, color: "#a78bfa" },
+] as const;
 
 const PLAN_ICONS: Record<string, ReactNode> = {
   starter: <Monitor className="w-8 h-8 text-primary" />,
@@ -37,107 +37,44 @@ function toMarketingPlans(plans: PricingPlanDefinition[]): PricingPlan[] {
 
 const INITIAL_MARKETING_PRICING_PLANS = toMarketingPlans(DEFAULT_PRICING_PLANS);
 
-function readStoredMarketingPlans(): PricingPlan[] {
-  const stored = window.localStorage.getItem(PRICING_STORAGE_KEY);
-  if (!stored) return INITIAL_MARKETING_PRICING_PLANS;
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return INITIAL_MARKETING_PRICING_PLANS;
-    const normalized = parsed
-      .map(normalizePricingPlan)
-      .filter((row): row is PricingPlanDefinition => Boolean(row));
-    if (!normalized.length) return INITIAL_MARKETING_PRICING_PLANS;
-    return toMarketingPlans(normalized);
-  } catch {
-    return INITIAL_MARKETING_PRICING_PLANS;
-  }
-}
-
-const TESTIMONIALS = [
-  { name: "Sarah Chen", role: "CFO at Acme Corp", text: "Benela replaced three separate tools for us. The AI assistant in the Finance module alone saves our team 4 hours a week.", avatar: "SC" },
-  { name: "Marcus Johnson", role: "VP Sales at TechStart", text: "The sales pipeline view with AI deal scoring changed how our team prioritizes. Win rate up 23% in 3 months.", avatar: "MJ" },
-  { name: "Priya Sharma", role: "Head of HR at GlobalCo", text: "Onboarding new employees used to take days. With Benela AI it takes 20 minutes. The automation is incredible.", avatar: "PS" },
-];
-
 export default function LandingPage() {
+  const { t, getValue } = useI18n();
   const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>(INITIAL_MARKETING_PRICING_PLANS);
+  const features = useMemo(
+    () =>
+      ((getValue("landing.features", []) as Array<{ title: string; desc: string }>) || []).map((feature, index) => ({
+        ...feature,
+        ...FEATURE_META[index],
+      })),
+    [getValue],
+  );
+  const heroStats = (getValue("landing.heroStats", []) as Array<{ value: string; label: string }>) || [];
+  const judithTags = (getValue("landing.judithTags", []) as string[]) || [];
+  const judithCards =
+    (getValue("landing.judithCards", []) as Array<{ title: string; desc: string }>) || [];
+  const testimonials =
+    (getValue(
+      "landing.testimonials",
+      [],
+    ) as Array<{ name: string; role: string; text: string; avatar: string }>) || [];
 
   useEffect(() => {
-    const rafId = window.requestAnimationFrame(() => {
-      setPricingPlans(readStoredMarketingPlans());
-    });
-    return () => window.cancelAnimationFrame(rafId);
+    let cancelled = false;
+
+    const loadPricing = async () => {
+      const plans = await fetchPublicPricingPlans();
+      if (!cancelled) setPricingPlans(toMarketingPlans(plans));
+    };
+
+    void loadPricing();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
     <div style={{ background: "var(--bg-canvas)", color: "var(--text-primary)", fontFamily: "system-ui, -apple-system, sans-serif", minHeight: "100vh" }}>
-
-      {/* Nav */}
-      <nav
-        className="marketing-nav"
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-          padding: "16px 40px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          backgroundColor: "var(--bg-panel)",
-          background: "var(--marketing-hero-nav-bg)",
-          backdropFilter: "blur(12px)",
-          borderBottom: "1px solid var(--marketing-hero-nav-border)",
-          boxShadow: "var(--marketing-hero-nav-shadow)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div
-            style={{
-              width: "34px",
-              height: "34px",
-              borderRadius: "10px",
-              background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 0 18px var(--brand-glow)",
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-              <polygon points="9,2 16,6 16,12 9,16 2,12 2,6" stroke="white" strokeWidth="1.5" fill="none"/>
-              <path d="M9 5 L12 9 L9 13 L6 9 Z" stroke="white" strokeWidth="1.5" fill="none"/>
-              <circle cx="9" cy="9" r="1.5" fill="white"/>
-            </svg>
-          </div>
-          <span className="marketing-nav-brand" style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "1px" }}>
-            BENELA
-          </span>
-        </div>
-
-        <div className="marketing-nav-links" style={{ display: "flex", alignItems: "center", gap: "32px" }}>
-          {NAV_LINKS.map(link => (
-            <a
-              key={link}
-              href={`#${link.toLowerCase()}`}
-              className="marketing-nav-link"
-              style={{ fontSize: "14px", textDecoration: "none", transition: "color 0.15s" }}
-            >
-              {link}
-            </a>
-          ))}
-        </div>
-
-        <div className="marketing-nav-actions" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Link href="/login" className="marketing-nav-btn marketing-nav-btn-secondary">
-            Sign in
-          </Link>
-          <Link href="/signup" className="marketing-nav-btn marketing-nav-btn-primary">
-            Get started
-          </Link>
-        </div>
-      </nav>
+      <MarketingTopNav currentPath="/" />
 
       {/* Hero */}
       <section className="marketing-hero">
@@ -147,126 +84,145 @@ export default function LandingPage() {
         <div className="marketing-hero-orbit marketing-hero-orbit-outer" />
         <div className="marketing-hero-orbit marketing-hero-orbit-inner" />
 
-        <div className="marketing-hero-copy">
-          <div className="marketing-hero-badge">
-            <Sparkles size={12} />
-            Live AI ERP for finance, operations and growth
-            <ChevronRight size={12} />
+        <div className="marketing-hero-shell">
+          <div className="marketing-hero-copy">
+            <div className="marketing-hero-badge">
+              <Sparkles size={12} />
+              {t("landing.heroBadge")}
+              <ChevronRight size={12} />
+            </div>
+
+            <h1 className="marketing-hero-title">
+              {t("landing.heroTitleLine1")}
+              <span>{t("landing.heroTitleLine2")}</span>
+            </h1>
+
+            <p className="marketing-hero-subtitle">
+              {t("landing.heroSubtitle")}
+            </p>
+
+            <div className="marketing-hero-actions">
+              <Link href="/signup" className="marketing-hero-primary">
+                {t("landing.heroPrimaryCta")} <ArrowRight size={16} />
+              </Link>
+              <Link href="/login" className="marketing-hero-secondary">
+                {t("landing.heroSecondaryCta")}
+              </Link>
+            </div>
+
+            <p className="marketing-hero-note">{t("landing.heroNote")}</p>
           </div>
 
-          <h1 className="marketing-hero-title">
-            Operate Beyond Spreadsheets.
-            <span>Command Your Entire Company with AI.</span>
-          </h1>
-
-          <p className="marketing-hero-subtitle">
-            Benela unifies Finance, HR, Sales, Legal, Support and more into one intelligent workspace.
-            Ask, analyze, automate, and act from a single operational command center.
-          </p>
-
-          <div className="marketing-hero-actions">
-            <Link href="/signup" className="marketing-hero-primary">
-              Start 7-day trial <ArrowRight size={16} />
-            </Link>
-            <Link href="/login" className="marketing-hero-secondary">
-              Watch platform demo
-            </Link>
-          </div>
-
-          <p className="marketing-hero-note">No free plan · 7-day trial on paid plans · Enterprise-ready security</p>
-
-          <div className="marketing-hero-stats">
-            <div className="marketing-hero-stat">
-              <strong>9</strong>
-              <span>Core business modules</span>
-            </div>
-            <div className="marketing-hero-stat">
-              <strong>99.95%</strong>
-              <span>Platform uptime target</span>
-            </div>
-            <div className="marketing-hero-stat">
-              <strong>4x faster</strong>
-              <span>Reporting and analysis cycles</span>
-            </div>
-            <div className="marketing-hero-stat">
-              <strong>24/7</strong>
-              <span>AI-assisted operations</span>
+          <div className="marketing-hero-visual">
+            <div className="marketing-hero-showcase">
+              <div className="marketing-hero-showcase-head">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
+                <p>{t("landing.showcaseTitle")}</p>
+              </div>
+              <img src="/dashboard-screenshot.png" alt="Benela AI platform command center dashboard" />
+              <div className="marketing-hero-chip marketing-hero-chip-a">{t("landing.showcaseChipA")}</div>
             </div>
           </div>
         </div>
 
-        <div className="marketing-hero-showcase">
-          <div className="marketing-hero-showcase-head">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
-            <p>Benela AI Unified Workspace</p>
-          </div>
-          <img src="/dashboard-screenshot.png" alt="Benela AI platform command center dashboard" />
-          <div className="marketing-hero-chip marketing-hero-chip-a">Revenue forecast confidence: 93%</div>
-          <div className="marketing-hero-chip marketing-hero-chip-b">AI Copilot active in 9 modules</div>
-        </div>
-
-        <div className="marketing-hero-partners">
-          <p>Trusted by modern operations teams worldwide</p>
-          <div className="marketing-hero-partner-row">
-            <span>NOVA SYSTEMS</span>
-            <span>FORGE CAPITAL</span>
-            <span>FLUX LOGISTICS</span>
-            <span>BEAM INDUSTRIES</span>
-            <span>ECHO HEALTH</span>
-          </div>
+        <div className="marketing-hero-stats">
+          {heroStats.map((item) => (
+            <div key={`${item.value}-${item.label}`} className="marketing-hero-stat">
+              <strong>{item.value}</strong>
+              <span>{item.label}</span>
+            </div>
+          ))}
         </div>
       </section>
 
       {/* Features */}
-      <section id="features" className="marketing-section marketing-section-features" style={{ padding: "100px 40px", maxWidth: "1200px", margin: "0 auto" }}>
-        <div style={{ textAlign: "center", marginBottom: "64px" }}>
-          <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.1em", fontFamily: "monospace", marginBottom: "12px" }}>FEATURES</div>
-          <h2 style={{ fontSize: "42px", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "16px" }}>
-            Everything your enterprise needs
-          </h2>
-          <p style={{ fontSize: "16px", color: "var(--text-subtle)", maxWidth: "500px", margin: "0 auto" }}>
-            Built from the ground up with AI at the core, not bolted on as an afterthought.
-          </p>
-        </div>
+      <section id="features" className="marketing-section marketing-section-features" style={{ padding: "96px 40px 40px", maxWidth: "1240px", margin: "0 auto" }}>
+        <div className="marketing-surface-shell">
+          <div className="marketing-surface-header">
+            <div style={{ textAlign: "center", marginBottom: "8px" }}>
+              <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.16em", fontFamily: "monospace", marginBottom: "12px" }}>{t("landing.featuresEyebrow")}</div>
+              <h2 style={{ fontSize: "clamp(34px, 4.4vw, 52px)", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.08, letterSpacing: "-0.04em", marginBottom: "16px" }}>
+                {t("landing.featuresTitle")}
+              </h2>
+              <p style={{ fontSize: "17px", color: "var(--text-subtle)", maxWidth: "620px", margin: "0 auto", lineHeight: 1.75 }}>
+                {t("landing.featuresSubtitle")}
+              </p>
+            </div>
+          </div>
 
-        <div className="marketing-feature-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
-          {FEATURES.map((f) => {
-            const Icon = f.icon;
-            return (
-              <div key={f.title} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px", position: "relative", overflow: "hidden", transition: "border 0.2s" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = `${f.color}30`}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)"}>
-                <div style={{ width: "44px", height: "44px", borderRadius: "12px", background: `${f.color}12`, border: `1px solid ${f.color}20`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "20px" }}>
-                  <Icon size={20} color={f.color} />
+          <div className="marketing-feature-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
+            {features.map((f, index) => {
+              const Icon = f.icon;
+              return (
+                <div
+                  key={f.title}
+                  className="marketing-feature-card"
+                  style={{
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 96%, white 4%), var(--bg-surface))",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "22px",
+                    padding: "28px",
+                    position: "relative",
+                    overflow: "hidden",
+                    transition: "transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+                    boxShadow: "0 16px 40px color-mix(in srgb, var(--brand-glow) 8%, transparent)",
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLElement).style.borderColor = `${f.color}44`;
+                    (e.currentTarget as HTMLElement).style.transform = "translateY(-4px)";
+                    (e.currentTarget as HTMLElement).style.boxShadow = `0 24px 54px color-mix(in srgb, ${f.color} 16%, transparent)`;
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
+                    (e.currentTarget as HTMLElement).style.transform = "none";
+                    (e.currentTarget as HTMLElement).style.boxShadow = "0 16px 40px color-mix(in srgb, var(--brand-glow) 8%, transparent)";
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: "12px",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `${f.color}12`, border: `1px solid ${f.color}24`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon size={21} color={f.color} />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--text-subtle)",
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        borderRadius: "999px",
+                        border: "1px solid color-mix(in srgb, var(--border-default) 84%, transparent)",
+                        background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+                        padding: "6px 10px",
+                      }}
+                    >
+                      0{index + 1}
+                    </div>
+                  </div>
+                  <h3 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "10px", letterSpacing: "-0.02em" }}>{f.title}</h3>
+                  <p style={{ fontSize: "14px", color: "var(--text-subtle)", lineHeight: 1.8, margin: 0 }}>{f.desc}</p>
+                  <div style={{ position: "absolute", inset: "auto -15% -30% auto", width: "140px", height: "140px", borderRadius: "50%", background: `radial-gradient(circle, ${f.color}18, transparent 72%)`, pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2px", background: `linear-gradient(90deg, transparent, ${f.color}44, transparent)` }} />
                 </div>
-                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "10px" }}>{f.title}</h3>
-                <p style={{ fontSize: "13px", color: "var(--text-subtle)", lineHeight: 1.7 }}>{f.desc}</p>
-                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "1px", background: `linear-gradient(90deg, transparent, ${f.color}20, transparent)` }} />
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </section>
 
       <section
         className="marketing-section"
-        style={{ padding: "0 40px 80px", maxWidth: "1200px", margin: "0 auto" }}
+        style={{ padding: "24px 40px 86px", maxWidth: "1240px", margin: "0 auto" }}
       >
-        <div
-          style={{
-            borderRadius: "22px",
-            border: "1px solid var(--border-default)",
-            background:
-              "linear-gradient(140deg, color-mix(in srgb, var(--bg-surface) 88%, var(--accent) 12%), var(--bg-surface))",
-            padding: "30px",
-            display: "grid",
-            gridTemplateColumns: "minmax(280px, 1.2fr) minmax(260px, 1fr)",
-            gap: "24px",
-            boxShadow: "0 14px 48px color-mix(in srgb, var(--brand-glow) 28%, transparent)",
-          }}
-        >
+        <div className="marketing-surface-shell marketing-judith-shell">
           <div>
             <div
               style={{
@@ -277,37 +233,32 @@ export default function LandingPage() {
                 color: "var(--accent)",
                 border: "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default))",
                 borderRadius: "999px",
-                padding: "6px 10px",
-                marginBottom: "14px",
+                padding: "7px 11px",
+                marginBottom: "16px",
                 background: "color-mix(in srgb, var(--accent) 12%, transparent)",
               }}
             >
               <Sparkles size={13} />
-              Judith AI Assistant
+              {t("landing.judithBadge")}
             </div>
-            <h3 style={{ margin: 0, fontSize: "34px", lineHeight: 1.2, color: "var(--text-primary)" }}>
-              Delegate task operations to Judith in one workspace.
+            <h3 style={{ margin: 0, fontSize: "clamp(30px, 4vw, 42px)", lineHeight: 1.1, letterSpacing: "-0.04em", color: "var(--text-primary)" }}>
+              {t("landing.judithTitle")}
             </h3>
-            <p style={{ marginTop: "14px", marginBottom: 0, fontSize: "15px", lineHeight: 1.75, color: "var(--text-subtle)" }}>
-              Judith captures notes from chat and voice, turns plans into checklists, tracks deadlines in Uzbekistan time,
-              and sends reminders in both Benela and Telegram when linked.
+            <p style={{ marginTop: "14px", marginBottom: 0, fontSize: "16px", lineHeight: 1.85, color: "var(--text-subtle)", maxWidth: "620px" }}>
+              {t("landing.judithBody")}
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "18px" }}>
-              {[
-                "Natural-language task creation",
-                "Deadline reminders (+30 min)",
-                "Voice-to-task workflows",
-                "Team and owner direct collaboration",
-              ].map((item) => (
+              {judithTags.map((item) => (
                 <span
                   key={item}
                   style={{
                     fontSize: "12px",
                     color: "var(--text-muted)",
                     borderRadius: "999px",
-                    border: "1px solid var(--border-default)",
-                    background: "var(--bg-elevated)",
-                    padding: "6px 10px",
+                    border: "1px solid color-mix(in srgb, var(--border-default) 82%, transparent)",
+                    background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+                    padding: "8px 11px",
+                    fontWeight: 600,
                   }}
                 >
                   {item}
@@ -315,40 +266,59 @@ export default function LandingPage() {
               ))}
             </div>
           </div>
-          <div
-            style={{
-              borderRadius: "16px",
-              border: "1px solid var(--border-default)",
-              background: "var(--bg-panel)",
-              padding: "18px",
-              display: "grid",
-              gap: "10px",
-              alignContent: "start",
-            }}
-          >
-            {[
-              { icon: CheckCircle2, title: "Smart Task Breakdown", desc: "Converts complex requests into actionable steps." },
-              { icon: Clock3, title: "Deadline Timeline", desc: "Creates due times with timezone-aware reminders." },
-              { icon: BellRing, title: "Mutual Updates", desc: "Syncs reminder updates between web chat and Telegram bot." },
-            ].map((item) => {
-              const Icon = item.icon;
+          <div className="marketing-judith-console">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "16px",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>
+                  Judith workspace
+                </div>
+                <div style={{ marginTop: "6px", fontSize: "18px", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Task and event orchestration
+                </div>
+              </div>
+              <div
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "999px",
+                  background: "color-mix(in srgb, var(--success) 12%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--success) 26%, transparent)",
+                  color: "var(--success)",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                }}
+              >
+                Live
+              </div>
+            </div>
+            {[CheckCircle2, Clock3, BellRing].map((Icon, index) => {
+              const item = judithCards[index];
+              if (!item) return null;
               return (
                 <div
                   key={item.title}
+                  className="marketing-judith-item"
                   style={{
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "12px",
-                    background: "var(--bg-surface)",
-                    padding: "12px",
+                    border: "1px solid color-mix(in srgb, var(--border-default) 82%, transparent)",
+                    borderRadius: "16px",
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 97%, white 3%), var(--bg-surface))",
+                    padding: "15px",
                     display: "flex",
-                    gap: "10px",
+                    gap: "12px",
                   }}
                 >
                   <div
                     style={{
-                      width: "32px",
-                      height: "32px",
-                      borderRadius: "9px",
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "11px",
                       border: "1px solid color-mix(in srgb, var(--accent) 35%, var(--border-default))",
                       background: "color-mix(in srgb, var(--accent) 12%, transparent)",
                       display: "flex",
@@ -360,12 +330,26 @@ export default function LandingPage() {
                     <Icon size={15} color="var(--accent)" />
                   </div>
                   <div>
-                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{item.title}</div>
-                    <div style={{ fontSize: "12px", color: "var(--text-subtle)", marginTop: "2px", lineHeight: 1.5 }}>{item.desc}</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>{item.title}</div>
+                    <div style={{ fontSize: "13px", color: "var(--text-subtle)", marginTop: "4px", lineHeight: 1.65 }}>{item.desc}</div>
                   </div>
                 </div>
               );
             })}
+            <div className="marketing-judith-summary">
+              <div>
+                <strong>3</strong>
+                <span>active workflows</span>
+              </div>
+              <div>
+                <strong>24/7</strong>
+                <span>assistant coverage</span>
+              </div>
+              <div>
+                <strong>1 hub</strong>
+                <span>tasks, events, reminders</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -373,77 +357,75 @@ export default function LandingPage() {
       {/* Pricing */}
       <div id="pricing">
         <PricingModule
-          title="Simple, Transparent Pricing"
-          subtitle="Choose monthly or annual billing and scale Benela with your operations."
-          annualBillingLabel="Pay annually and save"
-          buttonLabel="Start 7-day trial"
+          title={t("landing.pricingTitle")}
+          subtitle={t("landing.pricingSubtitle")}
+          annualBillingLabel={t("landing.pricingAnnualLabel")}
+          buttonLabel={t("landing.pricingButton")}
           plans={pricingPlans}
           defaultAnnual={false}
-          className="py-24 px-10 border-y border-[var(--bg-elevated)]"
+          className="marketing-pricing-wrap"
         />
       </div>
 
       {/* Testimonials */}
-      <section className="marketing-section marketing-section-testimonials" style={{ padding: "100px 40px", maxWidth: "1100px", margin: "0 auto" }}>
-        <div style={{ textAlign: "center", marginBottom: "64px" }}>
-          <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.1em", fontFamily: "monospace", marginBottom: "12px" }}>TESTIMONIALS</div>
-          <h2 style={{ fontSize: "42px", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>Loved by finance and ops teams</h2>
-        </div>
+      <section className="marketing-section marketing-section-testimonials" style={{ padding: "24px 40px 86px", maxWidth: "1240px", margin: "0 auto" }}>
+        <div className="marketing-surface-shell">
+          <div className="marketing-surface-header">
+            <div style={{ textAlign: "center", marginBottom: "8px" }}>
+              <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.16em", fontFamily: "monospace", marginBottom: "12px" }}>{t("landing.testimonialsEyebrow")}</div>
+              <h2 style={{ fontSize: "clamp(34px, 4vw, 48px)", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.08, letterSpacing: "-0.04em", marginBottom: "10px" }}>{t("landing.testimonialsTitle")}</h2>
+            </div>
+          </div>
 
         <div className="marketing-testimonials-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px" }}>
-          {TESTIMONIALS.map((t) => (
-            <div key={t.name} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: "28px" }}>
-              <div style={{ fontSize: "32px", color: "var(--accent)", marginBottom: "16px", lineHeight: 1 }}>&ldquo;</div>
-              <p style={{ fontSize: "14px", color: "var(--text-muted)", lineHeight: 1.7, marginBottom: "24px" }}>{t.text}</p>
+          {testimonials.map((item) => (
+            <div key={item.name} className="marketing-testimonial-card" style={{ background: "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 96%, white 4%), var(--bg-surface))", border: "1px solid var(--border-default)", borderRadius: "22px", padding: "28px", boxShadow: "0 16px 42px color-mix(in srgb, var(--brand-glow) 8%, transparent)" }}>
+              <div style={{ fontSize: "40px", color: "var(--accent)", marginBottom: "18px", lineHeight: 0.9, fontWeight: 700 }}>&ldquo;</div>
+              <p style={{ fontSize: "15px", color: "var(--text-muted)", lineHeight: 1.85, marginBottom: "24px" }}>{item.text}</p>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "white", flexShrink: 0 }}>
-                  {t.avatar}
+                <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white", flexShrink: 0, boxShadow: "0 10px 24px color-mix(in srgb, var(--accent) 20%, transparent)" }}>
+                  {item.avatar}
                 </div>
                 <div>
-                  <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-muted)" }}>{t.name}</div>
-                  <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t.role}</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>{item.name}</div>
+                  <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{item.role}</div>
                 </div>
               </div>
             </div>
           ))}
         </div>
+        </div>
       </section>
 
       {/* CTA */}
-      <section className="marketing-section marketing-section-cta" style={{ padding: "100px 40px", textAlign: "center", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(124,106,255,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
-        <div style={{ maxWidth: "600px", margin: "0 auto", position: "relative" }}>
-          <h2 style={{ fontSize: "48px", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "20px", letterSpacing: "-0.5px" }}>
-            Ready to modernize your ERP?
-          </h2>
-          <p style={{ fontSize: "17px", color: "var(--text-subtle)", marginBottom: "40px", lineHeight: 1.7 }}>
-            Launch with any paid plan and validate your setup during a full 7-day trial period.
-          </p>
-          <Link href="/signup" style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "16px 36px", borderRadius: "14px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", color: "white", fontSize: "16px", fontWeight: 600, textDecoration: "none", boxShadow: "0 0 40px rgba(124,106,255,0.3)" }}>
-            Get early access <ArrowRight size={18} />
-          </Link>
-          <p style={{ fontSize: "12px", color: "var(--text-quiet)", marginTop: "16px" }}>No credit card · Cancel anytime · GDPR compliant</p>
+      <section className="marketing-section marketing-section-cta" style={{ padding: "10px 40px 100px", position: "relative", overflow: "hidden" }}>
+        <div className="marketing-cta-shell">
+          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "760px", height: "420px", background: "radial-gradient(ellipse, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 70%)", pointerEvents: "none" }} />
+          <div style={{ maxWidth: "760px", margin: "0 auto", position: "relative", textAlign: "center" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginBottom: "14px", padding: "8px 12px", borderRadius: "999px", border: "1px solid color-mix(in srgb, var(--accent) 26%, transparent)", background: "color-mix(in srgb, var(--accent-soft) 72%, transparent)", color: "var(--accent)", fontSize: "12px", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+              Ready to launch
+            </div>
+            <h2 style={{ fontSize: "clamp(36px, 5vw, 58px)", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.08, marginBottom: "18px", letterSpacing: "-0.05em" }}>
+            {t("landing.ctaTitle")}
+            </h2>
+            <p style={{ fontSize: "18px", color: "var(--text-subtle)", marginBottom: "34px", lineHeight: 1.8 }}>
+            {t("landing.ctaSubtitle")}
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
+              <Link href="/signup" style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "16px 34px", borderRadius: "16px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", color: "white", fontSize: "16px", fontWeight: 700, textDecoration: "none", boxShadow: "0 20px 42px color-mix(in srgb, var(--accent) 26%, transparent)" }}>
+                {t("landing.ctaButton")} <ArrowRight size={18} />
+              </Link>
+              <Link href="/about" style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "16px 24px", borderRadius: "16px", background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)", color: "var(--text-primary)", fontSize: "15px", fontWeight: 700, textDecoration: "none", border: "1px solid color-mix(in srgb, var(--border-default) 84%, transparent)" }}>
+                Learn more
+              </Link>
+            </div>
+            <p style={{ fontSize: "12px", color: "var(--text-quiet)", marginTop: "18px" }}>{t("landing.ctaNote")}</p>
+          </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="marketing-footer" style={{ padding: "40px", borderTop: "1px solid var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="12" height="12" viewBox="0 0 18 18" fill="none">
-              <polygon points="9,2 16,6 16,12 9,16 2,12 2,6" stroke="white" strokeWidth="1.5" fill="none"/>
-              <circle cx="9" cy="9" r="1.5" fill="white"/>
-            </svg>
-          </div>
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-subtle)" }}>BENELA AI</span>
-        </div>
-        <div style={{ display: "flex", gap: "24px" }}>
-          {["Privacy", "Terms", "Contact"].map(link => (
-            <a key={link} href="#" style={{ fontSize: "13px", color: "var(--text-quiet)", textDecoration: "none" }}>{link}</a>
-          ))}
-        </div>
-        <span style={{ fontSize: "12px", color: "var(--border-soft)" }}>© 2025 Benela AI. All rights reserved.</span>
-      </footer>
+      <MarketingFooter />
       <style jsx global>{`
         .marketing-nav-brand {
           color: var(--marketing-hero-nav-brand);
@@ -479,15 +461,149 @@ export default function LandingPage() {
           box-shadow: var(--marketing-hero-nav-primary-shadow);
         }
 
+        .marketing-surface-shell {
+          position: relative;
+          border-radius: 32px;
+          border: 1px solid color-mix(in srgb, var(--border-default) 88%, transparent);
+          background:
+            radial-gradient(720px 320px at 0% 0%, color-mix(in srgb, var(--accent-soft) 62%, transparent), transparent 70%),
+            linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 95%, white 5%), var(--bg-surface));
+          padding: 34px;
+          box-shadow: 0 24px 70px color-mix(in srgb, var(--brand-glow) 10%, transparent);
+          overflow: hidden;
+        }
+
+        .marketing-surface-shell::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(to right, color-mix(in srgb, var(--border-default) 14%, transparent) 1px, transparent 1px),
+            linear-gradient(to bottom, color-mix(in srgb, var(--border-default) 10%, transparent) 1px, transparent 1px);
+          background-size: 88px 88px;
+          opacity: 0.28;
+          pointer-events: none;
+        }
+
+        .marketing-surface-header {
+          position: relative;
+          margin-bottom: 28px;
+        }
+
+        .marketing-judith-shell {
+          display: grid;
+          grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+          gap: 26px;
+          align-items: start;
+        }
+
+        .marketing-judith-console {
+          position: relative;
+          border-radius: 22px;
+          border: 1px solid color-mix(in srgb, var(--border-default) 84%, transparent);
+          background: color-mix(in srgb, var(--bg-panel) 96%, white 4%);
+          padding: 20px;
+          display: grid;
+          gap: 12px;
+          box-shadow: inset 0 1px 0 color-mix(in srgb, white 48%, transparent);
+        }
+
+        .marketing-judith-summary {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 6px;
+        }
+
+        .marketing-judith-summary > div {
+          border-radius: 16px;
+          border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent);
+          background: color-mix(in srgb, var(--bg-surface) 96%, white 4%);
+          padding: 12px;
+          display: grid;
+          gap: 4px;
+        }
+
+        .marketing-judith-summary strong {
+          font-size: 18px;
+          line-height: 1;
+          color: var(--text-primary);
+          letter-spacing: -0.03em;
+        }
+
+        .marketing-judith-summary span {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text-subtle);
+        }
+
+        .marketing-pricing-wrap {
+          border-top: 1px solid color-mix(in srgb, var(--border-default) 44%, transparent);
+          border-bottom: 1px solid color-mix(in srgb, var(--border-default) 44%, transparent);
+          background:
+            linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 26%, transparent), transparent 32%),
+            transparent;
+        }
+
+        .marketing-testimonial-card {
+          transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .marketing-testimonial-card:hover {
+          transform: translateY(-4px);
+          border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+          box-shadow: 0 24px 56px color-mix(in srgb, var(--accent) 12%, transparent);
+        }
+
+        .marketing-cta-shell {
+          position: relative;
+          max-width: 1240px;
+          margin: 0 auto;
+          border-radius: 34px;
+          border: 1px solid color-mix(in srgb, var(--border-default) 86%, transparent);
+          background:
+            radial-gradient(900px 300px at 50% 0%, color-mix(in srgb, var(--accent-soft) 62%, transparent), transparent 72%),
+            linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 95%, white 5%), var(--bg-surface));
+          box-shadow: 0 28px 72px color-mix(in srgb, var(--brand-glow) 12%, transparent);
+          padding: 56px 34px;
+          overflow: hidden;
+        }
+
+        .marketing-footer-shell {
+          max-width: 1240px;
+          margin: 0 auto;
+          padding: 26px 28px;
+          border-radius: 24px;
+          border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent);
+          background: color-mix(in srgb, var(--bg-surface) 96%, white 4%);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 16px;
+          box-shadow: 0 18px 44px color-mix(in srgb, var(--brand-glow) 8%, transparent);
+        }
+
         .marketing-hero {
           position: relative;
           overflow: hidden;
-          padding: 168px 24px 88px;
+          padding: 136px 24px 56px;
           width: 100%;
           margin: 0;
           isolation: isolate;
           background: var(--marketing-hero-bg);
           border-bottom: 1px solid var(--marketing-hero-divider);
+        }
+
+        .marketing-hero-shell {
+          position: relative;
+          max-width: 1240px;
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: minmax(0, 0.88fr) minmax(420px, 1.12fr);
+          gap: 48px;
+          align-items: center;
         }
 
         .marketing-hero-grid {
@@ -496,8 +612,9 @@ export default function LandingPage() {
           background:
             linear-gradient(to right, var(--marketing-hero-grid-line-x) 1px, transparent 1px),
             linear-gradient(to bottom, var(--marketing-hero-grid-line-y) 1px, transparent 1px);
-          background-size: 82px 82px;
-          mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.84), rgba(0, 0, 0, 0.42) 62%, transparent 100%);
+          background-size: 96px 96px;
+          mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.36) 58%, transparent 100%);
+          opacity: 0.72;
           pointer-events: none;
           z-index: -4;
         }
@@ -510,20 +627,21 @@ export default function LandingPage() {
         }
 
         .marketing-hero-glow-a {
-          width: 1060px;
-          height: 760px;
-          top: -310px;
-          right: -240px;
+          width: 940px;
+          height: 660px;
+          top: -260px;
+          right: -180px;
           background: var(--marketing-hero-glow-a);
           filter: blur(2px);
         }
 
         .marketing-hero-glow-b {
-          width: 920px;
-          height: 620px;
-          top: -160px;
-          left: -340px;
+          width: 780px;
+          height: 540px;
+          top: -110px;
+          left: -250px;
           background: var(--marketing-hero-glow-b);
+          opacity: 0.88;
         }
 
         .marketing-hero-orbit {
@@ -534,27 +652,30 @@ export default function LandingPage() {
         }
 
         .marketing-hero-orbit-outer {
-          width: 2850px;
-          height: 2850px;
-          top: -2480px;
-          left: -370px;
-          border: 3px solid var(--marketing-hero-orbit-outer);
+          width: 2040px;
+          height: 2040px;
+          top: -1750px;
+          left: -420px;
+          border: 2px solid var(--marketing-hero-orbit-outer);
           box-shadow: var(--marketing-hero-orbit-outer-glow);
+          opacity: 0.44;
         }
 
         .marketing-hero-orbit-inner {
-          width: 2360px;
-          height: 2360px;
-          top: -2058px;
-          left: 32px;
+          width: 1540px;
+          height: 1540px;
+          top: -1350px;
+          left: 280px;
           border: 1px solid var(--marketing-hero-orbit-inner);
+          opacity: 0.26;
         }
 
         .marketing-hero-copy {
           position: relative;
-          max-width: 980px;
-          margin: 0 auto;
-          text-align: center;
+          max-width: 540px;
+          justify-self: start;
+          text-align: left;
+          z-index: 1;
         }
 
         .marketing-hero-badge {
@@ -563,7 +684,7 @@ export default function LandingPage() {
           gap: 8px;
           padding: 8px 14px;
           border-radius: 999px;
-          margin-bottom: 34px;
+          margin-bottom: 20px;
           font-size: 12px;
           letter-spacing: 0.03em;
           color: var(--marketing-hero-badge-text);
@@ -573,31 +694,29 @@ export default function LandingPage() {
         }
 
         .marketing-hero-title {
-          font-family: "Georgia", "Times New Roman", serif;
-          font-size: clamp(34px, 5.2vw, 72px);
-          line-height: 1.02;
-          letter-spacing: -0.02em;
-          margin-bottom: 24px;
-          font-weight: 500;
+          font-family: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
+          font-size: clamp(32px, 4.2vw, 58px);
+          line-height: 0.96;
+          letter-spacing: -0.055em;
+          margin-bottom: 18px;
+          font-weight: 700;
           color: var(--marketing-hero-title);
           text-wrap: balance;
-          text-shadow: var(--marketing-hero-title-shadow);
         }
 
         .marketing-hero-title span {
           display: block;
           margin-top: 8px;
-          background: var(--marketing-hero-title-accent);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+          color: var(--accent);
+          background: none;
+          -webkit-text-fill-color: currentColor;
         }
 
         .marketing-hero-subtitle {
-          max-width: 820px;
-          margin: 0 auto 34px;
-          font-size: clamp(14px, 1.6vw, 22px);
-          line-height: 1.52;
+          max-width: 520px;
+          margin: 0 0 24px;
+          font-size: clamp(16px, 1.32vw, 19px);
+          line-height: 1.7;
           color: var(--marketing-hero-subtitle);
           text-wrap: pretty;
         }
@@ -605,9 +724,9 @@ export default function LandingPage() {
         .marketing-hero-actions {
           display: flex;
           align-items: center;
-          justify-content: center;
           gap: 14px;
           flex-wrap: wrap;
+          margin-bottom: 14px;
         }
 
         .marketing-hero-primary,
@@ -646,29 +765,42 @@ export default function LandingPage() {
         }
 
         .marketing-hero-note {
-          margin-top: 16px;
-          font-size: 12px;
+          max-width: 440px;
+          font-size: 13px;
+          line-height: 1.6;
+          letter-spacing: 0.01em;
           color: var(--marketing-hero-note);
+          margin: 0;
+        }
+
+        .marketing-hero-visual {
+          position: relative;
+          width: 100%;
+          max-width: 740px;
+          justify-self: end;
         }
 
         .marketing-hero-stats {
-          margin-top: 30px;
+          margin: 24px auto 0;
+          max-width: 1240px;
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 11px;
+          gap: 12px;
         }
 
         .marketing-hero-stat {
-          padding: 14px 15px;
-          border-radius: 14px;
+          min-height: 96px;
+          padding: 16px 18px;
+          border-radius: 20px;
           border: 1px solid var(--marketing-hero-stat-border);
           background: var(--marketing-hero-stat-bg);
-          backdrop-filter: blur(8px);
+          backdrop-filter: blur(12px);
+          box-shadow: 0 14px 28px color-mix(in srgb, var(--brand-glow) 8%, transparent);
         }
 
         .marketing-hero-stat strong {
           display: block;
-          font-size: 20px;
+          font-size: 18px;
           color: var(--marketing-hero-stat-title);
           margin-bottom: 5px;
           letter-spacing: -0.02em;
@@ -683,9 +815,9 @@ export default function LandingPage() {
 
         .marketing-hero-showcase {
           position: relative;
-          margin: 60px auto 0;
-          max-width: 1160px;
-          border-radius: 24px;
+          margin: 0;
+          width: 100%;
+          border-radius: 30px;
           border: 1px solid var(--marketing-hero-showcase-border);
           background: var(--marketing-hero-showcase-bg);
           box-shadow: var(--marketing-hero-showcase-shadow);
@@ -735,48 +867,15 @@ export default function LandingPage() {
           background: var(--marketing-hero-chip-bg);
           backdrop-filter: blur(8px);
           color: var(--marketing-hero-chip-text);
-          font-size: 12px;
+          font-size: 11px;
+          font-weight: 600;
           box-shadow: var(--marketing-hero-chip-shadow);
         }
 
         .marketing-hero-chip-a {
-          top: 80px;
-          right: 18px;
+          top: 20px;
+          right: 16px;
           animation: heroFloat 5.2s ease-in-out infinite;
-        }
-
-        .marketing-hero-chip-b {
-          bottom: 22px;
-          left: 20px;
-          animation: heroFloat 6s ease-in-out infinite reverse;
-        }
-
-        .marketing-hero-partners {
-          margin: 28px auto 0;
-          max-width: 980px;
-          text-align: center;
-        }
-
-        .marketing-hero-partners p {
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.16em;
-          color: var(--marketing-hero-partner-caption);
-          margin-bottom: 12px;
-        }
-
-        .marketing-hero-partner-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-wrap: wrap;
-          gap: 10px 24px;
-        }
-
-        .marketing-hero-partner-row span {
-          font-size: 13px;
-          color: var(--marketing-hero-partner-text);
-          letter-spacing: 0.13em;
         }
 
         @keyframes heroFloat {
@@ -804,11 +903,31 @@ export default function LandingPage() {
           }
 
           .marketing-hero {
-            padding-top: 128px;
+            padding: 124px 18px 60px;
+          }
+
+          .marketing-hero-shell {
+            grid-template-columns: 1fr;
+            gap: 26px;
+          }
+
+          .marketing-hero-copy {
+            max-width: 720px;
+            margin: 0 auto;
+            text-align: center;
+          }
+
+          .marketing-hero-visual {
+            justify-self: center;
+            max-width: 760px;
+          }
+
+          .marketing-hero-actions {
+            justify-content: center;
           }
 
           .marketing-hero-title {
-            font-size: clamp(34px, 6vw, 62px);
+            font-size: clamp(32px, 6vw, 54px);
           }
 
           .marketing-hero-stats {
@@ -816,21 +935,34 @@ export default function LandingPage() {
           }
 
           .marketing-hero-orbit-outer {
-            width: 2250px;
-            height: 2250px;
-            top: -1960px;
-            left: -560px;
+            width: 1820px;
+            height: 1820px;
+            top: -1560px;
+            left: -620px;
           }
 
           .marketing-hero-orbit-inner {
-            width: 1860px;
-            height: 1860px;
-            top: -1630px;
-            left: -320px;
+            width: 1480px;
+            height: 1480px;
+            top: -1260px;
+            left: -120px;
           }
 
           .marketing-section {
             padding: 72px 20px !important;
+          }
+
+          .marketing-surface-shell {
+            padding: 26px !important;
+            border-radius: 26px !important;
+          }
+
+          .marketing-judith-shell {
+            grid-template-columns: 1fr !important;
+          }
+
+          .marketing-judith-summary {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
           }
 
           .marketing-feature-grid,
@@ -839,32 +971,36 @@ export default function LandingPage() {
           }
 
           .marketing-footer {
-            padding: 24px 20px !important;
+            padding: 0 20px 24px !important;
+          }
+
+          .marketing-cta-shell {
+            padding: 40px 24px !important;
           }
         }
 
         @media (max-width: 680px) {
           .marketing-hero {
-            padding: 118px 16px 54px;
+            padding: 112px 14px 48px;
           }
 
           .marketing-hero-title {
-            font-size: clamp(30px, 8.6vw, 46px);
-            line-height: 1.06;
+            font-size: clamp(28px, 8vw, 40px);
+            line-height: 1.02;
           }
 
           .marketing-hero-orbit-outer {
-            width: 1680px;
-            height: 1680px;
-            top: -1450px;
-            left: -520px;
+            width: 1320px;
+            height: 1320px;
+            top: -1120px;
+            left: -470px;
           }
 
           .marketing-hero-orbit-inner {
-            width: 1400px;
-            height: 1400px;
-            top: -1200px;
-            left: -400px;
+            width: 1060px;
+            height: 1060px;
+            top: -900px;
+            left: -180px;
           }
 
           .marketing-hero-badge {
@@ -873,7 +1009,7 @@ export default function LandingPage() {
           }
 
           .marketing-hero-subtitle {
-            margin-bottom: 24px;
+            margin-bottom: 22px;
             font-size: 15px;
           }
 
@@ -897,15 +1033,6 @@ export default function LandingPage() {
             margin: 10px 12px 0;
           }
 
-          .marketing-hero-partner-row {
-            gap: 8px 12px;
-          }
-
-          .marketing-hero-partner-row span {
-            font-size: 11px;
-            letter-spacing: 0.08em;
-          }
-
           .marketing-section {
             padding: 54px 14px !important;
           }
@@ -914,6 +1041,15 @@ export default function LandingPage() {
           .marketing-testimonials-grid {
             grid-template-columns: 1fr !important;
             gap: 12px !important;
+          }
+
+          .marketing-surface-shell {
+            padding: 20px !important;
+            border-radius: 22px !important;
+          }
+
+          .marketing-judith-summary {
+            grid-template-columns: 1fr !important;
           }
 
           .marketing-section-cta h2 {
@@ -925,9 +1061,14 @@ export default function LandingPage() {
           }
 
           .marketing-footer {
+            padding: 0 14px 18px !important;
+          }
+
+          .marketing-footer-shell {
             flex-direction: column;
             align-items: flex-start !important;
             gap: 12px !important;
+            padding: 18px !important;
           }
         }
       `}</style>

@@ -9,7 +9,7 @@ import Dashboard from "@/components/Dashboard";
 import AIPanel from "@/components/AIPanel";
 import { Section } from "@/types";
 import { isClientSection } from "@/lib/client-settings";
-import { syncWorkspaceFromClientAccount } from "@/lib/client-account";
+import { ensureClientWorkspaceAccount } from "@/lib/client-account";
 import { pathForSection } from "@/lib/section-routes";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
@@ -49,8 +49,17 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
           router.push("/login");
           return;
         }
+        const role = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "";
+        if (role === "admin" || role === "owner" || role === "super_admin") {
+          router.replace("/admin/dashboard");
+          return;
+        }
         try {
-          await syncWorkspaceFromClientAccount(user.id);
+          const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id);
+          if (bootstrapped || summary?.exists === false) {
+            router.replace("/settings?setup=business");
+            return;
+          }
         } catch {
           // Keep dashboard accessible even if account sync fails.
         }

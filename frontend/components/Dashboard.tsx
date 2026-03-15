@@ -34,10 +34,12 @@ import ProjectsPage from "./ProjectsPage";
 import MarketplacePage from "./MarketplacePage";
 import MarketingPage from "./MarketingPage";
 import LegalPage from "./LegalPage";
+import { useI18n } from "@/components/i18n/LanguageProvider";
+import { authFetch } from "@/lib/auth-fetch";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 interface Props {
   activeSection: Section;
@@ -342,9 +344,16 @@ export default function Dashboard({
   isMobile = false,
   onToggleSidebar,
 }: Props) {
+  const { t } = useI18n();
   const router = useRouter();
   const data = DATA[activeSection] ?? DATA.dashboard;
   const overrideTitle = SECTION_TITLES[activeSection];
+  const sectionTitle = t(`dashboard.sectionTitles.${activeSection}.title`, {}, overrideTitle?.title ?? data.title);
+  const sectionSubtitle = t(
+    `dashboard.sectionTitles.${activeSection}.subtitle`,
+    {},
+    overrideTitle?.subtitle ?? data.subtitle,
+  );
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [commandCenter, setCommandCenter] = useState<DashboardCommandCenter | null>(null);
@@ -361,13 +370,13 @@ export default function Dashboard({
     try {
       const workspaceId = getClientWorkspaceId();
       const [overviewRes, commandRes] = await Promise.all([
-        fetch(`${API}/dashboard/overview?workspace_id=${encodeURIComponent(workspaceId)}`),
-        fetch(`${API}/dashboard/command-center?workspace_id=${encodeURIComponent(workspaceId)}`),
+        authFetch(`${API}/dashboard/overview?workspace_id=${encodeURIComponent(workspaceId)}`),
+        authFetch(`${API}/dashboard/command-center?workspace_id=${encodeURIComponent(workspaceId)}`),
       ]);
 
       if (!overviewRes.ok && !commandRes.ok) {
         const payload = await commandRes.json().catch(() => null);
-        setDashboardError(payload?.detail || "Failed to load company dashboard.");
+        setDashboardError(payload?.detail || t("dashboard.failedLoadCompany"));
         setOverview(null);
         setCommandCenter(null);
         return;
@@ -384,12 +393,12 @@ export default function Dashboard({
       } else {
         setCommandCenter(null);
         if (!overviewRes.ok) {
-          setDashboardError("Could not load command center data.");
+          setDashboardError(t("dashboard.failedLoadCommandCenter"));
         }
       }
     } catch (e) {
       console.error("Failed to load dashboard", e);
-      setDashboardError("Could not connect to the backend service.");
+      setDashboardError(t("dashboard.backendUnavailable"));
       setOverview(null);
       setCommandCenter(null);
     } finally {
@@ -400,7 +409,7 @@ export default function Dashboard({
   const loadUnreadNotifications = useCallback(async () => {
     try {
       const workspaceId = getClientWorkspaceId();
-      const res = await fetch(
+      const res = await authFetch(
         `${API}/notifications?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`
       );
       if (!res.ok) {
@@ -460,8 +469,8 @@ export default function Dashboard({
           {isMobile && onToggleSidebar ? (
             <button
               onClick={onToggleSidebar}
-              title="Open menu"
-              aria-label="Open menu"
+              title={t("dashboard.openMenu")}
+              aria-label={t("dashboard.openMenu")}
               style={{
                 width: "34px",
                 height: "34px",
@@ -481,10 +490,10 @@ export default function Dashboard({
           ) : null}
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
-              {overrideTitle?.title ?? data.title}
+              {sectionTitle}
             </h1>
             <p className="dashboard-title-subtitle" style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "1px" }}>
-              {overrideTitle?.subtitle ?? data.subtitle}
+              {sectionSubtitle}
             </p>
           </div>
         </div>
@@ -508,7 +517,7 @@ export default function Dashboard({
               }}
             >
               <RefreshCcw size={12} />
-              <span className="dashboard-btn-label">{dashboardLoading ? "Loading..." : "Refresh"}</span>
+              <span className="dashboard-btn-label">{dashboardLoading ? t("dashboard.loading") : t("dashboard.refresh")}</span>
             </button>
           )}
           <button
@@ -535,7 +544,7 @@ export default function Dashboard({
             }}
           >
             <Sparkles size={14} />
-            <span className="dashboard-btn-label">Ask AI</span>
+            <span className="dashboard-btn-label">{t("dashboard.askAi")}</span>
           </button>
           <button
             onClick={() => router.push("/notifications")}
@@ -552,7 +561,7 @@ export default function Dashboard({
               cursor: "pointer",
               position: "relative",
             }}
-            title="Notifications"
+            title={t("sidebar.notifications")}
           >
             <Bell size={14} color={unreadCount > 0 ? "var(--accent)" : "var(--text-subtle)"} />
             {unreadCount > 0 ? (
@@ -632,6 +641,7 @@ function DashboardCommandCenterPanel({
   data: DashboardCommandCenter;
   error?: string;
 }) {
+  const { t } = useI18n();
   const openJudithWorkspace = useCallback(() => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -740,12 +750,12 @@ function DashboardCommandCenterPanel({
         }}
       >
         <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
-          Data refreshed: <span style={{ color: "var(--text-primary)" }}>{generatedAtLabel}</span>
+          {t("dashboard.dataRefreshed")}: <span style={{ color: "var(--text-primary)" }}>{generatedAtLabel}</span>
         </span>
         <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
-          Module health:{" "}
-          <span style={{ color: "var(--success)" }}>{healthyModules}</span> healthy /{" "}
-          <span style={{ color: "var(--text-primary)" }}>{data.module_scores.length}</span> tracked
+          {t("dashboard.moduleHealth")}:{" "}
+          <span style={{ color: "var(--success)" }}>{healthyModules}</span> {t("dashboard.healthy")} /{" "}
+          <span style={{ color: "var(--text-primary)" }}>{data.module_scores.length}</span> {t("dashboard.tracked")}
         </span>
       </div>
 
@@ -763,10 +773,10 @@ function DashboardCommandCenterPanel({
           <div style={{ display: "grid", gap: "4px" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
               <Sparkles size={14} color="var(--accent)" />
-              Judith Task & Event Command Center
+              {t("dashboard.judithCommandCenterTitle")}
             </span>
             <span style={{ fontSize: "12px", color: "var(--text-subtle)", maxWidth: "760px", lineHeight: 1.55 }}>
-              Delegate execution to Judith: turn goals into checklists, assign deadlines in UZT, and keep your team synchronized with proactive reminders.
+              {t("dashboard.judithCommandCenterBody")}
             </span>
           </div>
           <button
@@ -788,69 +798,96 @@ function DashboardCommandCenterPanel({
             }}
           >
             <MessageCircle size={13} />
-            Open Judith
+            {t("dashboard.openJudith")}
           </button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "9px" }}>
           <MetricRow
             icon={<ListTodo size={13} color="var(--accent)" />}
-            label="Open Tasks"
-            value={`${Math.max(0, data.operations.tasks_total - data.operations.tasks_overdue)} active`}
+            label={t("dashboard.openTasks")}
+            value={t("dashboard.activeTasksValue", { count: Math.max(0, data.operations.tasks_total - data.operations.tasks_overdue) })}
           />
           <MetricRow
             icon={<Clock3 size={13} color="#fbbf24" />}
-            label="Due in 7 Days"
-            value={`${data.operations.tasks_due_7_days} scheduled`}
+            label={t("dashboard.dueIn7Days")}
+            value={t("dashboard.scheduledTasksValue", { count: data.operations.tasks_due_7_days })}
           />
           <MetricRow
             icon={<Bell size={13} color="#f87171" />}
-            label="Overdue"
-            value={`${data.operations.tasks_overdue} need action`}
+            label={t("dashboard.overdue")}
+            value={t("dashboard.needActionTasksValue", { count: data.operations.tasks_overdue })}
           />
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
-        <Card title="Executive Snapshot" subtitle="Finance, people, operations, legal and growth at a glance.">
+        <Card title={t("dashboard.executiveSnapshotTitle")} subtitle={t("dashboard.executiveSnapshotSubtitle")}>
           <div style={{ display: "grid", gap: "8px" }}>
             <MetricRow
               icon={<DollarSign size={13} color="#34d399" />}
-              label="Finance"
-              value={`${formatMoney(data.finance.revenue_month)} in · ${formatMoney(data.finance.expense_month)} out · margin ${data.finance.gross_margin_percent}%`}
+              label={t("dashboard.financeLabel")}
+              value={t("dashboard.financeSummary", {
+                income: formatMoney(data.finance.revenue_month),
+                expense: formatMoney(data.finance.expense_month),
+                margin: data.finance.gross_margin_percent,
+              })}
             />
             <MetricRow
               icon={<Users size={13} color="#60a5fa" />}
-              label="People"
-              value={`${data.workforce.active} active · ${data.workforce.open_positions} open roles · ${data.workforce.hires_last_30_days} hires (30d)`}
+              label={t("dashboard.peopleLabel")}
+              value={t("dashboard.peopleSummary", {
+                active: data.workforce.active,
+                openRoles: data.workforce.open_positions,
+                hires: data.workforce.hires_last_30_days,
+              })}
             />
             <MetricRow
               icon={<BriefcaseBusiness size={13} color="#fbbf24" />}
-              label="Operations"
-              value={`${data.operations.projects_active} active projects · ${data.operations.tasks_overdue} overdue tasks · ${data.operations.project_completion_percent}% completion`}
+              label={t("dashboard.operationsLabel")}
+              value={t("dashboard.operationsSummary", {
+                projects: data.operations.projects_active,
+                overdue: data.operations.tasks_overdue,
+                completion: data.operations.project_completion_percent,
+              })}
             />
             <MetricRow
               icon={<Gavel size={13} color="#f87171" />}
-              label="Legal"
-              value={`${data.legal.high_risk_contracts} high-risk contracts · ${data.legal.overdue_compliance_tasks} overdue compliance tasks`}
+              label={t("dashboard.legalLabel")}
+              value={t("dashboard.legalSummary", {
+                highRisk: data.legal.high_risk_contracts,
+                overdue: data.legal.overdue_compliance_tasks,
+              })}
             />
             <MetricRow
               icon={<Megaphone size={13} color="#a78bfa" />}
-              label="Growth"
-              value={`${data.marketing.campaigns_active} active campaigns · ROAS ${data.marketing.roas}x · CPL ${formatMoney(data.marketing.cost_per_lead)}`}
+              label={t("dashboard.growthLabel")}
+              value={t("dashboard.growthSummary", {
+                campaigns: data.marketing.campaigns_active,
+                roas: data.marketing.roas,
+                cpl: formatMoney(data.marketing.cost_per_lead),
+              })}
             />
           </div>
         </Card>
 
-        <Card title="Module Health" subtitle="Performance score and operational risk by module.">
+        <Card title={t("dashboard.moduleHealthTitle")} subtitle={t("dashboard.moduleHealthSubtitle")}>
           <div style={{ display: "grid", gap: "10px" }}>
             {data.module_scores.map((score) => {
               const statusColor = STATUS_COLORS[score.status] || "var(--text-muted)";
+              const statusLabel =
+                score.status === "Healthy"
+                  ? t("dashboard.healthy")
+                  : score.status === "Warning"
+                    ? t("dashboard.warning")
+                    : score.status === "Critical"
+                      ? t("dashboard.critical")
+                      : score.status;
               return (
                 <div key={score.module} style={{ display: "grid", gap: "4px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                     <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{score.module}</span>
-                    <span style={{ fontSize: "11px", color: statusColor }}>{score.score}/100 · {score.status}</span>
+                    <span style={{ fontSize: "11px", color: statusColor }}>{score.score}/100 · {statusLabel}</span>
                   </div>
                   <div style={{ height: "7px", borderRadius: "999px", background: "var(--bg-panel)", overflow: "hidden" }}>
                     <div
@@ -871,7 +908,7 @@ function DashboardCommandCenterPanel({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
-        <Card title="Department Footprint" subtitle="Headcount and payroll concentration by department.">
+        <Card title={t("dashboard.departmentFootprintTitle")} subtitle={t("dashboard.departmentFootprintSubtitle")}>
           <div style={{ display: "grid", gap: "8px" }}>
             {data.department_breakdown.length ? (
               data.department_breakdown.map((item) => (
@@ -895,32 +932,32 @@ function DashboardCommandCenterPanel({
                 </div>
               ))
             ) : (
-              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No workforce records yet.</span>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t("dashboard.noWorkforceRecords")}</span>
             )}
           </div>
         </Card>
 
-        <Card title="Revenue & Expense Mix" subtitle="Top finance categories shaping cash movement.">
+        <Card title={t("dashboard.revenueExpenseMixTitle")} subtitle={t("dashboard.revenueExpenseMixSubtitle")}>
           <div style={{ display: "grid", gap: "12px" }}>
             <div style={{ display: "grid", gap: "6px" }}>
-              <span style={{ fontSize: "11px", color: "var(--success)", fontWeight: 600 }}>Revenue Mix</span>
+              <span style={{ fontSize: "11px", color: "var(--success)", fontWeight: 600 }}>{t("dashboard.revenueMix")}</span>
               {data.finance_mix.income.length ? (
                 data.finance_mix.income.map((item) => (
                   <MixRow key={`income-${item.category}`} item={item} maxAmount={maxFinanceMixAmount} tone="income" />
                 ))
               ) : (
-                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No income transactions yet.</span>
+                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t("dashboard.noIncomeTransactions")}</span>
               )}
             </div>
             <div style={{ borderTop: "1px solid var(--border-soft)" }} />
             <div style={{ display: "grid", gap: "6px" }}>
-              <span style={{ fontSize: "11px", color: "var(--danger)", fontWeight: 600 }}>Expense Mix</span>
+              <span style={{ fontSize: "11px", color: "var(--danger)", fontWeight: 600 }}>{t("dashboard.expenseMix")}</span>
               {data.finance_mix.expenses.length ? (
                 data.finance_mix.expenses.map((item) => (
                   <MixRow key={`expense-${item.category}`} item={item} maxAmount={maxFinanceMixAmount} tone="expense" />
                 ))
               ) : (
-                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No expense transactions yet.</span>
+                <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t("dashboard.noExpenseTransactions")}</span>
               )}
             </div>
           </div>
@@ -928,7 +965,7 @@ function DashboardCommandCenterPanel({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
-        <Card title="Cashflow Trend (6 months)" subtitle="Net movement per month with income and expense context.">
+        <Card title={t("dashboard.cashflowTrendTitle")} subtitle={t("dashboard.cashflowTrendSubtitle")}>
           <div style={{ display: "grid", gap: "10px" }}>
             <div style={{ display: "flex", alignItems: "end", gap: "8px", minHeight: "120px" }}>
               {data.cashflow_trend.map((point) => {
@@ -969,7 +1006,7 @@ function DashboardCommandCenterPanel({
           </div>
         </Card>
 
-        <Card title="Priority Actions" subtitle="Immediate cross-functional actions for leadership and teams.">
+        <Card title={t("dashboard.priorityActionsTitle")} subtitle={t("dashboard.priorityActionsSubtitle")}>
           <div style={{ display: "grid", gap: "8px" }}>
             {data.priority_actions.map((action, idx) => {
               const badgeColor = STATUS_COLORS[action.severity] || "var(--text-muted)";
@@ -1001,7 +1038,7 @@ function DashboardCommandCenterPanel({
                     </span>
                   </div>
                   <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{action.detail}</span>
-                  <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>Owner: {action.owner}</span>
+                  <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>{t("dashboard.ownerLabel")}: {action.owner}</span>
                 </div>
               );
             })}
@@ -1010,7 +1047,7 @@ function DashboardCommandCenterPanel({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "12px" }}>
-        <Card title="Strategic Insights" subtitle="Key observations generated from live module data.">
+        <Card title={t("dashboard.strategicInsightsTitle")} subtitle={t("dashboard.strategicInsightsSubtitle")}>
           <div style={{ display: "grid", gap: "8px" }}>
             {data.insights.map((insight, idx) => (
               <div
@@ -1031,7 +1068,7 @@ function DashboardCommandCenterPanel({
           </div>
         </Card>
 
-        <Card title="Recent Activity" subtitle="Latest events across company modules.">
+        <Card title={t("dashboard.recentActivityTitle")} subtitle={t("dashboard.recentActivitySubtitle")}>
           <div style={{ display: "grid", gap: "6px", maxHeight: "280px", overflowY: "auto", paddingRight: "2px" }}>
             {data.recent_activity.length ? (
               data.recent_activity.map((event, idx) => (
@@ -1057,7 +1094,7 @@ function DashboardCommandCenterPanel({
                 </div>
               ))
             ) : (
-              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>No activity recorded yet.</span>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t("dashboard.noActivityRecorded")}</span>
             )}
           </div>
         </Card>
@@ -1066,8 +1103,14 @@ function DashboardCommandCenterPanel({
       <ModuleOverviewVisuals rows={moduleVisualRows} />
 
       <DataTable
-        title="Module Overview"
-        columns={["Module", "Status", "Tasks Today", "Alerts", "Last Activity"]}
+        title={t("dashboard.moduleOverview")}
+        columns={[
+          t("dashboard.moduleOverviewColumns.module"),
+          t("dashboard.moduleOverviewColumns.status"),
+          t("dashboard.moduleOverviewColumns.tasksToday"),
+          t("dashboard.moduleOverviewColumns.alerts"),
+          t("dashboard.moduleOverviewColumns.lastActivity"),
+        ]}
         rows={moduleRows}
       />
     </div>
@@ -1075,6 +1118,7 @@ function DashboardCommandCenterPanel({
 }
 
 function DashboardLoadingPanel() {
+  const { t } = useI18n();
   return (
     <div style={{ padding: "24px", display: "grid", gap: "12px" }}>
       <div
@@ -1087,7 +1131,7 @@ function DashboardLoadingPanel() {
           fontSize: "12px",
         }}
       >
-        Loading company dashboard...
+        {t("dashboard.loadingCompany", {}, "Loading company dashboard...")}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
         {Array.from({ length: 6 }).map((_, idx) => (
@@ -1165,6 +1209,7 @@ function DashboardOverviewPanel({
   fallback: DataShape;
   error?: string;
 }) {
+  const { t } = useI18n();
   const cards = overview?.cards?.length ? overview.cards : fallback.cards;
   const rows = overview?.modules?.length
     ? overview.modules.map((r) => ({
@@ -1221,7 +1266,7 @@ function DashboardOverviewPanel({
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               {card.up ? <TrendingUp size={11} color="var(--success)" /> : <TrendingDown size={11} color="var(--danger)" />}
               <span style={{ fontSize: "11px", color: card.up ? "var(--success)" : "var(--danger)" }}>{card.change}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
+              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>{t("dashboard.vsLastMonth", {}, "vs last month")}</span>
             </div>
             <div
               style={{
@@ -1240,8 +1285,14 @@ function DashboardOverviewPanel({
       <ModuleOverviewVisuals rows={moduleVisualRows} />
 
       <DataTable
-        title="Module Overview"
-        columns={["Module", "Status", "Tasks Today", "Alerts", "Last Activity"]}
+        title={t("dashboard.moduleOverview")}
+        columns={[
+          t("dashboard.moduleOverviewColumns.module"),
+          t("dashboard.moduleOverviewColumns.status"),
+          t("dashboard.moduleOverviewColumns.tasksToday"),
+          t("dashboard.moduleOverviewColumns.alerts"),
+          t("dashboard.moduleOverviewColumns.lastActivity"),
+        ]}
         rows={rows}
       />
     </div>
@@ -1255,6 +1306,7 @@ function GenericPanel({
   activeSection: Section;
   data: DataShape;
 }) {
+  const { t } = useI18n();
   return (
     <div style={{ padding: "24px" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "24px" }}>
@@ -1275,7 +1327,7 @@ function GenericPanel({
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               {card.up ? <TrendingUp size={11} color="var(--success)" /> : <TrendingDown size={11} color="var(--danger)" />}
               <span style={{ fontSize: "11px", color: card.up ? "var(--success)" : "var(--danger)" }}>{card.change}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>vs last month</span>
+              <span style={{ fontSize: "11px", color: "var(--text-quiet)" }}>{t("dashboard.vsLastMonth", {}, "vs last month")}</span>
             </div>
             <div
               style={{
@@ -1292,7 +1344,7 @@ function GenericPanel({
       </div>
 
       <DataTable
-        title={activeSection === "dashboard" ? "Module Overview" : "Records"}
+        title={activeSection === "dashboard" ? t("dashboard.moduleOverview") : t("dashboard.records")}
         columns={data.table.columns}
         rows={data.table.rows}
       />
@@ -1305,6 +1357,7 @@ function ModuleOverviewVisuals({
 }: {
   rows: ModuleOverviewVisualRow[];
 }) {
+  const { t } = useI18n();
   const activeRows = rows.filter(
     (row) =>
       row.module &&
@@ -1353,8 +1406,8 @@ function ModuleOverviewVisuals({
         }}
       >
         <Card
-          title="Module Health Distribution"
-          subtitle="Visual split of healthy, warning and critical module states."
+          title={t("dashboard.moduleHealthDistributionTitle")}
+          subtitle={t("dashboard.moduleHealthDistributionSubtitle")}
         >
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "14px" }}>
             <div style={{ position: "relative", width: "112px", height: "112px" }}>
@@ -1411,9 +1464,9 @@ function ModuleOverviewVisuals({
                 minWidth: "170px",
               }}
             >
-              <LegendItem label="Healthy" count={healthCount} color="#34d399" />
-              <LegendItem label="Warning" count={warningCount} color="#fbbf24" />
-              <LegendItem label="Critical" count={criticalCount} color="#f87171" />
+              <LegendItem label={t("dashboard.healthy")} count={healthCount} color="#34d399" />
+              <LegendItem label={t("dashboard.warning")} count={warningCount} color="#fbbf24" />
+              <LegendItem label={t("dashboard.critical")} count={criticalCount} color="#f87171" />
               <div
                 style={{
                   marginTop: "2px",
@@ -1425,16 +1478,16 @@ function ModuleOverviewVisuals({
                   color: "var(--text-subtle)",
                 }}
               >
-                <span>Tasks open: {totalTasks}</span>
-                <span>Alerts open: {totalAlerts}</span>
+                <span>{t("dashboard.tasksOpenSummary", { count: totalTasks })}</span>
+                <span>{t("dashboard.alertsOpenSummary", { count: totalAlerts })}</span>
               </div>
             </div>
           </div>
         </Card>
 
         <Card
-          title="Operational Pressure Map"
-          subtitle="Weighted pressure by module (alerts carry higher risk)."
+          title={t("dashboard.operationalPressureMapTitle")}
+          subtitle={t("dashboard.operationalPressureMapSubtitle")}
         >
           <div style={{ display: "grid", gap: "8px" }}>
             {pressureRows.map((row) => {
@@ -1479,7 +1532,7 @@ function ModuleOverviewVisuals({
                       }}
                     >
                       <Gauge size={10} />
-                      {pressure} load
+                      {t("dashboard.pressureLoad", { count: pressure })}
                     </span>
                   </div>
                   <div
@@ -1508,23 +1561,23 @@ function ModuleOverviewVisuals({
       </div>
 
       <Card
-        title="Tasks vs Alerts Matrix"
-        subtitle="Stacked module lanes to compare workload and risk signals."
+        title={t("dashboard.tasksVsAlertsMatrixTitle")}
+        subtitle={t("dashboard.tasksVsAlertsMatrixSubtitle")}
       >
         <div style={{ display: "grid", gap: "8px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-subtle)" }}>
               <BarChart3 size={12} color="var(--accent)" />
-              Stacked load lanes
+              {t("dashboard.stackedLoadLanes")}
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "10px", fontSize: "10px", color: "var(--text-quiet)" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                 <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399" }} />
-                Tasks
+                {t("dashboard.moduleOverviewColumns.tasksToday")}
               </span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                 <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#f87171" }} />
-                Alerts
+                {t("dashboard.moduleOverviewColumns.alerts")}
               </span>
             </div>
           </div>
@@ -1577,9 +1630,9 @@ function ModuleOverviewVisuals({
                   <div style={{ width: `${alertsWidth}%`, background: "#f87171" }} />
                 </div>
                 <div style={{ display: "inline-flex", gap: "8px", fontSize: "10px", color: "var(--text-subtle)" }}>
-                  <span>Tasks: {row.tasks}</span>
-                  <span>Alerts: {row.alerts}</span>
-                  {row.score !== null ? <span>Score: {row.score}/100</span> : null}
+                  <span>{t("dashboard.tasksValue", { count: row.tasks })}</span>
+                  <span>{t("dashboard.alertsValue", { count: row.alerts })}</span>
+                  {row.score !== null ? <span>{t("dashboard.scoreValue", { count: row.score })}</span> : null}
                 </div>
               </div>
             );

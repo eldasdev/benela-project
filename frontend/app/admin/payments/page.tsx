@@ -1,33 +1,63 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, CreditCard, RefreshCcw } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Copy, CreditCard, DollarSign, Pencil, Plus, RefreshCcw, Wallet } from "lucide-react";
+import { authFetch } from "@/lib/auth-fetch";
+import { type AdminWorkspaceRow } from "@/lib/admin-client-workspaces";
+import { formatCompactMoney, formatDate, formatDateTime, formatMoney, readErrorMessage } from "@/lib/admin-utils";
 import {
-  DEFAULT_PRICING_PLANS,
-  PRICING_STORAGE_KEY,
-  clonePricingPlans,
-  normalizePricingPlan,
-  type PricingPlanDefinition,
-} from "@/lib/pricing-plans";
+  AdminActionMenu,
+  AdminDataTable,
+  AdminDrawer,
+  AdminEmptyState,
+  AdminFilterBar,
+  AdminMetricCard,
+  AdminMetricGrid,
+  AdminModal,
+  AdminPageHero,
+  AdminPill,
+  AdminSectionCard,
+  AdminTableHead,
+  AdminTableRow,
+  adminButtonStyle,
+  adminInputStyle,
+} from "@/components/admin/ui";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 type PaymentMethodType = "card" | "bank" | "wallet" | "manual" | "other";
 
-type Payment = {
+type PaymentSummary = {
+  total_payments: number;
+  paid_count: number;
+  pending_count: number;
+  failed_count: number;
+  refunded_count: number;
+  paid_volume: number;
+  pending_volume: number;
+};
+
+type PaymentRow = {
   id: number;
-  client_id: number;
-  subscription_id?: number | null;
+  account_id?: number | null;
+  workspace_id?: string | null;
+  business_name: string;
+  owner_email?: string | null;
   amount: number;
   currency: string;
-  status: PaymentStatus;
+  status: PaymentStatus | string;
   payment_method?: string | null;
+  invoice_number?: string | null;
   transaction_id?: string | null;
   description?: string | null;
-  invoice_number?: string | null;
   paid_at?: string | null;
   created_at: string;
+  linked_subscription_id?: number | null;
+  linked_client_org_id?: number | null;
+  plan_tier?: string | null;
+  is_unlinked_legacy: boolean;
 };
 
 type PaymentMethod = {
@@ -45,16 +75,6 @@ type PaymentMethod = {
   updated_at: string;
 };
 
-type PaymentSummary = {
-  total_payments: number;
-  paid_count: number;
-  pending_count: number;
-  failed_count: number;
-  refunded_count: number;
-  paid_volume: number;
-  pending_volume: number;
-};
-
 type MethodForm = {
   name: string;
   provider: string;
@@ -68,7 +88,7 @@ type MethodForm = {
 };
 
 type PaymentForm = {
-  client_id: string;
+  account_id: string;
   amount: string;
   currency: string;
   status: PaymentStatus;
@@ -76,16 +96,6 @@ type PaymentForm = {
   description: string;
   invoice_number: string;
   transaction_id: string;
-};
-
-type PricingPlanForm = {
-  id: string;
-  name: string;
-  description: string;
-  price_monthly: string;
-  price_yearly: string;
-  users: string;
-  recommended: boolean;
 };
 
 const EMPTY_METHOD_FORM: MethodForm = {
@@ -101,7 +111,7 @@ const EMPTY_METHOD_FORM: MethodForm = {
 };
 
 const EMPTY_PAYMENT_FORM: PaymentForm = {
-  client_id: "",
+  account_id: "",
   amount: "",
   currency: "USD",
   status: "pending",
@@ -111,936 +121,682 @@ const EMPTY_PAYMENT_FORM: PaymentForm = {
   transaction_id: "",
 };
 
+function statusTone(status: string): "accent" | "success" | "warning" | "danger" | "neutral" {
+  switch (status) {
+    case "paid":
+      return "success";
+    case "pending":
+      return "warning";
+    case "failed":
+      return "danger";
+    case "refunded":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
+
 export default function AdminPaymentsPage() {
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"" | PaymentStatus>("");
-  const [clientFilter, setClientFilter] = useState("");
-  const [queryClientFilter, setQueryClientFilter] = useState("");
+  const [workspaces, setWorkspaces] = useState<AdminWorkspaceRow[]>([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [methodFilter, setMethodFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-
   const [showMethodModal, setShowMethodModal] = useState(false);
-  const [editingMethodId, setEditingMethodId] = useState<number | null>(null);
+  const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
   const [methodForm, setMethodForm] = useState<MethodForm>(EMPTY_METHOD_FORM);
-
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState<PaymentForm>(EMPTY_PAYMENT_FORM);
-  const [pricingPlans, setPricingPlans] = useState<PricingPlanDefinition[]>(() => clonePricingPlans(DEFAULT_PRICING_PLANS));
-  const [showPlanModal, setShowPlanModal] = useState(false);
-  const [planForm, setPlanForm] = useState<PricingPlanForm | null>(null);
-
-  const activeMethods = useMemo(() => methods.filter((m) => m.is_active), [methods]);
-  const paymentMethodTableColumns = "minmax(180px, 1.1fr) 0.8fr 0.8fr 0.8fr minmax(220px, 1fr)";
+  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
-    const params = new URLSearchParams();
-    if (statusFilter) params.set("status", statusFilter);
-    if (/^\d+$/.test(queryClientFilter.trim())) {
-      params.set("client_id", queryClientFilter.trim());
-    }
-    params.set("limit", "300");
     try {
-      const [summaryRes, paymentsRes, methodsRes] = await Promise.all([
-        fetch(`${API}/admin/payments/summary`),
-        fetch(`${API}/admin/payments?${params.toString()}`),
-        fetch(`${API}/admin/payment-methods`),
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (methodFilter) params.set("method", methodFilter);
+      if (accountFilter) params.set("account_id", accountFilter);
+      if (query.trim()) params.set("q", query.trim());
+      params.set("limit", "300");
+
+      const [summaryRes, paymentsRes, methodsRes, workspacesRes] = await Promise.all([
+        authFetch(`${API}/admin/payments/summary${accountFilter ? `?account_id=${accountFilter}` : ""}`),
+        authFetch(`${API}/admin/payments?${params.toString()}`),
+        authFetch(`${API}/admin/payment-methods`),
+        authFetch(`${API}/admin/client-workspaces?limit=300`),
       ]);
 
-      setSummary(summaryRes.ok ? ((await summaryRes.json()) as PaymentSummary) : null);
-      setPayments(paymentsRes.ok ? ((await paymentsRes.json()) as Payment[]) : []);
-      setMethods(methodsRes.ok ? ((await methodsRes.json()) as PaymentMethod[]) : []);
-    } catch (e) {
-      console.error("Failed to load payments admin data", e);
-      setError("Could not load payments data.");
+      if (!summaryRes.ok || !paymentsRes.ok || !methodsRes.ok || !workspacesRes.ok) {
+        throw new Error("Failed to load payments operations");
+      }
+
+      setSummary((await summaryRes.json()) as PaymentSummary);
+      setPayments((await paymentsRes.json()) as PaymentRow[]);
+      setMethods((await methodsRes.json()) as PaymentMethod[]);
+      setWorkspaces((await workspacesRes.json()) as AdminWorkspaceRow[]);
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not load payment operations."));
+      setSummary(null);
+      setPayments([]);
+      setMethods([]);
+      setWorkspaces([]);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, queryClientFilter]);
+  }, [accountFilter, methodFilter, query, statusFilter]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       void loadData();
     }, 0);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [loadData]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(PRICING_STORAGE_KEY);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed)) return;
-      const normalized = parsed
-        .map(normalizePricingPlan)
-        .filter((row): row is PricingPlanDefinition => Boolean(row));
-      if (normalized.length) {
-        setPricingPlans(normalized);
-      }
-    } catch (e) {
-      console.warn("Could not load pricing plan configuration from local storage", e);
-    }
-  }, []);
+  const workspaceOptions = useMemo(() => workspaces.map((item) => ({ id: item.id, label: `${item.business_name} · #${item.id}` })), [workspaces]);
+  const activeMethods = useMemo(() => methods.filter((item) => item.is_active), [methods]);
+  const pendingRows = useMemo(() => payments.filter((item) => item.status === "pending"), [payments]);
+  const failedRows = useMemo(() => payments.filter((item) => item.status === "failed"), [payments]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(pricingPlans));
-  }, [pricingPlans]);
+  const openCreatePayment = () => {
+    setPaymentForm({
+      ...EMPTY_PAYMENT_FORM,
+      account_id: accountFilter || "",
+      payment_method: activeMethods.find((item) => item.is_default)?.name || activeMethods[0]?.name || "",
+    });
+    setShowPaymentModal(true);
+  };
 
-  const submitMethod = async () => {
+  const openMethodEditor = (method?: PaymentMethod) => {
+    setEditingMethod(method || null);
+    setMethodForm(
+      method
+        ? {
+            name: method.name,
+            provider: method.provider,
+            method_type: method.method_type,
+            details: method.details || "",
+            fee_percent: String(method.fee_percent),
+            fee_fixed: String(method.fee_fixed),
+            supports_refunds: method.supports_refunds,
+            is_active: method.is_active,
+            is_default: method.is_default,
+          }
+        : EMPTY_METHOD_FORM,
+    );
+    setShowMethodModal(true);
+  };
+
+  const saveMethod = async () => {
     setSaving(true);
     setError("");
     setNotice("");
     try {
-      const payload = {
-        name: methodForm.name,
-        provider: methodForm.provider,
-        method_type: methodForm.method_type,
-        details: methodForm.details || null,
-        fee_percent: Number(methodForm.fee_percent || "0"),
-        fee_fixed: Number(methodForm.fee_fixed || "0"),
-        supports_refunds: methodForm.supports_refunds,
-        is_active: methodForm.is_active,
-        is_default: methodForm.is_default,
-      };
-      const path = editingMethodId ? `/admin/payment-methods/${editingMethodId}` : "/admin/payment-methods";
-      const method = editingMethodId ? "PUT" : "POST";
-      const res = await fetch(`${API}${path}`, {
-        method,
+      if (!methodForm.name.trim()) throw new Error("Method name is required.");
+      if (!methodForm.provider.trim()) throw new Error("Provider is required.");
+      const response = await authFetch(`${API}${editingMethod ? `/admin/payment-methods/${editingMethod.id}` : "/admin/payment-methods"}`, {
+        method: editingMethod ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          name: methodForm.name.trim(),
+          provider: methodForm.provider.trim(),
+          method_type: methodForm.method_type,
+          details: methodForm.details.trim() || null,
+          fee_percent: Number(methodForm.fee_percent || 0),
+          fee_fixed: Number(methodForm.fee_fixed || 0),
+          supports_refunds: methodForm.supports_refunds,
+          is_active: methodForm.is_active,
+          is_default: methodForm.is_default,
+        }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
         throw new Error(body?.detail || "Failed to save payment method");
       }
+      setNotice(editingMethod ? "Payment method updated." : "Payment method created.");
       setShowMethodModal(false);
-      setEditingMethodId(null);
+      setEditingMethod(null);
       setMethodForm(EMPTY_METHOD_FORM);
-      setNotice("Payment method saved.");
       await loadData();
-    } catch (e: unknown) {
-      setError(readErrorMessage(e, "Failed to save payment method."));
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not save payment method."));
     } finally {
       setSaving(false);
     }
   };
 
-  const submitPayment = async () => {
+  const savePayment = async () => {
     setSaving(true);
     setError("");
     setNotice("");
     try {
-      if (!/^\d+$/.test(paymentForm.client_id.trim())) {
-        throw new Error("Client ID must be a valid number.");
-      }
-      if (!paymentForm.amount.trim() || Number(paymentForm.amount) <= 0) {
-        throw new Error("Amount must be greater than 0.");
-      }
-      const res = await fetch(`${API}/admin/payments`, {
+      if (!/^\d+$/.test(paymentForm.account_id.trim())) throw new Error("A workspace account is required.");
+      if (!paymentForm.amount.trim() || Number(paymentForm.amount) <= 0) throw new Error("Amount must be greater than 0.");
+      const response = await authFetch(`${API}/admin/payments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_id: Number(paymentForm.client_id),
+          account_id: Number(paymentForm.account_id),
           amount: Number(paymentForm.amount),
           currency: paymentForm.currency.toUpperCase(),
           status: paymentForm.status,
           payment_method: paymentForm.payment_method || null,
-          description: paymentForm.description || null,
-          invoice_number: paymentForm.invoice_number || null,
-          transaction_id: paymentForm.transaction_id || null,
+          description: paymentForm.description.trim() || null,
+          invoice_number: paymentForm.invoice_number.trim() || null,
+          transaction_id: paymentForm.transaction_id.trim() || null,
         }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
         throw new Error(body?.detail || "Failed to create payment");
       }
+      setNotice("Payment created.");
       setShowPaymentModal(false);
       setPaymentForm(EMPTY_PAYMENT_FORM);
-      setNotice("Payment created.");
       await loadData();
-    } catch (e: unknown) {
-      setError(readErrorMessage(e, "Failed to create payment."));
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not create payment."));
     } finally {
       setSaving(false);
     }
   };
 
-  const updatePaymentStatus = async (paymentId: number, status: PaymentStatus) => {
+  const updatePaymentStatus = async (payment: PaymentRow, status: PaymentStatus) => {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/payments/${paymentId}/status`, {
+      const response = await authFetch(`${API}/admin/payments/${payment.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, paid_at: status === "paid" ? new Date().toISOString() : null }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
         throw new Error(body?.detail || "Failed to update payment status");
       }
-      setNotice("Payment status updated.");
+      setNotice(`Payment #${payment.id} marked ${status}.`);
       await loadData();
-    } catch (e: unknown) {
-      setError(readErrorMessage(e, "Failed to update payment status."));
+      if (selectedPayment?.id === payment.id) {
+        const updated = (await response.json().catch(() => null)) as PaymentRow | null;
+        if (updated) setSelectedPayment(updated);
+      }
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not update payment status."));
     }
   };
 
-  const setDefaultMethod = async (methodId: number) => {
+  const setMethodAsDefault = async (methodId: number) => {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/payment-methods/${methodId}/default`, { method: "PATCH" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      const response = await authFetch(`${API}/admin/payment-methods/${methodId}/default`, { method: "PATCH" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
         throw new Error(body?.detail || "Failed to set default method");
       }
       setNotice("Default payment method updated.");
       await loadData();
-    } catch (e: unknown) {
-      setError(readErrorMessage(e, "Failed to set default payment method."));
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not update default method."));
     }
   };
 
-  const toggleMethodStatus = async (method: PaymentMethod, isActive: boolean) => {
+  const toggleMethod = async (method: PaymentMethod, isActive: boolean) => {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/payment-methods/${method.id}/status`, {
+      const response = await authFetch(`${API}/admin/payment-methods/${method.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: isActive }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
         throw new Error(body?.detail || "Failed to update method status");
       }
-      setNotice("Payment method status updated.");
+      setNotice(`${method.name} ${isActive ? "enabled" : "disabled"}.`);
       await loadData();
-    } catch (e: unknown) {
-      setError(readErrorMessage(e, "Failed to update payment method status."));
+    } catch (err: unknown) {
+      setError(readErrorMessage(err, "Could not update payment method status."));
     }
   };
 
-  const openEditMethod = (method: PaymentMethod) => {
-    setEditingMethodId(method.id);
-    setMethodForm({
-      name: method.name,
-      provider: method.provider,
-      method_type: method.method_type,
-      details: method.details || "",
-      fee_percent: String(method.fee_percent),
-      fee_fixed: String(method.fee_fixed),
-      supports_refunds: method.supports_refunds,
-      is_active: method.is_active,
-      is_default: method.is_default,
-    });
-    setShowMethodModal(true);
-  };
-
-  const openCreateMethod = () => {
-    setEditingMethodId(null);
-    setMethodForm(EMPTY_METHOD_FORM);
-    setShowMethodModal(true);
-  };
-
-  const openCreatePayment = () => {
-    const defaultMethod = methods.find((m) => m.is_default && m.is_active) || methods.find((m) => m.is_active);
-    setPaymentForm((prev) => ({
-      ...EMPTY_PAYMENT_FORM,
-      currency: summary ? "USD" : prev.currency,
-      payment_method: defaultMethod?.name || "",
-    }));
-    setShowPaymentModal(true);
-  };
-
-  const openEditPricingPlan = (plan: PricingPlanDefinition) => {
-    setPlanForm({
-      id: plan.id,
-      name: plan.name,
-      description: plan.description,
-      price_monthly: String(plan.priceMonthly),
-      price_yearly: String(plan.priceYearly),
-      users: plan.users,
-      recommended: Boolean(plan.recommended),
-    });
-    setShowPlanModal(true);
-  };
-
-  const submitPricingPlan = () => {
-    if (!planForm) return;
-    const monthly = Number(planForm.price_monthly);
-    const yearly = Number(planForm.price_yearly);
-    if (!Number.isFinite(monthly) || monthly < 0) {
-      setError("Monthly price must be 0 or greater.");
-      return;
+  const copyText = async (value?: string | null) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice("Copied to clipboard.");
+    } catch {
+      setError("Could not copy this value.");
     }
-    if (!Number.isFinite(yearly) || yearly < 0) {
-      setError("Yearly price must be 0 or greater.");
-      return;
-    }
-    setPricingPlans((prev) =>
-      prev.map((plan) =>
-        plan.id === planForm.id
-          ? {
-              ...plan,
-              name: planForm.name.trim() || plan.name,
-              description: planForm.description.trim() || plan.description,
-              users: planForm.users.trim() || plan.users,
-              priceMonthly: monthly,
-              priceYearly: yearly,
-              recommended: planForm.recommended,
-            }
-          : { ...plan, recommended: planForm.recommended ? false : plan.recommended },
-      ),
-    );
-    setNotice("Pricing plan updated for platform pricing views.");
-    setError("");
-    setShowPlanModal(false);
-    setPlanForm(null);
   };
 
   return (
-    <div className="admin-page-shell" style={{ maxWidth: "1450px", margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-        <div>
-          <h1 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Payments</h1>
-          <p style={{ fontSize: "12px", color: "var(--text-subtle)", marginTop: "4px" }}>
-            Manage transactions, statuses, and payment methods for all client organizations.
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button type="button" style={secondaryBtn} onClick={() => void loadData()}>
-            <RefreshCcw size={12} /> Refresh
-          </button>
-          <button type="button" style={secondaryBtn} onClick={openCreateMethod}>
-            <CreditCard size={13} /> Add Method
-          </button>
-          <button type="button" style={primaryBtn} onClick={openCreatePayment}>
-            <Plus size={13} /> Add Payment
-          </button>
-        </div>
-      </div>
+    <div className="admin-page-shell" style={{ maxWidth: "1540px", margin: "0 auto", display: "grid", gap: "22px" }}>
+      <AdminPageHero
+        eyebrow="Billing Operations"
+        title="Payments"
+        subtitle="Run workspace-linked payment operations, triage pending and failed collections, and manage the platform’s payment rails."
+        actions={
+          <>
+            <button type="button" style={adminButtonStyle("secondary")} onClick={() => void loadData()}>
+              <RefreshCcw size={16} /> Refresh
+            </button>
+            <button type="button" style={adminButtonStyle("secondary")} onClick={() => openMethodEditor()}>
+              <Wallet size={16} /> Add Method
+            </button>
+            <button type="button" style={adminButtonStyle("primary")} onClick={openCreatePayment}>
+              <Plus size={16} /> Add Payment
+            </button>
+          </>
+        }
+      />
 
       {(error || notice) && (
         <div
+          className="admin-ui-surface"
           style={{
-            marginBottom: "12px",
-            padding: "10px 12px",
-            borderRadius: "9px",
-            border: error ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(52,211,153,0.25)",
-            background: error ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-            color: error ? "#f87171" : "#34d399",
-            fontSize: "12px",
+            padding: "14px 16px",
+            borderColor: error ? "color-mix(in srgb, var(--danger) 42%, transparent)" : "color-mix(in srgb, #34d399 42%, transparent)",
+            background: error
+              ? "color-mix(in srgb, var(--danger) 10%, var(--bg-surface) 90%)"
+              : "color-mix(in srgb, #34d399 10%, var(--bg-surface) 90%)",
+            color: error ? "var(--danger)" : "#34d399",
           }}
         >
           {error || notice}
         </div>
       )}
 
-      {summary && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "10px", marginBottom: "16px" }}>
-          {[
-            { label: "Total Payments", value: summary.total_payments, color: "var(--accent)" },
-            { label: "Paid", value: summary.paid_count, color: "#34d399" },
-            { label: "Pending", value: summary.pending_count, color: "#fbbf24" },
-            { label: "Failed", value: summary.failed_count, color: "#f87171" },
-            { label: "Refunded", value: summary.refunded_count, color: "#60a5fa" },
-            { label: "Paid Volume", value: `$${summary.paid_volume.toLocaleString()}`, color: "#34d399" },
-            { label: "Pending Volume", value: `$${summary.pending_volume.toLocaleString()}`, color: "#f59e0b" },
-          ].map((card) => (
-            <div key={card.label} style={kpiCard(card.color)}>
-              <div style={{ fontSize: "10px", color: "var(--text-subtle)", marginBottom: "6px" }}>{card.label}</div>
-              <div style={{ fontSize: "20px", color: "var(--text-primary)", fontWeight: 700 }}>{card.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <AdminMetricGrid>
+        <AdminMetricCard label="Total payments" value={summary?.total_payments ?? 0} detail="All workspace-linked payment records" tone="accent" />
+        <AdminMetricCard label="Paid" value={summary?.paid_count ?? 0} detail={formatMoney(summary?.paid_volume ?? 0)} tone="success" />
+        <AdminMetricCard label="Pending" value={summary?.pending_count ?? 0} detail={formatMoney(summary?.pending_volume ?? 0)} tone="warning" />
+        <AdminMetricCard label="Failed" value={summary?.failed_count ?? 0} detail={`${failedRows.length} in current ledger view`} tone="danger" />
+        <AdminMetricCard label="Refunded" value={summary?.refunded_count ?? 0} detail="Chargeback / manual refund backlog" tone="neutral" />
+        <AdminMetricCard label="Collections focus" value={pendingRows.length + failedRows.length} detail="Pending + failed items needing action" tone="warning" />
+      </AdminMetricGrid>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-        <section style={panelStyle}>
-          <div style={panelHeader}>Payment Methods</div>
-          <div style={tableHead(paymentMethodTableColumns)}>
-            {["Method", "Type", "Fees", "Status", "Actions"].map((h) => (
-              <span key={h} style={thStyle}>
-                {h}
-              </span>
-            ))}
-          </div>
-          {methods.map((method) => (
-            <div key={method.id} style={tableRow(paymentMethodTableColumns)}>
-              <span style={{ fontSize: "12px", color: "var(--text-primary)", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                {method.name}
-                {method.is_default && (
-                  <span style={{ fontSize: "10px", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)", borderRadius: "999px", padding: "1px 6px" }}>
-                    Default
-                  </span>
-                )}
-              </span>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{method.method_type}</span>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {method.fee_percent}% + ${method.fee_fixed}
-              </span>
-              <span style={{ fontSize: "12px", color: method.is_active ? "#34d399" : "var(--text-muted)" }}>
-                {method.is_active ? "Active" : "Inactive"}
-              </span>
-              <div style={methodActionCellStyle}>
-                <button
-                  type="button"
-                  onClick={() => openEditMethod(method)}
-                  style={miniBtn}
-                >
-                  Edit
-                </button>
-                {!method.is_default && method.is_active && (
-                  <button
-                    type="button"
-                    onClick={() => void setDefaultMethod(method.id)}
-                    style={miniBtn}
-                  >
-                    Default
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void toggleMethodStatus(method, !method.is_active)}
-                  style={miniBtn}
-                >
-                  {method.is_active ? "Disable" : "Enable"}
-                </button>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section style={panelStyle}>
-          <div style={panelHeader}>Payments</div>
-          <div style={{ padding: "10px 12px", borderBottom: "1px solid #1e1e2a", display: "flex", gap: "8px" }}>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "" | PaymentStatus)} style={inputStyle}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: "18px", alignItems: "start" }}>
+        <AdminSectionCard title="Payments ledger" description="Inspect live payment flow by workspace account, status, method, and billing context.">
+          <AdminFilterBar>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search company, workspace, owner, invoice, transaction..." style={adminInputStyle({ flex: 2, minWidth: "240px" })} />
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={adminInputStyle({ flex: 1, minWidth: "160px" })}>
               <option value="">All statuses</option>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
               <option value="failed">Failed</option>
               <option value="refunded">Refunded</option>
             </select>
-            <input
-              placeholder="Client ID"
-              value={clientFilter}
-              onChange={(e) => setClientFilter(e.target.value)}
-              style={inputStyle}
+            <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} style={adminInputStyle({ flex: 1, minWidth: "180px" })}>
+              <option value="">All methods</option>
+              {methods.map((method) => (
+                <option key={method.id} value={method.name.toLowerCase()}>{method.name}</option>
+              ))}
+            </select>
+            <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} style={adminInputStyle({ flex: 1.2, minWidth: "210px" })}>
+              <option value="">All workspaces</option>
+              {workspaceOptions.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>{workspace.label}</option>
+              ))}
+            </select>
+          </AdminFilterBar>
+
+          {payments.length ? (
+            <AdminDataTable>
+              <AdminTableHead
+                columns={[
+                  <span key="company">Company</span>,
+                  <span key="amount">Amount</span>,
+                  <span key="method">Method</span>,
+                  <span key="status">Status</span>,
+                  <span key="timestamps">Created / Paid</span>,
+                  <span key="actions">Actions</span>,
+                ]}
+              />
+              {payments.map((payment) => (
+                <AdminTableRow key={payment.id} style={{ gridTemplateColumns: "1.45fr 0.8fr 0.95fr 0.8fr 1fr 1fr" }}>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPayment(payment)}
+                      style={{
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        margin: 0,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        color: "var(--text-primary)",
+                        fontWeight: 700,
+                        fontSize: "15px",
+                      }}
+                    >
+                      {payment.business_name}
+                    </button>
+                    <div style={{ fontSize: "12px", color: "var(--text-subtle)", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <span>{payment.workspace_id || "Legacy record"}</span>
+                      <span>{payment.owner_email || "No owner email"}</span>
+                      {payment.is_unlinked_legacy ? <AdminPill label="Legacy unlink" tone="danger" /> : null}
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>{payment.currency} {Number(payment.amount).toLocaleString()}</span>
+                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{payment.plan_tier || "No plan"}</span>
+                  </div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{payment.payment_method || "Manual / missing"}</span>
+                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{payment.invoice_number || "No invoice"}</span>
+                  </div>
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <AdminPill label={payment.status} tone={statusTone(payment.status)} />
+                    <select
+                      value={payment.status}
+                      onChange={(event) => void updatePaymentStatus(payment, event.target.value as PaymentStatus)}
+                      style={adminInputStyle({ minHeight: "36px", fontSize: "12px", padding: "0 10px" })}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="paid">Paid</option>
+                      <option value="failed">Failed</option>
+                      <option value="refunded">Refunded</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>Created {formatDate(payment.created_at)}</span>
+                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Paid {formatDate(payment.paid_at)}</span>
+                  </div>
+                  <AdminActionMenu>
+                    {payment.account_id ? (
+                      <Link href={`/admin/clients/${payment.account_id}`} style={adminButtonStyle("secondary", { minHeight: "36px", padding: "0 10px" })}>
+                        Open
+                      </Link>
+                    ) : null}
+                    <button type="button" style={adminButtonStyle("ghost", { minHeight: "36px", padding: "0 10px" })} onClick={() => setSelectedPayment(payment)}>
+                      Details
+                    </button>
+                  </AdminActionMenu>
+                </AdminTableRow>
+              ))}
+            </AdminDataTable>
+          ) : (
+            <AdminEmptyState
+              title={loading ? "Loading payments..." : "No payments match the current filters"}
+              description="Change filters, add a payment, or connect missing billing context from the client workspace surface."
+              action={<button type="button" style={adminButtonStyle("primary")} onClick={openCreatePayment}><Plus size={16} /> Add Payment</button>}
             />
-            <button
-              type="button"
-              onClick={() => setQueryClientFilter(clientFilter.replace(/\D/g, ""))}
-              style={miniBtn}
-            >
-              Apply
-            </button>
+          )}
+        </AdminSectionCard>
+
+        <div style={{ display: "grid", gap: "18px" }}>
+          <AdminSectionCard title="Payment methods" description="Global payment rails used by the platform billing layer.">
+            <div style={{ display: "grid", gap: "12px" }}>
+              {methods.length ? methods.map((method) => (
+                <div key={method.id} className="admin-ui-surface" style={{ padding: "14px", display: "grid", gap: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: "10px" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>{method.name}</span>
+                        {method.is_default ? <AdminPill label="Default" tone="success" /> : null}
+                        <AdminPill label={method.is_active ? "Active" : "Disabled"} tone={method.is_active ? "success" : "neutral"} />
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "var(--text-subtle)" }}>
+                        {method.provider} · {method.method_type} · {method.fee_percent}% + ${method.fee_fixed}
+                      </div>
+                    </div>
+                    <button type="button" style={adminButtonStyle("secondary", { minHeight: "36px", padding: "0 10px" })} onClick={() => openMethodEditor(method)}>
+                      <Pencil size={14} /> Edit
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    {!method.is_default ? (
+                      <button type="button" style={adminButtonStyle("ghost", { minHeight: "34px", padding: "0 10px" })} onClick={() => void setMethodAsDefault(method.id)}>
+                        <CheckCircle2 size={14} /> Set default
+                      </button>
+                    ) : null}
+                    <button type="button" style={adminButtonStyle(method.is_active ? "danger" : "secondary", { minHeight: "34px", padding: "0 10px" })} onClick={() => void toggleMethod(method, !method.is_active)}>
+                      {method.is_active ? "Disable" : "Enable"}
+                    </button>
+                  </div>
+                </div>
+              )) : <AdminEmptyState title="No payment methods configured" description="Create at least one active method before issuing live payments." />}
+            </div>
+          </AdminSectionCard>
+
+          <AdminSectionCard title="Collections queue" description="Quick operational read on payment items that still need intervention.">
+            <div style={{ display: "grid", gap: "10px" }}>
+              <div className="admin-ui-surface" style={{ padding: "14px", display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Pending collection</div>
+                  <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)" }}>{pendingRows.length}</div>
+                </div>
+                <DollarSign size={18} color="#fbbf24" />
+              </div>
+              <div className="admin-ui-surface" style={{ padding: "14px", display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Failed charges</div>
+                  <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)" }}>{failedRows.length}</div>
+                </div>
+                <CreditCard size={18} color="var(--danger)" />
+              </div>
+            </div>
+          </AdminSectionCard>
+        </div>
+      </div>
+
+      <AdminModal
+        open={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentForm(EMPTY_PAYMENT_FORM);
+        }}
+        title="Create payment"
+        description="Create a payment against a workspace account. The backend resolves the linked billing context and keeps the compatibility tables in sync."
+        width={760}
+      >
+        <div style={{ display: "grid", gap: "14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Workspace account</span>
+              <select value={paymentForm.account_id} onChange={(event) => setPaymentForm((prev) => ({ ...prev, account_id: event.target.value }))} style={adminInputStyle()}>
+                <option value="">Select workspace</option>
+                {workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Amount</span>
+              <input value={paymentForm.amount} onChange={(event) => setPaymentForm((prev) => ({ ...prev, amount: event.target.value }))} type="number" min="0" step="0.01" style={adminInputStyle()} />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Currency</span>
+              <input value={paymentForm.currency} onChange={(event) => setPaymentForm((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))} style={adminInputStyle()} />
+            </label>
           </div>
-          <div style={tableHead("0.7fr 1fr 0.8fr 0.8fr 120px")}>
-            {["Client", "Amount", "Method", "Status", "Actions"].map((h) => (
-              <span key={h} style={thStyle}>
-                {h}
-              </span>
-            ))}
-          </div>
-          {payments.map((payment) => (
-            <div key={payment.id} style={tableRow("0.7fr 1fr 0.8fr 0.8fr 120px")}>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>#{payment.client_id}</span>
-              <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>
-                {payment.currency} {payment.amount.toLocaleString()}
-              </span>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{payment.payment_method || "—"}</span>
-              <span style={{ fontSize: "12px", color: statusColor(payment.status) }}>{payment.status}</span>
-              <select
-                value={payment.status}
-                onChange={(e) => void updatePaymentStatus(payment.id, e.target.value as PaymentStatus)}
-                style={{ ...inputStyle, height: "28px", fontSize: "11px" }}
-              >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Status</span>
+              <select value={paymentForm.status} onChange={(event) => setPaymentForm((prev) => ({ ...prev, status: event.target.value as PaymentStatus }))} style={adminInputStyle()}>
                 <option value="pending">Pending</option>
                 <option value="paid">Paid</option>
                 <option value="failed">Failed</option>
                 <option value="refunded">Refunded</option>
               </select>
-            </div>
-          ))}
-          {!payments.length && !loading && (
-            <div style={{ padding: "12px", fontSize: "12px", color: "var(--text-muted)" }}>No payments match the current filters.</div>
-          )}
-        </section>
-      </div>
-
-      <section style={{ ...panelStyle, marginBottom: "16px" }}>
-        <div style={panelHeader}>Pricing Plans</div>
-        <div
-          style={{
-            padding: "10px 12px",
-            borderBottom: "1px solid #1a1a24",
-            fontSize: "12px",
-            color: "var(--text-subtle)",
-          }}
-        >
-          Update public plan names, pricing, and seat limits used by the platform pricing presentation.
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Payment method</span>
+              <select value={paymentForm.payment_method} onChange={(event) => setPaymentForm((prev) => ({ ...prev, payment_method: event.target.value }))} style={adminInputStyle()}>
+                <option value="">Manual / not specified</option>
+                {activeMethods.map((method) => <option key={method.id} value={method.name}>{method.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Description</span>
+            <textarea value={paymentForm.description} onChange={(event) => setPaymentForm((prev) => ({ ...prev, description: event.target.value }))} style={adminInputStyle({ minHeight: "86px", padding: "12px 14px", resize: "vertical" })} />
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Invoice number</span>
+              <input value={paymentForm.invoice_number} onChange={(event) => setPaymentForm((prev) => ({ ...prev, invoice_number: event.target.value }))} style={adminInputStyle()} />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Transaction ID</span>
+              <input value={paymentForm.transaction_id} onChange={(event) => setPaymentForm((prev) => ({ ...prev, transaction_id: event.target.value }))} style={adminInputStyle()} />
+            </label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+            <button type="button" style={adminButtonStyle("ghost")} onClick={() => setShowPaymentModal(false)}>Close</button>
+            <button type="button" style={adminButtonStyle("primary")} onClick={() => void savePayment()} disabled={saving}>
+              <Plus size={16} /> {saving ? "Saving..." : "Create payment"}
+            </button>
+          </div>
         </div>
-        <div style={tableHead("1.2fr 0.7fr 0.7fr 0.8fr 130px")}>
-          {["Plan", "Monthly", "Yearly", "Seats", "Actions"].map((h) => (
-            <span key={h} style={thStyle}>
-              {h}
-            </span>
-          ))}
-        </div>
-        {pricingPlans.map((plan) => (
-          <div key={plan.id} style={tableRow("1.2fr 0.7fr 0.7fr 0.8fr 130px")}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>
-                {plan.name}
-                {plan.recommended ? (
-                  <span
-                    style={{
-                      marginLeft: "6px",
-                      fontSize: "10px",
-                      color: "#60a5fa",
-                      border: "1px solid rgba(96,165,250,0.35)",
-                      borderRadius: "999px",
-                      padding: "1px 6px",
-                    }}
-                  >
-                    Recommended
-                  </span>
-                ) : null}
-              </span>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{plan.description}</span>
-            </div>
-            <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>${plan.priceMonthly}</span>
-            <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>${plan.priceYearly}</span>
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{plan.users}</span>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="button" onClick={() => openEditPricingPlan(plan)} style={miniBtn}>
-                Edit Plan
-              </button>
-            </div>
-          </div>
-        ))}
-      </section>
+      </AdminModal>
 
-      {showMethodModal && (
-        <Modal title={editingMethodId ? "Edit Payment Method" : "Add Payment Method"} onClose={() => setShowMethodModal(false)}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <input
-              placeholder="Method name"
-              value={methodForm.name}
-              onChange={(e) => setMethodForm((f) => ({ ...f, name: e.target.value }))}
-              style={inputStyle}
-            />
-            <input
-              placeholder="Provider"
-              value={methodForm.provider}
-              onChange={(e) => setMethodForm((f) => ({ ...f, provider: e.target.value }))}
-              style={inputStyle}
-            />
+      <AdminModal
+        open={showMethodModal}
+        onClose={() => {
+          setShowMethodModal(false);
+          setEditingMethod(null);
+          setMethodForm(EMPTY_METHOD_FORM);
+        }}
+        title={editingMethod ? `Edit ${editingMethod.name}` : "Add payment method"}
+        description="Manage the global payment rails exposed to platform billing operations."
+        width={760}
+      >
+        <div style={{ display: "grid", gap: "14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Method name</span>
+              <input value={methodForm.name} onChange={(event) => setMethodForm((prev) => ({ ...prev, name: event.target.value }))} style={adminInputStyle()} />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Provider</span>
+              <input value={methodForm.provider} onChange={(event) => setMethodForm((prev) => ({ ...prev, provider: event.target.value }))} style={adminInputStyle()} />
+            </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <select
-              value={methodForm.method_type}
-              onChange={(e) => setMethodForm((f) => ({ ...f, method_type: e.target.value as PaymentMethodType }))}
-              style={inputStyle}
-            >
-              <option value="card">Card</option>
-              <option value="bank">Bank</option>
-              <option value="wallet">Wallet</option>
-              <option value="manual">Manual</option>
-              <option value="other">Other</option>
-            </select>
-            <input
-              type="number"
-              step="0.1"
-              min={0}
-              max={100}
-              placeholder="Fee %"
-              value={methodForm.fee_percent}
-              onChange={(e) => setMethodForm((f) => ({ ...f, fee_percent: e.target.value }))}
-              style={inputStyle}
-            />
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              placeholder="Fixed fee"
-              value={methodForm.fee_fixed}
-              onChange={(e) => setMethodForm((f) => ({ ...f, fee_fixed: e.target.value }))}
-              style={inputStyle}
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Type</span>
+              <select value={methodForm.method_type} onChange={(event) => setMethodForm((prev) => ({ ...prev, method_type: event.target.value as PaymentMethodType }))} style={adminInputStyle()}>
+                <option value="card">Card</option>
+                <option value="bank">Bank</option>
+                <option value="wallet">Wallet</option>
+                <option value="manual">Manual</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Fee %</span>
+              <input value={methodForm.fee_percent} onChange={(event) => setMethodForm((prev) => ({ ...prev, fee_percent: event.target.value }))} type="number" min="0" step="0.01" style={adminInputStyle()} />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Fixed fee</span>
+              <input value={methodForm.fee_fixed} onChange={(event) => setMethodForm((prev) => ({ ...prev, fee_fixed: event.target.value }))} type="number" min="0" step="0.01" style={adminInputStyle()} />
+            </label>
           </div>
-          <input
-            placeholder="Details (masked, optional)"
-            value={methodForm.details}
-            onChange={(e) => setMethodForm((f) => ({ ...f, details: e.target.value }))}
-            style={{ ...inputStyle, marginBottom: "10px" }}
-          />
-          <div style={{ display: "flex", gap: "12px", fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px" }}>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <input
-                type="checkbox"
-                checked={methodForm.supports_refunds}
-                onChange={(e) => setMethodForm((f) => ({ ...f, supports_refunds: e.target.checked }))}
-              />
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Operational notes</span>
+            <textarea value={methodForm.details} onChange={(event) => setMethodForm((prev) => ({ ...prev, details: event.target.value }))} style={adminInputStyle({ minHeight: "86px", padding: "12px 14px", resize: "vertical" })} />
+          </label>
+          <div style={{ display: "flex", gap: "18px", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-primary)", fontSize: "13px" }}>
+              <input type="checkbox" checked={methodForm.supports_refunds} onChange={(event) => setMethodForm((prev) => ({ ...prev, supports_refunds: event.target.checked }))} />
               Supports refunds
             </label>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <input
-                type="checkbox"
-                checked={methodForm.is_active}
-                onChange={(e) => setMethodForm((f) => ({ ...f, is_active: e.target.checked }))}
-              />
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-primary)", fontSize: "13px" }}>
+              <input type="checkbox" checked={methodForm.is_active} onChange={(event) => setMethodForm((prev) => ({ ...prev, is_active: event.target.checked }))} />
               Active
             </label>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <input
-                type="checkbox"
-                checked={methodForm.is_default}
-                onChange={(e) => setMethodForm((f) => ({ ...f, is_default: e.target.checked }))}
-              />
-              Default
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-primary)", fontSize: "13px" }}>
+              <input type="checkbox" checked={methodForm.is_default} onChange={(event) => setMethodForm((prev) => ({ ...prev, is_default: event.target.checked }))} />
+              Default method
             </label>
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-            <button type="button" onClick={() => setShowMethodModal(false)} style={secondaryBtn}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void submitMethod()} disabled={saving} style={primaryBtn}>
-              {saving ? "Saving..." : "Save Method"}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+            <button type="button" style={adminButtonStyle("ghost")} onClick={() => setShowMethodModal(false)}>Close</button>
+            <button type="button" style={adminButtonStyle("primary")} onClick={() => void saveMethod()} disabled={saving}>
+              {saving ? "Saving..." : editingMethod ? "Update method" : "Create method"}
             </button>
           </div>
-        </Modal>
-      )}
+        </div>
+      </AdminModal>
 
-      {showPlanModal && planForm && (
-        <Modal title={`Edit ${planForm.name} Plan`} onClose={() => setShowPlanModal(false)}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <input
-              placeholder="Plan name"
-              value={planForm.name}
-              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-              style={inputStyle}
-            />
-            <input
-              placeholder="Seat limit summary"
-              value={planForm.users}
-              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, users: e.target.value } : prev))}
-              style={inputStyle}
-            />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <input
-              type="number"
-              min={0}
-              step="1"
-              placeholder="Monthly price"
-              value={planForm.price_monthly}
-              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, price_monthly: e.target.value } : prev))}
-              style={inputStyle}
-            />
-            <input
-              type="number"
-              min={0}
-              step="1"
-              placeholder="Yearly price"
-              value={planForm.price_yearly}
-              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, price_yearly: e.target.value } : prev))}
-              style={inputStyle}
-            />
-          </div>
-          <textarea
-            rows={3}
-            placeholder="Plan description"
-            value={planForm.description}
-            onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
-            style={{ ...inputStyle, height: "auto", padding: "8px 10px", marginBottom: "12px", resize: "vertical" }}
-          />
-          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px" }}>
-            <input
-              type="checkbox"
-              checked={planForm.recommended}
-              onChange={(e) => setPlanForm((prev) => (prev ? { ...prev, recommended: e.target.checked } : prev))}
-            />
-            Mark as recommended
-          </label>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-            <button type="button" onClick={() => setShowPlanModal(false)} style={secondaryBtn}>
-              Cancel
-            </button>
-            <button type="button" onClick={submitPricingPlan} style={primaryBtn}>
-              Save Plan
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {showPaymentModal && (
-        <Modal title="Add Payment" onClose={() => setShowPaymentModal(false)}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <input
-              type="number"
-              min={1}
-              placeholder="Client ID"
-              value={paymentForm.client_id}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, client_id: e.target.value }))}
-              style={inputStyle}
-            />
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              placeholder="Amount"
-              value={paymentForm.amount}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
-              style={inputStyle}
-            />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-            <input
-              placeholder="Currency"
-              value={paymentForm.currency}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, currency: e.target.value.toUpperCase() }))}
-              style={inputStyle}
-            />
-            <select
-              value={paymentForm.status}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, status: e.target.value as PaymentStatus }))}
-              style={inputStyle}
-            >
-              <option value="pending">Pending</option>
-              <option value="paid">Paid</option>
-              <option value="failed">Failed</option>
-              <option value="refunded">Refunded</option>
-            </select>
-            <select
-              value={paymentForm.payment_method}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, payment_method: e.target.value }))}
-              style={inputStyle}
-            >
-              <option value="">No method</option>
-              {activeMethods.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <input
-            placeholder="Invoice number"
-            value={paymentForm.invoice_number}
-            onChange={(e) => setPaymentForm((f) => ({ ...f, invoice_number: e.target.value }))}
-            style={{ ...inputStyle, marginBottom: "10px" }}
-          />
-          <input
-            placeholder="Transaction ID"
-            value={paymentForm.transaction_id}
-            onChange={(e) => setPaymentForm((f) => ({ ...f, transaction_id: e.target.value }))}
-            style={{ ...inputStyle, marginBottom: "10px" }}
-          />
-          <input
-            placeholder="Description"
-            value={paymentForm.description}
-            onChange={(e) => setPaymentForm((f) => ({ ...f, description: e.target.value }))}
-            style={{ ...inputStyle, marginBottom: "14px" }}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-            <button type="button" onClick={() => setShowPaymentModal(false)} style={secondaryBtn}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void submitPayment()} disabled={saving} style={primaryBtn}>
-              {saving ? "Saving..." : "Create Payment"}
-            </button>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.65)",
-        zIndex: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "620px",
-          maxWidth: "92vw",
-          background: "var(--bg-surface)",
-          border: "1px solid #1e1e2a",
-          borderRadius: "14px",
-          padding: "18px",
-        }}
+      <AdminDrawer
+        open={Boolean(selectedPayment)}
+        onClose={() => setSelectedPayment(null)}
+        title={selectedPayment ? `Payment #${selectedPayment.id}` : "Payment detail"}
+        description={selectedPayment ? `${selectedPayment.business_name} · ${selectedPayment.workspace_id || "legacy"}` : undefined}
+        width={560}
       >
-        <h3 style={{ margin: "0 0 14px", fontSize: "15px", color: "var(--text-primary)" }}>{title}</h3>
-        {children}
-      </div>
+        {selectedPayment ? (
+          <div style={{ display: "grid", gap: "16px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className="admin-ui-surface" style={{ padding: "14px" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Amount</div>
+                <div style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", marginTop: "6px" }}>{selectedPayment.currency} {Number(selectedPayment.amount).toLocaleString()}</div>
+              </div>
+              <div className="admin-ui-surface" style={{ padding: "14px" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Status</div>
+                <div style={{ marginTop: "8px" }}><AdminPill label={selectedPayment.status} tone={statusTone(selectedPayment.status)} /></div>
+              </div>
+            </div>
+
+            <div className="admin-ui-surface" style={{ padding: "14px", display: "grid", gap: "10px" }}>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Workspace context</div>
+              <div style={{ display: "grid", gap: "8px", fontSize: "13px" }}>
+                <div><strong>Company:</strong> {selectedPayment.business_name}</div>
+                <div><strong>Workspace:</strong> {selectedPayment.workspace_id || "Legacy / unlinked"}</div>
+                <div><strong>Owner:</strong> {selectedPayment.owner_email || "No owner email"}</div>
+                <div><strong>Plan:</strong> {selectedPayment.plan_tier || "No plan tier"}</div>
+                <div><strong>Linked subscription:</strong> {selectedPayment.linked_subscription_id || "—"}</div>
+                <div><strong>Linked client org:</strong> {selectedPayment.linked_client_org_id || "—"}</div>
+              </div>
+              {selectedPayment.account_id ? (
+                <Link href={`/admin/clients/${selectedPayment.account_id}`} style={adminButtonStyle("secondary", { width: "fit-content" })}>
+                  Open client console
+                </Link>
+              ) : null}
+            </div>
+
+            <div className="admin-ui-surface" style={{ padding: "14px", display: "grid", gap: "10px" }}>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Payment metadata</div>
+              <div style={{ display: "grid", gap: "8px", fontSize: "13px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                  <span>Invoice number</span>
+                  <button type="button" style={adminButtonStyle("ghost", { minHeight: "32px", padding: "0 8px" })} onClick={() => void copyText(selectedPayment.invoice_number)}>
+                    <Copy size={14} /> {selectedPayment.invoice_number || "None"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                  <span>Transaction ID</span>
+                  <button type="button" style={adminButtonStyle("ghost", { minHeight: "32px", padding: "0 8px" })} onClick={() => void copyText(selectedPayment.transaction_id)}>
+                    <Copy size={14} /> {selectedPayment.transaction_id || "None"}
+                  </button>
+                </div>
+                <div><strong>Created:</strong> {formatDateTime(selectedPayment.created_at)}</div>
+                <div><strong>Paid:</strong> {formatDateTime(selectedPayment.paid_at)}</div>
+                <div><strong>Method:</strong> {selectedPayment.payment_method || "Manual / missing"}</div>
+                <div><strong>Description:</strong> {selectedPayment.description || "—"}</div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              {(["pending", "paid", "failed", "refunded"] as const).map((status) => (
+                <button key={status} type="button" style={adminButtonStyle(selectedPayment.status === status ? "primary" : "secondary", { minHeight: "36px", padding: "0 10px" })} onClick={() => void updatePaymentStatus(selectedPayment, status)}>
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </AdminDrawer>
     </div>
   );
 }
-
-function readErrorMessage(err: unknown, fallback: string): string {
-  if (typeof err === "object" && err && "message" in err) {
-    const message = (err as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return message;
-  }
-  return fallback;
-}
-
-function statusColor(status: PaymentStatus): string {
-  if (status === "paid") return "#34d399";
-  if (status === "pending") return "#fbbf24";
-  if (status === "failed") return "#f87171";
-  return "#60a5fa";
-}
-
-function kpiCard(color: string): React.CSSProperties {
-  return {
-    background: "var(--bg-surface)",
-    border: "1px solid #1e1e2a",
-    borderRadius: "10px",
-    padding: "12px",
-    position: "relative",
-    overflow: "hidden",
-    boxShadow: `inset 0 -1px 0 ${color}45`,
-  };
-}
-
-function tableHead(columns: string): React.CSSProperties {
-  return {
-    display: "grid",
-    gridTemplateColumns: columns,
-    padding: "9px 12px",
-    borderBottom: "1px solid #1a1a24",
-    background: "var(--bg-panel)",
-    gap: "8px",
-  };
-}
-
-function tableRow(columns: string): React.CSSProperties {
-  return {
-    display: "grid",
-    gridTemplateColumns: columns,
-    padding: "10px 12px",
-    borderBottom: "1px solid #171721",
-    alignItems: "center",
-    gap: "8px",
-  };
-}
-
-const panelStyle: React.CSSProperties = {
-  background: "var(--bg-surface)",
-  border: "1px solid #1e1e2a",
-  borderRadius: "12px",
-  overflow: "hidden",
-};
-
-const panelHeader: React.CSSProperties = {
-  height: "40px",
-  display: "flex",
-  alignItems: "center",
-  padding: "0 12px",
-  borderBottom: "1px solid #1e1e2a",
-  fontSize: "13px",
-  color: "#e0e0e6",
-  fontWeight: 600,
-};
-
-const thStyle: React.CSSProperties = {
-  fontSize: "10px",
-  color: "#3f3f50",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontFamily: "monospace",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: "32px",
-  borderRadius: "8px",
-  border: "1px solid #2a2a36",
-  background: "var(--bg-elevated)",
-  color: "var(--text-primary)",
-  outline: "none",
-  padding: "0 10px",
-  fontSize: "12px",
-  boxSizing: "border-box",
-};
-
-const primaryBtn: React.CSSProperties = {
-  height: "32px",
-  borderRadius: "8px",
-  border: "none",
-  background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, #fff 18%), var(--accent-2))",
-  color: "white",
-  fontSize: "12px",
-  fontWeight: 600,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "5px",
-  padding: "0 11px",
-  cursor: "pointer",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  height: "32px",
-  borderRadius: "8px",
-  border: "1px solid #2a2a36",
-  background: "var(--bg-elevated)",
-  color: "#bbb",
-  fontSize: "12px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "5px",
-  padding: "0 11px",
-  cursor: "pointer",
-};
-
-const miniBtn: React.CSSProperties = {
-  height: "28px",
-  borderRadius: "7px",
-  border: "1px solid #2a2a36",
-  background: "var(--bg-elevated)",
-  color: "#aaa",
-  fontSize: "11px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "0 8px",
-  cursor: "pointer",
-};
-
-const methodActionCellStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  justifyContent: "flex-end",
-  gap: "6px",
-};

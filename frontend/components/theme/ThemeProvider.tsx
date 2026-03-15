@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import ThemePicker from "@/components/theme/ThemePicker";
 import InternalChatLauncher from "@/components/internal-chat/InternalChatLauncher";
+import LanguagePicker from "@/components/i18n/LanguagePicker";
 import { isThemeId, THEME_STORAGE_KEY, ThemeId } from "@/lib/theme";
 
 type ThemeContextValue = {
@@ -43,6 +44,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <ThemeContext.Provider value={value}>
       {children}
+      {mounted ? <LanguagePicker /> : null}
       {mounted ? <InternalChatLauncher /> : null}
       {mounted ? <ThemePicker activeTheme={theme} onChange={setTheme} /> : null}
     </ThemeContext.Provider>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -30,12 +30,14 @@ import { Section } from "@/types";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   fetchClientAccountProfile,
+  ensureClientWorkspaceAccount,
   listClientBusinessDocuments,
   patchClientAccountProfile,
   planLabel,
   upsertClientOnboarding,
   uploadClientBusinessDocument,
   type ClientBusinessDocument,
+  type ClientAccountProfile,
   type ClientProfilePatchPayload,
   type PaidPlanTier,
 } from "@/lib/client-account";
@@ -91,6 +93,7 @@ function resolveDownloadUrl(downloadUrl: string): string {
 
 export default function ClientSettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -117,6 +120,8 @@ export default function ClientSettingsPage() {
   const [trialLabel, setTrialLabel] = useState("Setup required");
   const [trialProgressPercent, setTrialProgressPercent] = useState(0);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [missingSetupFields, setMissingSetupFields] = useState<string[]>([]);
+  const [setupProgressPercent, setSetupProgressPercent] = useState(0);
 
   const [documents, setDocuments] = useState<ClientBusinessDocument[]>([]);
   const [documentType, setDocumentType] = useState("official");
@@ -136,6 +141,30 @@ export default function ClientSettingsPage() {
     setError(nextError);
   };
 
+  const applyAccountState = (account: ClientAccountProfile) => {
+    setOnboardingCompleted(Boolean(account.onboarding_completed));
+    setPaymentRequired(Boolean(account.payment_required));
+    setTrialLabel(
+      account.payment_required
+        ? "Payment required"
+        : account.trial_seconds_remaining > 0
+        ? `${Math.floor(account.trial_seconds_remaining / 86400)}d trial left`
+        : account.trial_started_at
+        ? "Trial ended"
+        : "Setup required"
+    );
+    setTrialProgressPercent(account.trial_progress_percent || 0);
+    setMissingSetupFields(account.missing_setup_fields || []);
+    setSetupProgressPercent(account.setup_progress_percent || 0);
+  };
+
+  useEffect(() => {
+    if (searchParams.get("setup") === "business") {
+      setNotice("Complete your business profile to activate the client workspace.");
+      setError("");
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     let active = true;
 
@@ -144,6 +173,11 @@ export default function ClientSettingsPage() {
       const { data, error: getUserError } = await sb.auth.getUser();
       if (getUserError || !data.user) {
         router.push("/login");
+        return;
+      }
+      const role = typeof data.user.user_metadata?.role === "string" ? data.user.user_metadata.role : "";
+      if (role === "admin" || role === "owner" || role === "super_admin") {
+        router.replace("/admin/dashboard");
         return;
       }
       if (!active) return;
@@ -161,6 +195,7 @@ export default function ClientSettingsPage() {
       setNotifications(stored.notifications);
 
       try {
+        await ensureClientWorkspaceAccount(data.user.id);
         const account = await fetchClientAccountProfile(data.user.id);
         if (account) {
           setBusinessForm({
@@ -175,16 +210,7 @@ export default function ClientSettingsPage() {
             employee_count: account.employee_count ? String(account.employee_count) : "",
             plan_tier: account.plan_tier,
           });
-          setOnboardingCompleted(Boolean(account.onboarding_completed));
-          setPaymentRequired(Boolean(account.payment_required));
-          setTrialLabel(
-            account.payment_required
-              ? "Payment required"
-              : account.trial_seconds_remaining > 0
-              ? `${Math.floor(account.trial_seconds_remaining / 86400)}d trial left`
-              : "Trial ended"
-          );
-          setTrialProgressPercent(account.trial_progress_percent || 0);
+          applyAccountState(account);
 
           if (account.workspace_id) {
             setWorkspaceId(account.workspace_id);
@@ -205,9 +231,13 @@ export default function ClientSettingsPage() {
         } else {
           setBusinessForm((prev) => ({ ...prev, owner_name: metadataName || prev.owner_name }));
           setProfileLoaded(false);
+          setMissingSetupFields([]);
+          setSetupProgressPercent(0);
         }
       } catch {
         setProfileLoaded(false);
+        setMissingSetupFields([]);
+        setSetupProgressPercent(0);
       }
 
       if (!active) return;
@@ -303,16 +333,7 @@ export default function ClientSettingsPage() {
             employee_count: employeeCount,
             plan_tier: businessForm.plan_tier,
           });
-      setOnboardingCompleted(Boolean(updated.onboarding_completed));
-      setPaymentRequired(Boolean(updated.payment_required));
-      setTrialLabel(
-        updated.payment_required
-          ? "Payment required"
-          : updated.trial_seconds_remaining > 0
-          ? `${Math.floor(updated.trial_seconds_remaining / 86400)}d trial left`
-          : "Trial ended"
-      );
-      setTrialProgressPercent(updated.trial_progress_percent || 0);
+      applyAccountState(updated);
       setProfileLoaded(true);
 
       if (updated.workspace_id) {
@@ -348,9 +369,7 @@ export default function ClientSettingsPage() {
 
       const refreshed = await fetchClientAccountProfile(userId).catch(() => null);
       if (refreshed) {
-        setOnboardingCompleted(Boolean(refreshed.onboarding_completed));
-        setPaymentRequired(Boolean(refreshed.payment_required));
-        setTrialProgressPercent(refreshed.trial_progress_percent || 0);
+        applyAccountState(refreshed);
       }
 
       setMessage("Document uploaded successfully. Verification pending.");
@@ -522,6 +541,82 @@ export default function ClientSettingsPage() {
               </div>
             </div>
           </div>
+
+          {!onboardingCompleted ? (
+            <section
+              style={{
+                marginBottom: "16px",
+                border: "1px solid var(--border-default)",
+                borderRadius: "12px",
+                background: "var(--bg-surface)",
+                padding: "14px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", marginBottom: "10px", flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Workspace setup checklist
+                  </div>
+                  <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--text-subtle)" }}>
+                    Complete the required company profile fields and upload official documents to activate the workspace cleanly.
+                  </div>
+                </div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  {Math.round(setupProgressPercent)}% complete
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px", width: "100%", height: "8px", borderRadius: "999px", border: "1px solid var(--border-default)", background: "var(--bg-elevated)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${Math.min(100, Math.max(0, setupProgressPercent))}%`,
+                    height: "100%",
+                    background: "linear-gradient(90deg, var(--accent), var(--accent-2))",
+                  }}
+                />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                {[
+                  ["business_name", "Business name"],
+                  ["registration_number", "Registration number"],
+                  ["country", "Country"],
+                  ["city", "City"],
+                  ["address", "Business address"],
+                  ["owner_name", "Owner name"],
+                  ["employee_count", "Employee count"],
+                  ["documents", "Official documents"],
+                ].map(([key, label]) => {
+                  const done = !missingSetupFields.includes(key);
+                  return (
+                    <div
+                      key={key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--border-default)",
+                        background: "var(--bg-elevated)",
+                        padding: "10px 12px",
+                        fontSize: "12px",
+                        color: done ? "var(--text-primary)" : "var(--text-subtle)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "8px",
+                          height: "8px",
+                          borderRadius: "999px",
+                          background: done ? "var(--success)" : "var(--warning)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <div
             className="client-settings-grid"

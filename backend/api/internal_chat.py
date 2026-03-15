@@ -14,7 +14,7 @@ from urllib import request as urllib_request
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from openai import OpenAI
 from sqlalchemy import func, or_
@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from agents.base_agent import BaseAgent
 from core.config import settings
+from core.auth import assert_request_user_matches
 from database import models, schemas
 from database.connection import get_db
 
@@ -83,13 +84,6 @@ ZOOM_DEFAULT_DURATION_MINUTES = max(15, min(480, int(os.getenv("ZOOM_DEFAULT_DUR
 ZOOM_DEFAULT_TIMEZONE = (os.getenv("ZOOM_DEFAULT_TIMEZONE", "Asia/Tashkent") or "Asia/Tashkent").strip()
 ZOOM_CONFIRMATION_WINDOW_MINUTES = max(5, min(120, int(os.getenv("ZOOM_CONFIRMATION_WINDOW_MINUTES", "45"))))
 ZOOM_CONFIRMATION_PROMPT = "I detected a meeting request. Should I schedule it as a Zoom meeting? Reply: 'Zoom yes' or 'Zoom no'."
-
-
-def _is_super_admin(role: str | None) -> bool:
-    normalized = (role or "").strip().lower()
-    return normalized in {"admin", "owner", "super_admin"}
-
-
 def _normalize_display_name(name: str | None, email: str | None, user_id: str) -> str:
     if name and name.strip():
         return name.strip()[:120]
@@ -101,6 +95,21 @@ def _normalize_display_name(name: str | None, email: str | None, user_id: str) -
 def _normalize_role(role: str | None, fallback: str = "client") -> str:
     normalized = (role or "").strip().lower()
     return normalized or fallback
+
+
+def _resolve_verified_actor(
+    request: Request,
+    *,
+    user_id: str,
+    role: str | None,
+    email: str | None = None,
+):
+    return assert_request_user_matches(
+        request,
+        user_id=(user_id or "").strip(),
+        role=role,
+        email=email,
+    )
 
 
 def _to_uz_datetime_label(value: datetime | None) -> str:
@@ -3458,18 +3467,20 @@ def dispatch_due_reminders_job(db: Session) -> int:
     response_model=schemas.InternalChatTelegramLinkOut | None,
 )
 def get_judith_telegram_link(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
     _assert_thread_access(
         db,
         thread_id=thread.id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     link = (
@@ -3492,18 +3503,20 @@ def get_judith_telegram_link(
     response_model=list[schemas.InternalChatTelegramLinkOut],
 )
 def list_judith_telegram_links(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
     _assert_thread_access(
         db,
         thread_id=thread.id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     rows = (
@@ -3529,11 +3542,13 @@ def list_judith_telegram_links(
 def upsert_judith_telegram_link(
     thread_id: int,
     payload: schemas.InternalChatTelegramLinkCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     normalized_user_id = (payload.user_id or "").strip()
     if not normalized_user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    auth_user = _resolve_verified_actor(request, user_id=normalized_user_id, role=payload.user_role)
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
@@ -3541,7 +3556,7 @@ def upsert_judith_telegram_link(
         db,
         thread_id=thread.id,
         user_id=normalized_user_id,
-        is_super_admin=_is_super_admin(payload.user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     chat_id = _normalize_telegram_chat_id(payload.telegram_chat_id)
@@ -3604,7 +3619,7 @@ def upsert_judith_telegram_link(
             workspace_id=thread.workspace_id,
             thread_id=thread.id,
             user_id=normalized_user_id,
-            user_role=_normalize_role(payload.user_role),
+            user_role=auth_user.role,
             telegram_chat_id=chat_id,
             telegram_username=incoming_username,
             telegram_first_name=incoming_first_name,
@@ -3662,6 +3677,7 @@ def upsert_judith_telegram_link(
     response_model=schemas.InternalChatTelegramLinkOut,
 )
 def delete_judith_telegram_link(
+    request: Request,
     thread_id: int,
     link_id: int,
     user_id: str = Query(...),
@@ -3671,6 +3687,7 @@ def delete_judith_telegram_link(
     normalized_user_id = (user_id or "").strip()
     if not normalized_user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    auth_user = _resolve_verified_actor(request, user_id=normalized_user_id, role=user_role)
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
@@ -3678,7 +3695,7 @@ def delete_judith_telegram_link(
         db,
         thread_id=thread.id,
         user_id=normalized_user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     link = (
@@ -3707,6 +3724,7 @@ def delete_judith_telegram_link(
     response_model=schemas.InternalChatZoomLinkOut | None,
 )
 def get_judith_zoom_link(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
@@ -3715,6 +3733,7 @@ def get_judith_zoom_link(
     normalized_user_id = (user_id or "").strip()
     if not normalized_user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    auth_user = _resolve_verified_actor(request, user_id=normalized_user_id, role=user_role)
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
@@ -3722,7 +3741,7 @@ def get_judith_zoom_link(
         db,
         thread_id=thread.id,
         user_id=normalized_user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     link = (
@@ -3747,11 +3766,13 @@ def get_judith_zoom_link(
 def upsert_judith_zoom_link(
     thread_id: int,
     payload: schemas.InternalChatZoomLinkCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     normalized_user_id = (payload.user_id or "").strip()
     if not normalized_user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    auth_user = _resolve_verified_actor(request, user_id=normalized_user_id, role=payload.user_role)
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
@@ -3759,7 +3780,7 @@ def upsert_judith_zoom_link(
         db,
         thread_id=thread.id,
         user_id=normalized_user_id,
-        is_super_admin=_is_super_admin(payload.user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     zoom_url = _normalize_zoom_join_base_url(payload.zoom_join_base_url)
@@ -3780,14 +3801,14 @@ def upsert_judith_zoom_link(
     if link:
         link.zoom_join_base_url = zoom_url
         link.use_for_meetings = bool(payload.use_for_meetings)
-        link.user_role = _normalize_role(payload.user_role)
+        link.user_role = auth_user.role
         link.updated_at = now_utc
     else:
         link = models.InternalChatZoomLink(
             workspace_id=thread.workspace_id,
             thread_id=thread.id,
             user_id=normalized_user_id,
-            user_role=_normalize_role(payload.user_role),
+            user_role=auth_user.role,
             zoom_join_base_url=zoom_url,
             use_for_meetings=bool(payload.use_for_meetings),
             is_active=True,
@@ -3812,13 +3833,15 @@ def upsert_judith_zoom_link(
 
 @router.get("/threads", response_model=list[schemas.InternalChatThreadOut])
 def list_threads(
+    request: Request,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     workspace_id: str | None = Query(None),
     limit: int = Query(60, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    super_admin = _is_super_admin(user_role)
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
+    super_admin = auth_user.is_admin
 
     query = (
         db.query(models.InternalChatThread)
@@ -3860,6 +3883,7 @@ def list_threads(
 @router.post("/threads/bridge", response_model=schemas.InternalChatThreadOut)
 def open_workspace_bridge(
     payload: schemas.InternalChatBridgeOpen,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     workspace_id = payload.workspace_id.strip()
@@ -3868,6 +3892,12 @@ def open_workspace_bridge(
         raise HTTPException(status_code=400, detail="workspace_id is required.")
     if not requester_user_id:
         raise HTTPException(status_code=400, detail="requester_user_id is required.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=requester_user_id,
+        role=payload.requester_role,
+        email=payload.requester_email,
+    )
 
     thread = (
         db.query(models.InternalChatThread)
@@ -3892,9 +3922,9 @@ def open_workspace_bridge(
         db=db,
         thread_id=thread.id,
         user_id=requester_user_id,
-        email=payload.requester_email,
+        email=auth_user.email,
         display_name=payload.requester_name,
-        role=payload.requester_role,
+        role=auth_user.role,
     )
     _ensure_participant(
         db=db,
@@ -3916,6 +3946,7 @@ def open_workspace_bridge(
 @router.post("/threads/owner-direct", response_model=schemas.InternalChatThreadOut)
 def open_owner_direct(
     payload: schemas.InternalChatBridgeOpen,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     workspace_id = payload.workspace_id.strip()
@@ -3924,6 +3955,12 @@ def open_owner_direct(
         raise HTTPException(status_code=400, detail="workspace_id is required.")
     if not requester_user_id:
         raise HTTPException(status_code=400, detail="requester_user_id is required.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=requester_user_id,
+        role=payload.requester_role,
+        email=payload.requester_email,
+    )
 
     candidates = (
         db.query(models.InternalChatThread)
@@ -3958,9 +3995,9 @@ def open_owner_direct(
         db=db,
         thread_id=thread.id,
         user_id=requester_user_id,
-        email=payload.requester_email,
+        email=auth_user.email,
         display_name=payload.requester_name,
-        role=payload.requester_role,
+        role=auth_user.role,
     )
     _ensure_participant(
         db=db,
@@ -3982,6 +4019,7 @@ def open_owner_direct(
 @router.post("/threads/judith", response_model=schemas.InternalChatThreadOut)
 def open_judith_thread(
     payload: schemas.InternalChatBridgeOpen,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     workspace_id = payload.workspace_id.strip()
@@ -3990,6 +4028,12 @@ def open_judith_thread(
         raise HTTPException(status_code=400, detail="workspace_id is required.")
     if not requester_user_id:
         raise HTTPException(status_code=400, detail="requester_user_id is required.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=requester_user_id,
+        role=payload.requester_role,
+        email=payload.requester_email,
+    )
 
     candidates = (
         db.query(models.InternalChatThread)
@@ -4025,9 +4069,9 @@ def open_judith_thread(
         db=db,
         thread_id=thread.id,
         user_id=requester_user_id,
-        email=payload.requester_email,
+        email=auth_user.email,
         display_name=payload.requester_name,
-        role=payload.requester_role,
+        role=auth_user.role,
     )
     _ensure_participant(
         db=db,
@@ -4070,6 +4114,7 @@ def open_judith_thread(
 @router.post("/threads/direct", response_model=schemas.InternalChatThreadOut)
 def create_direct_thread(
     payload: schemas.InternalChatDirectCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     workspace_id = payload.workspace_id.strip()
@@ -4081,6 +4126,12 @@ def create_direct_thread(
         raise HTTPException(status_code=400, detail="Both requester_user_id and target_user_id are required.")
     if requester_user_id == target_user_id:
         raise HTTPException(status_code=400, detail="Cannot create a direct thread with yourself.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=requester_user_id,
+        role=payload.requester_role,
+        email=payload.requester_email,
+    )
 
     candidates = (
         db.query(models.InternalChatThread)
@@ -4114,9 +4165,9 @@ def create_direct_thread(
         db=db,
         thread_id=thread.id,
         user_id=requester_user_id,
-        email=payload.requester_email,
+        email=auth_user.email,
         display_name=payload.requester_name,
-        role=payload.requester_role,
+        role=auth_user.role,
     )
     _ensure_participant(
         db=db,
@@ -4137,14 +4188,16 @@ def create_direct_thread(
 
 @router.get("/threads/{thread_id}/messages", response_model=list[schemas.InternalChatMessageOut])
 def list_messages(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     _get_thread_or_404(db, thread_id)
-    _assert_thread_access(db, thread_id=thread_id, user_id=user_id, is_super_admin=_is_super_admin(user_role))
+    _assert_thread_access(db, thread_id=thread_id, user_id=user_id, is_super_admin=auth_user.is_admin)
 
     rows = (
         db.query(models.InternalChatMessage)
@@ -4160,17 +4213,19 @@ def list_messages(
 
 @router.delete("/threads/{thread_id}/messages")
 def clear_thread_messages(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_access(
         db,
         thread_id=thread.id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
     _assert_thread_scope(thread, {"judith_assistant"})
 
@@ -4204,11 +4259,13 @@ def clear_thread_messages(
 
 @router.delete("/messages/{message_id}")
 def delete_message(
+    request: Request,
     message_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     message = (
         db.query(models.InternalChatMessage)
         .options(selectinload(models.InternalChatMessage.attachments))
@@ -4223,12 +4280,12 @@ def delete_message(
         db,
         thread_id=thread.id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
     _assert_thread_scope(thread, {"judith_assistant"})
 
     # Regular members can remove their own messages and Judith assistant messages.
-    if not _is_super_admin(user_role):
+    if not auth_user.is_admin:
         allowed_sender_ids = {user_id, JUDITH_USER_ID}
         if message.sender_user_id not in allowed_sender_ids:
             raise HTTPException(
@@ -4256,6 +4313,7 @@ def delete_message(
 def send_message(
     thread_id: int,
     payload: schemas.InternalChatMessageCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     sender_user_id = payload.sender_user_id.strip()
@@ -4264,31 +4322,36 @@ def send_message(
     body = payload.body.strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message body cannot be empty.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=sender_user_id,
+        role=payload.sender_role,
+        email=payload.sender_email,
+    )
 
     thread = _get_thread_or_404(db, thread_id)
-    sender_super_admin = _is_super_admin(payload.sender_role)
     _assert_thread_access(
         db,
         thread_id=thread.id,
         user_id=sender_user_id,
-        is_super_admin=sender_super_admin,
+        is_super_admin=auth_user.is_admin,
     )
 
     _ensure_participant(
         db=db,
         thread_id=thread.id,
         user_id=sender_user_id,
-        email=payload.sender_email,
+        email=auth_user.email,
         display_name=payload.sender_name,
-        role=payload.sender_role,
+        role=auth_user.role,
     )
 
     row = models.InternalChatMessage(
         thread_id=thread.id,
         sender_user_id=sender_user_id,
-        sender_name=_normalize_display_name(payload.sender_name, payload.sender_email, sender_user_id),
-        sender_email=payload.sender_email.strip() if payload.sender_email else None,
-        sender_role=_normalize_role(payload.sender_role),
+        sender_name=_normalize_display_name(payload.sender_name, auth_user.email, sender_user_id),
+        sender_email=auth_user.email,
+        sender_role=auth_user.role,
         body=body,
     )
     db.add(row)
@@ -4312,6 +4375,7 @@ def send_message(
 
 @router.post("/threads/{thread_id}/attachments", response_model=schemas.InternalChatMessageOut)
 async def send_attachment_message(
+    request: Request,
     thread_id: int,
     sender_user_id: str = Form(...),
     sender_role: str = Form("client"),
@@ -4324,13 +4388,19 @@ async def send_attachment_message(
     normalized_sender = sender_user_id.strip()
     if not normalized_sender:
         raise HTTPException(status_code=400, detail="sender_user_id is required.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=normalized_sender,
+        role=sender_role,
+        email=sender_email,
+    )
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_access(
         db,
         thread_id=thread.id,
         user_id=normalized_sender,
-        is_super_admin=_is_super_admin(sender_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     payload = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -4351,9 +4421,9 @@ async def send_attachment_message(
         db=db,
         thread_id=thread.id,
         user_id=normalized_sender,
-        email=sender_email,
+        email=auth_user.email,
         display_name=sender_name,
-        role=sender_role,
+        role=auth_user.role,
     )
 
     body = (caption or "").strip() or f"Sent an attachment: {display_name}"
@@ -4374,9 +4444,9 @@ async def send_attachment_message(
     message = models.InternalChatMessage(
         thread_id=thread.id,
         sender_user_id=normalized_sender,
-        sender_name=_normalize_display_name(sender_name, sender_email, normalized_sender),
-        sender_email=sender_email.strip() if sender_email else None,
-        sender_role=_normalize_role(sender_role),
+        sender_name=_normalize_display_name(sender_name, auth_user.email, normalized_sender),
+        sender_email=auth_user.email,
+        sender_role=auth_user.role,
         body=body,
     )
     db.add(message)
@@ -4411,11 +4481,13 @@ async def send_attachment_message(
 
 @router.get("/attachments/{attachment_id}")
 def download_attachment(
+    request: Request,
     attachment_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     attachment = db.query(models.InternalChatAttachment).filter(models.InternalChatAttachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found.")
@@ -4424,7 +4496,7 @@ def download_attachment(
         db,
         thread_id=attachment.thread_id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     file_path = Path(attachment.storage_key)
@@ -4440,15 +4512,17 @@ def download_attachment(
 
 @router.get("/threads/{thread_id}/judith/tasks", response_model=list[schemas.InternalChatTaskOut])
 def list_judith_tasks(
+    request: Request,
     thread_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
-    _assert_thread_access(db, thread_id=thread.id, user_id=user_id, is_super_admin=_is_super_admin(user_role))
+    _assert_thread_access(db, thread_id=thread.id, user_id=user_id, is_super_admin=auth_user.is_admin)
 
     rows = (
         db.query(models.InternalChatTask)
@@ -4468,6 +4542,7 @@ def list_judith_tasks(
 def create_judith_task(
     thread_id: int,
     payload: schemas.InternalChatTaskCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     creator_user_id = payload.creator_user_id.strip()
@@ -4478,6 +4553,12 @@ def create_judith_task(
         raise HTTPException(status_code=400, detail="Task title is required.")
     if _is_assistant_name_only(title):
         raise HTTPException(status_code=400, detail="Task title is too vague. Please provide a real task.")
+    auth_user = _resolve_verified_actor(
+        request,
+        user_id=creator_user_id,
+        role=payload.creator_role,
+        email=payload.creator_email,
+    )
 
     thread = _get_thread_or_404(db, thread_id)
     _assert_thread_scope(thread, {"judith_assistant"})
@@ -4485,16 +4566,16 @@ def create_judith_task(
         db,
         thread_id=thread.id,
         user_id=creator_user_id,
-        is_super_admin=_is_super_admin(payload.creator_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     _ensure_participant(
         db=db,
         thread_id=thread.id,
         user_id=creator_user_id,
-        email=payload.creator_email,
+        email=auth_user.email,
         display_name=payload.creator_name,
-        role=payload.creator_role,
+        role=auth_user.role,
     )
 
     row = models.InternalChatTask(
@@ -4533,8 +4614,10 @@ def create_judith_task(
 def set_judith_task_state(
     task_id: int,
     payload: schemas.InternalChatTaskPatch,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=payload.user_id, role=payload.user_role)
     task = db.query(models.InternalChatTask).filter(models.InternalChatTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
@@ -4545,7 +4628,7 @@ def set_judith_task_state(
         db,
         thread_id=thread.id,
         user_id=payload.user_id,
-        is_super_admin=_is_super_admin(payload.user_role),
+        is_super_admin=auth_user.is_admin,
     )
 
     task.is_completed = bool(payload.is_completed)
@@ -4585,11 +4668,13 @@ def set_judith_task_state(
 
 @router.delete("/judith/tasks/{task_id}")
 def delete_judith_task(
+    request: Request,
     task_id: int,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     db: Session = Depends(get_db),
 ):
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
     task = db.query(models.InternalChatTask).filter(models.InternalChatTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
@@ -4600,7 +4685,7 @@ def delete_judith_task(
         db,
         thread_id=thread.id,
         user_id=user_id,
-        is_super_admin=_is_super_admin(user_role),
+        is_super_admin=auth_user.is_admin,
     )
     if not task.is_completed:
         raise HTTPException(status_code=400, detail="Only completed tasks can be removed.")
@@ -4629,13 +4714,15 @@ def delete_judith_task(
 
 @router.get("/judith/reminders", response_model=list[schemas.InternalChatTaskOut])
 def list_judith_reminders(
+    request: Request,
     user_id: str = Query(...),
     user_role: str = Query("client"),   
     workspace_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    super_admin = _is_super_admin(user_role)
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
+    super_admin = auth_user.is_admin
     now_utc = datetime.utcnow()
     horizon = now_utc + timedelta(hours=48)
 
@@ -4679,12 +4766,14 @@ def list_judith_reminders(
 
 @router.get("/contacts")
 def list_contacts(
+    request: Request,
     user_id: str = Query(...),
     user_role: str = Query("client"),
     workspace_id: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    super_admin = _is_super_admin(user_role)
+    auth_user = _resolve_verified_actor(request, user_id=user_id, role=user_role)
+    super_admin = auth_user.is_admin
     seen: dict[str, dict] = {}
 
     if super_admin:

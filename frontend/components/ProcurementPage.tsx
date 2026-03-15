@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, TrendingUp, TrendingDown, ClipboardCheck, ReceiptText, AlertTriangle } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 const inputStyle = {
   width: "100%",

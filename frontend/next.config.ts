@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 
 function normalizeApiOrigin(value: string | undefined): string {
   if (!value) return "";
-  return value.trim().replace(/\/+$/, "");
+  const normalized = value.trim().replace(/\/+$/, "");
+  return normalized.replace(/\/api$/i, "");
 }
 
 const nextConfig: NextConfig = {
@@ -17,7 +18,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${apiOrigin}/api/:path*`,
+        destination: `${apiOrigin}/:path*`,
       },
     ];
   },

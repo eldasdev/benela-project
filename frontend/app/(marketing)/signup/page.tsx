@@ -7,14 +7,10 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { readClientSettings, saveClientSettings } from "@/lib/client-settings";
 import { upsertClientOnboarding, type PaidPlanTier } from "@/lib/client-account";
-
-const PLAN_OPTIONS: Array<{ value: PaidPlanTier; label: string; subtitle: string }> = [
-  { value: "starter", label: "Starter", subtitle: "$49/mo · up to 10 users" },
-  { value: "pro", label: "Pro", subtitle: "$149/mo · up to 50 users" },
-  { value: "enterprise", label: "Enterprise", subtitle: "$499/mo · unlimited scale" },
-];
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function SignupPage() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -29,6 +25,23 @@ export default function SignupPage() {
   const [city, setCity] = useState("");
   const [employeeCount, setEmployeeCount] = useState("10");
   const [planTier, setPlanTier] = useState<PaidPlanTier>("starter");
+  const planOptions: Array<{ value: PaidPlanTier; label: string; subtitle: string }> = [
+    {
+      value: "starter",
+      label: t("common.planTiers.starter"),
+      subtitle: t("auth.signup.plans.starter"),
+    },
+    {
+      value: "pro",
+      label: t("common.planTiers.pro"),
+      subtitle: t("auth.signup.plans.pro"),
+    },
+    {
+      value: "enterprise",
+      label: t("common.planTiers.enterprise"),
+      subtitle: t("auth.signup.plans.enterprise"),
+    },
+  ];
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,17 +89,15 @@ export default function SignupPage() {
         }
 
         if (account.payment_required) {
-          setTrialNotice(
-            "This business already exists on Benela. Trial is not applied on this account and payment is required to activate access."
-          );
+          setTrialNotice(t("auth.signup.paymentRequiredNotice"));
         } else {
-          setTrialNotice("Your 7-day trial is active from the first login. Complete business profile and docs in Settings.");
+          setTrialNotice(t("auth.signup.trialActiveNotice"));
         }
       }
 
       setDone(true);
     } catch (signupErr: unknown) {
-      setError(signupErr instanceof Error ? signupErr.message : "Could not create account.");
+      setError(signupErr instanceof Error ? signupErr.message : t("auth.signup.createError"));
     } finally {
       setLoading(false);
     }
@@ -113,11 +124,14 @@ export default function SignupPage() {
             <CheckCircle size={24} color="#34d399" />
           </div>
           <h2 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "8px" }}>
-            Account created
+            {t("auth.signup.accountCreated")}
           </h2>
-          <p style={{ fontSize: "14px", color: "var(--text-subtle)", lineHeight: 1.7 }}>
-            We sent a confirmation link to <strong style={{ color: "var(--text-muted)" }}>{email}</strong>. Open it to activate your workspace.
-          </p>
+          <p
+            style={{ fontSize: "14px", color: "var(--text-subtle)", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{
+              __html: t("auth.signup.activationNotice", { email }),
+            }}
+          />
           {trialNotice ? (
             <p
               style={{
@@ -135,7 +149,7 @@ export default function SignupPage() {
             </p>
           ) : null}
           <Link href="/login" style={{ display: "inline-block", marginTop: "24px", fontSize: "13px", color: "var(--accent)", textDecoration: "none" }}>
-            Back to login →
+            {t("auth.signup.backToLogin")}
           </Link>
         </div>
       </div>
@@ -157,45 +171,45 @@ export default function SignupPage() {
             <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "1px" }}>BENELA</span>
           </div>
           <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>
-            Create your business workspace · 7-day trial on every paid plan
+            {t("auth.signup.subtitle")}
           </p>
         </div>
 
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "24px" }}>
           <form onSubmit={handleSignup} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Full Name</label>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.fullName")}</label>
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Jane Smith"
+                placeholder={t("auth.signup.fullNamePlaceholder")}
                 style={input}
                 required
               />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Work Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" style={input} required />
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.workEmail")}</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.signup.workEmailPlaceholder")} style={input} required />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" style={input} minLength={8} required />
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.password")}</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("auth.signup.passwordPlaceholder")} style={input} minLength={8} required />
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Business Name</label>
-              <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Acme Holdings" style={input} required />
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.businessName")}</label>
+              <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={t("auth.signup.businessNamePlaceholder")} style={input} required />
             </div>
             <div>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Country</label>
-              <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Uzbekistan" style={input} required />
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.country")}</label>
+              <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder={t("auth.signup.countryPlaceholder")} style={input} required />
             </div>
             <div>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>City</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Tashkent" style={input} />
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.city")}</label>
+              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder={t("auth.signup.cityPlaceholder")} style={input} />
             </div>
             <div>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Employees</label>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.employees")}</label>
               <input
                 type="number"
                 min={1}
@@ -207,9 +221,9 @@ export default function SignupPage() {
               />
             </div>
             <div>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Plan</label>
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.plan")}</label>
               <select value={planTier} onChange={(e) => setPlanTier(e.target.value as PaidPlanTier)} style={input}>
-                {PLAN_OPTIONS.map((plan) => (
+                {planOptions.map((plan) => (
                   <option key={plan.value} value={plan.value}>
                     {plan.label} · {plan.subtitle}
                   </option>
@@ -248,19 +262,19 @@ export default function SignupPage() {
               {loading ? (
                 <>
                   <Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} />
-                  Creating account...
+                  {t("auth.signup.creatingAccount")}
                 </>
               ) : (
-                "Create account"
+                t("auth.signup.createAccount")
               )}
             </button>
           </form>
         </div>
 
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "var(--text-subtle)" }}>
-          Already have an account?{" "}
+          {t("auth.signup.alreadyHave")}{" "}
           <Link href="/login" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>
-            Sign in
+            {t("auth.signup.signIn")}
           </Link>
         </p>
       </div>

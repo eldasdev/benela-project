@@ -1,8 +1,8 @@
+import { authFetch } from "@/lib/auth-fetch";
 import { readClientSettings, saveClientSettings } from "@/lib/client-settings";
 
 const API =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" ? "/api" : "http://localhost:8000");
+  typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 export type PaidPlanTier = "starter" | "pro" | "enterprise";
 
@@ -30,6 +30,9 @@ export interface ClientAccountProfile {
   trial_seconds_total: number;
   trial_seconds_remaining: number;
   trial_progress_percent: number;
+  documents_uploaded_count: number;
+  missing_setup_fields: string[];
+  setup_progress_percent: number;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +50,9 @@ export interface ClientSidebarSummary {
   trial_seconds_total: number;
   trial_seconds_remaining: number;
   trial_progress_percent: number;
+  documents_uploaded_count: number;
+  missing_setup_fields: string[];
+  setup_progress_percent: number;
   trial_label: string;
 }
 
@@ -59,6 +65,11 @@ export interface ClientBusinessDocument {
   verification_status: string;
   created_at: string;
   download_url: string;
+}
+
+export interface EnsureClientWorkspaceResult {
+  summary: ClientSidebarSummary | null;
+  bootstrapped: boolean;
 }
 
 export interface ClientOnboardingPayload {
@@ -122,7 +133,7 @@ export function formatTrialRemaining(seconds: number): string {
 export async function upsertClientOnboarding(
   payload: ClientOnboardingPayload
 ): Promise<ClientAccountProfile> {
-  const res = await fetch(`${API}/client-account/onboard`, {
+  const res = await authFetch(`${API}/client-account/onboard`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -135,7 +146,7 @@ export async function upsertClientOnboarding(
 
 export async function fetchClientAccountProfile(userId: string): Promise<ClientAccountProfile | null> {
   const query = new URLSearchParams({ user_id: userId });
-  const res = await fetch(`${API}/client-account/profile?${query.toString()}`);
+  const res = await authFetch(`${API}/client-account/profile?${query.toString()}`);
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(await parseError(res, "Could not load company profile."));
@@ -148,7 +159,7 @@ export async function patchClientAccountProfile(
   payload: ClientProfilePatchPayload
 ): Promise<ClientAccountProfile> {
   const query = new URLSearchParams({ user_id: userId });
-  const res = await fetch(`${API}/client-account/profile?${query.toString()}`, {
+  const res = await authFetch(`${API}/client-account/profile?${query.toString()}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -161,7 +172,7 @@ export async function patchClientAccountProfile(
 
 export async function fetchClientSidebarSummary(userId: string): Promise<ClientSidebarSummary> {
   const query = new URLSearchParams({ user_id: userId });
-  const res = await fetch(`${API}/client-account/sidebar?${query.toString()}`);
+  const res = await authFetch(`${API}/client-account/sidebar?${query.toString()}`);
   if (!res.ok) {
     throw new Error(await parseError(res, "Could not load account summary."));
   }
@@ -174,7 +185,7 @@ export async function createClientPlatformReport(payload: {
   title: string;
   message: string;
 }) {
-  const res = await fetch(`${API}/client-account/reports`, {
+  const res = await authFetch(`${API}/client-account/reports`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -194,7 +205,7 @@ export async function createClientPlatformReport(payload: {
 
 export async function listClientBusinessDocuments(userId: string): Promise<ClientBusinessDocument[]> {
   const query = new URLSearchParams({ user_id: userId, limit: "200" });
-  const res = await fetch(`${API}/client-account/documents?${query.toString()}`);
+  const res = await authFetch(`${API}/client-account/documents?${query.toString()}`);
   if (res.status === 404) return [];
   if (!res.ok) {
     throw new Error(await parseError(res, "Could not load business documents."));
@@ -212,7 +223,7 @@ export async function uploadClientBusinessDocument(
   form.append("document_type", documentType);
   form.append("file", file);
 
-  const res = await fetch(`${API}/client-account/documents`, {
+  const res = await authFetch(`${API}/client-account/documents`, {
     method: "POST",
     body: form,
   });
@@ -234,4 +245,35 @@ export async function syncWorkspaceFromClientAccount(userId: string): Promise<Cl
     });
   }
   return summary;
+}
+
+export async function bootstrapClientWorkspaceAccount(): Promise<ClientAccountProfile> {
+  const res = await authFetch(`${API}/client-account/bootstrap`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res, "Could not initialize client workspace."));
+  }
+  return (await res.json()) as ClientAccountProfile;
+}
+
+export async function ensureClientWorkspaceAccount(
+  userId: string
+): Promise<EnsureClientWorkspaceResult> {
+  let summary = await syncWorkspaceFromClientAccount(userId).catch(() => null);
+  if (summary?.exists) {
+    return { summary, bootstrapped: false };
+  }
+
+  const draft = await bootstrapClientWorkspaceAccount();
+  if (draft.workspace_id) {
+    const current = readClientSettings();
+    saveClientSettings({
+      ...current,
+      workspaceId: draft.workspace_id,
+    });
+  }
+
+  summary = await syncWorkspaceFromClientAccount(userId).catch(() => null);
+  return { summary, bootstrapped: true };
 }

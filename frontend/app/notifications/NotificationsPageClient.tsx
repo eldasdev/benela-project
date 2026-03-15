@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
+import { authFetch } from "@/lib/auth-fetch";
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
+import { ensureClientWorkspaceAccount } from "@/lib/client-account";
 import { pathForSection } from "@/lib/section-routes";
 import {
   markNotificationsAsRead,
@@ -26,7 +28,7 @@ import {
 import { Section } from "@/types";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 type NotificationType = "info" | "warning" | "success" | "critical";
 
@@ -83,7 +85,7 @@ export default function NotificationsPage() {
 
   const loadNotifications = useCallback(async () => {
     const workspaceId = getClientWorkspaceId();
-    const res = await fetch(
+    const res = await authFetch(
       `${API}/notifications?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`
     );
     if (!res.ok) {
@@ -100,6 +102,21 @@ export default function NotificationsPage() {
       if (!data.user) {
         router.push("/login");
         return;
+      }
+      const role = typeof data.user.user_metadata?.role === "string" ? data.user.user_metadata.role : "";
+      if (role === "admin" || role === "owner" || role === "super_admin") {
+        router.replace("/admin/dashboard");
+        return;
+      }
+
+      try {
+        const { summary, bootstrapped } = await ensureClientWorkspaceAccount(data.user.id);
+        if (bootstrapped || summary?.exists === false) {
+          router.replace("/settings?setup=business");
+          return;
+        }
+      } catch {
+        // Keep notifications available if sidebar sync has a transient failure.
       }
 
       setAuthed(true);

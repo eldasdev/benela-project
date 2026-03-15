@@ -4,11 +4,12 @@ import time
 import threading
 from typing import Callable
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError, TimeoutError as SATimeoutError
+from core.auth import require_admin_user, require_authenticated_user, require_client_user
 from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
@@ -29,6 +30,7 @@ from api.notifications import router as notifications_router
 from api.client_account import router as client_account_router
 from api.internal_chat import router as internal_chat_router
 from api.internal_chat import dispatch_due_reminders_job, process_telegram_bot_updates_job
+from api.platform_content import router as platform_content_router
 from database.connection import Base, engine, SessionLocal
 from database.models import (
     SalesProduct,
@@ -64,6 +66,8 @@ from database.models import (
     AITrainerProfile,
     AITrainerSource,
     AITrainerChunk,
+    PlatformSettings,
+    PlatformAboutPage,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -71,6 +75,18 @@ _db_bootstrap_ok = False
 _reminder_worker_thread = None
 _reminder_worker_stop_event = threading.Event()
 _telegram_updates_offset = None
+_MAINTENANCE_EXACT_PATHS = {
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/platform/about",
+    "/platform/pricing-plans",
+    "/platform/runtime",
+    "/api/platform/about",
+    "/api/platform/pricing-plans",
+    "/api/platform/runtime",
+}
+_MAINTENANCE_PREFIXES = ("/admin", "/api/admin")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -256,6 +272,56 @@ def _ensure_client_account_schema():
     ClientPlatformReport.__table__.create(bind=engine, checkfirst=True)
 
 
+def _should_auto_create_platform_content_tables() -> bool:
+    raw = os.getenv("AUTO_CREATE_PLATFORM_CONTENT_TABLES")
+    if raw is not None:
+        return _env_bool("AUTO_CREATE_PLATFORM_CONTENT_TABLES", True)
+    return True
+
+
+def _ensure_platform_content_schema():
+    PlatformSettings.__table__.create(bind=engine, checkfirst=True)
+    PlatformAboutPage.__table__.create(bind=engine, checkfirst=True)
+
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE platform_settings
+                    ADD COLUMN IF NOT EXISTS pricing_plans JSONB NOT NULL DEFAULT '[]'::jsonb
+                    """
+                )
+            )
+        elif dialect == "sqlite":
+            columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(platform_settings)")).fetchall()
+            }
+            if "pricing_plans" not in columns:
+                conn.execute(
+                    text(
+                        """
+                        ALTER TABLE platform_settings
+                        ADD COLUMN pricing_plans TEXT NOT NULL DEFAULT '[]'
+                        """
+                    )
+                )
+        else:
+            inspector = inspect(conn)
+            column_names = {column["name"] for column in inspector.get_columns("platform_settings")}
+            if "pricing_plans" not in column_names:
+                conn.execute(
+                    text(
+                        """
+                        ALTER TABLE platform_settings
+                        ADD COLUMN pricing_plans JSON NOT NULL DEFAULT ('[]')
+                        """
+                    )
+                )
+
+
 def _should_run_internal_chat_reminder_worker() -> bool:
     raw = os.getenv("INTERNAL_CHAT_REMINDER_WORKER_ENABLED")
     if raw is not None:
@@ -337,6 +403,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _is_maintenance_exempt_path(path: str) -> bool:
+    if path in _MAINTENANCE_EXACT_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in _MAINTENANCE_PREFIXES)
+
+
+def _is_maintenance_enabled() -> bool:
+    db = SessionLocal()
+    try:
+        settings_row = db.query(PlatformSettings).first()
+        return bool(settings_row and settings_row.maintenance_mode)
+    finally:
+        db.close()
+
+
+@app.middleware("http")
+async def maintenance_mode_guard(request: Request, call_next):
+    if request.method == "OPTIONS" or _is_maintenance_exempt_path(request.url.path):
+        return await call_next(request)
+
+    try:
+        if _is_maintenance_enabled():
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Platform is temporarily unavailable due to scheduled maintenance.",
+                    "code": "maintenance_mode_enabled",
+                },
+                headers={"Retry-After": "300"},
+            )
+    except Exception:
+        logger.exception("Maintenance-mode guard failed; allowing request to continue")
+
+    return await call_next(request)
+
 # Register routes
 def _register_routes(prefix: str = ""):
     """
@@ -344,24 +446,30 @@ def _register_routes(prefix: str = ""):
     We expose both root routes (e.g. /dashboard/overview) and prefixed routes
     (e.g. /api/dashboard/overview) to support cloud reverse-proxy setups.
     """
-    app.include_router(agents_router, prefix=f"{prefix}/agents", tags=["Agents"])
-    app.include_router(finance_router, prefix=prefix, tags=["Finance"])
-    app.include_router(sales_router, prefix=prefix)
-    app.include_router(support_router, prefix=prefix)
-    app.include_router(supply_chain_router, prefix=prefix)
-    app.include_router(procurement_router, prefix=prefix)
-    app.include_router(insights_router, prefix=prefix)
-    app.include_router(hr_router, prefix=prefix, tags=["HR"])
-    app.include_router(projects_router, prefix=prefix, tags=["Projects"])
-    app.include_router(marketing_router, prefix=prefix)
-    app.include_router(legal_router, prefix=prefix)
-    app.include_router(admin_router, prefix=prefix)
-    app.include_router(marketplace_router, prefix=prefix)
-    app.include_router(dashboard_router, prefix=prefix)
-    app.include_router(chat_router, prefix=prefix)
-    app.include_router(notifications_router, prefix=prefix)
-    app.include_router(client_account_router, prefix=prefix)
-    app.include_router(internal_chat_router, prefix=prefix)
+    app.include_router(
+        agents_router,
+        prefix=f"{prefix}/agents",
+        tags=["Agents"],
+        dependencies=[Depends(require_authenticated_user)],
+    )
+    app.include_router(finance_router, prefix=prefix, tags=["Finance"], dependencies=[Depends(require_client_user)])
+    app.include_router(sales_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(support_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(supply_chain_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(procurement_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(insights_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(hr_router, prefix=prefix, tags=["HR"], dependencies=[Depends(require_client_user)])
+    app.include_router(projects_router, prefix=prefix, tags=["Projects"], dependencies=[Depends(require_client_user)])
+    app.include_router(marketing_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(legal_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(admin_router, prefix=prefix, dependencies=[Depends(require_admin_user)])
+    app.include_router(marketplace_router, prefix=prefix, dependencies=[Depends(require_authenticated_user)])
+    app.include_router(dashboard_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(chat_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(notifications_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(client_account_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(internal_chat_router, prefix=prefix, dependencies=[Depends(require_authenticated_user)])
+    app.include_router(platform_content_router, prefix=prefix)
 
 
 _register_routes("")
@@ -436,6 +544,11 @@ def bootstrap_database():
             targeted_bootstraps.append(("client_account", _ensure_client_account_schema))
         else:
             logger.info("AUTO_CREATE_CLIENT_ACCOUNT_TABLES disabled; skipping client account schema checks")
+
+        if _should_auto_create_platform_content_tables():
+            targeted_bootstraps.append(("platform_content", _ensure_platform_content_schema))
+        else:
+            logger.info("AUTO_CREATE_PLATFORM_CONTENT_TABLES disabled; skipping platform content schema checks")
 
         if not targeted_bootstraps:
             return

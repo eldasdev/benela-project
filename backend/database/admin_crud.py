@@ -12,6 +12,7 @@ from sqlalchemy import func
 
 from database.models import (
     ClientOrg,
+    ClientWorkspaceAccount,
     Subscription,
     Payment,
     PaymentMethod,
@@ -24,6 +25,9 @@ from database.models import (
     NotificationType,
     NotificationTarget,
     PlatformSettings,
+    PlatformAboutPage,
+    ClientBusinessDocument,
+    ClientPlatformReport,
     AITrainerProfile,
     AITrainerSource,
     AITrainerChunk,
@@ -32,31 +36,228 @@ from database import admin_schemas
 
 _PAYMENT_METHODS_SEEDED = False
 
+_DEFAULT_PLATFORM_ABOUT = {
+    "hero_eyebrow": "ABOUT BENELA",
+    "hero_title": "A unified AI operating system for serious businesses.",
+    "hero_subtitle": (
+        "Benela brings finance, operations, collaboration, and AI execution into one platform so teams can run the "
+        "company with fewer tools, faster decisions, and stronger control."
+    ),
+    "story_title": "Our Platform",
+    "story_body": (
+        "Benela is built for companies that have outgrown disconnected spreadsheets, chat threads, and point "
+        "solutions. We combine ERP workflows, collaboration, reporting, and AI copilots into a single command layer."
+    ),
+    "platform_highlights": [
+        {
+            "title": "One operational layer",
+            "description": "Finance, HR, projects, support, legal, procurement, and more in a single connected system.",
+            "metric": "9 modules",
+        },
+        {
+            "title": "Embedded AI execution",
+            "description": "Assistants analyze context, generate reports, structure work, and trigger next actions.",
+            "metric": "24/7 AI",
+        },
+        {
+            "title": "Built for control",
+            "description": "Real-time visibility, approval flows, audit trails, and configurable governance for leadership teams.",
+            "metric": "Full traceability",
+        },
+    ],
+    "mission_title": "Our Mission",
+    "mission_body": (
+        "We help ambitious teams run faster, with better visibility and stronger discipline, by turning operational "
+        "complexity into one intelligent system."
+    ),
+    "mission_points": [
+        {
+            "title": "Replace fragmentation",
+            "description": "Unify tools, workflows, and knowledge so teams stop losing time between disconnected systems.",
+        },
+        {
+            "title": "Increase execution speed",
+            "description": "Give managers and operators a live command layer for decisions, follow-through, and accountability.",
+        },
+        {
+            "title": "Make AI operational",
+            "description": "Use AI for actual business execution, not just chat, by grounding it in company context and workflows.",
+        },
+    ],
+    "team_title": "Leadership Team",
+    "team_body": (
+        "Product, engineering, operations, and customer success leaders building the next generation of business infrastructure."
+    ),
+    "team_members": [
+        {
+            "name": "Shavkat M.",
+            "role": "Founder & Product Lead",
+            "bio": "Leads product direction, market strategy, and the operating model behind Benela.",
+        },
+        {
+            "name": "Core Platform Team",
+            "role": "Engineering & Infrastructure",
+            "bio": "Builds the platform foundation across data, integrations, AI orchestration, and application performance.",
+        },
+        {
+            "name": "Client Operations Team",
+            "role": "Implementation & Success",
+            "bio": "Works with clients on onboarding, rollout design, adoption, and measurable operational improvement.",
+        },
+    ],
+    "faq_title": "Frequently Asked Questions",
+    "faq_body": "Answers to the most important questions prospects and clients ask before rollout.",
+    "faqs": [
+        {
+            "question": "Who is Benela built for?",
+            "answer": "Benela is designed for growing and established companies that need one operating system across finance, operations, people, and AI-assisted execution.",
+        },
+        {
+            "question": "Do you offer a free plan?",
+            "answer": "No. Benela is sold on paid plans, with a limited trial window configured by platform policy for qualified new accounts.",
+        },
+        {
+            "question": "Can Benela be tailored to our workflows?",
+            "answer": "Yes. Modules, policies, AI trainers, internal assistants, and integrations can be configured around how your company actually operates.",
+        },
+        {
+            "question": "How does the AI stay useful?",
+            "answer": "Benela assistants use live platform context, trained knowledge sources, and module-specific workflows to provide grounded output and actions.",
+        },
+    ],
+}
+
+_DEFAULT_PRICING_PLANS = [
+    {
+        "id": "starter",
+        "name": "Starter",
+        "description": "For small organizations building their ERP foundation.",
+        "price_monthly": 49,
+        "price_yearly": 490,
+        "users": "Up to 10 users",
+        "recommended": False,
+        "features": [
+            {"label": "Finance, HR, Sales, Support", "included": True},
+            {"label": "AI copilots for all included modules", "included": True},
+            {"label": "Marketplace app installs", "included": True},
+            {"label": "Custom integrations", "included": False},
+        ],
+    },
+    {
+        "id": "pro",
+        "name": "Pro",
+        "description": "For scaling teams that need full operational visibility.",
+        "price_monthly": 149,
+        "price_yearly": 1490,
+        "users": "Up to 50 users",
+        "recommended": True,
+        "features": [
+            {"label": "All Benela core modules", "included": True},
+            {"label": "Unlimited AI assistant prompts", "included": True},
+            {"label": "Advanced analytics and forecasting", "included": True},
+            {"label": "Dedicated success manager", "included": True},
+        ],
+    },
+    {
+        "id": "enterprise",
+        "name": "Enterprise",
+        "description": "For regulated and multi-entity organizations with custom SLAs.",
+        "price_monthly": 499,
+        "price_yearly": 4990,
+        "users": "Unlimited users",
+        "recommended": False,
+        "features": [
+            {"label": "Private deployment options", "included": True},
+            {"label": "SSO / SCIM and custom RBAC policies", "included": True},
+            {"label": "24/7 priority support and SLA", "included": True},
+            {"label": "Custom AI model routing", "included": True},
+        ],
+    },
+]
+
+
+def _normalize_pricing_plans(plans: Optional[list]) -> list[dict]:
+    normalized: list[dict] = []
+    for index, raw_plan in enumerate(plans or []):
+        if not isinstance(raw_plan, dict):
+            continue
+        features = []
+        for raw_feature in raw_plan.get("features") or []:
+            if not isinstance(raw_feature, dict) or not str(raw_feature.get("label") or "").strip():
+                continue
+            features.append(
+                {
+                    "label": str(raw_feature.get("label") or "").strip(),
+                    "included": bool(raw_feature.get("included", True)),
+                }
+            )
+        plan_id = str(raw_plan.get("id") or "").strip().lower()
+        name = str(raw_plan.get("name") or "").strip()
+        if not plan_id or not name:
+            continue
+        normalized.append(
+            {
+                "id": plan_id,
+                "name": name,
+                "description": str(raw_plan.get("description") or "").strip(),
+                "price_monthly": round(float(raw_plan.get("price_monthly") or 0), 2),
+                "price_yearly": round(float(raw_plan.get("price_yearly") or 0), 2),
+                "users": str(raw_plan.get("users") or "").strip(),
+                "recommended": bool(raw_plan.get("recommended", False)),
+                "features": features,
+            }
+        )
+    return normalized or json.loads(json.dumps(_DEFAULT_PRICING_PLANS))
+
 
 # ── Platform summary ──────────────────────────────────
 def get_platform_summary(db: Session):
-    total_clients = db.query(func.count(ClientOrg.id)).scalar() or 0
-    active_clients = (
-        db.query(func.count(ClientOrg.id))
-        .filter(ClientOrg.is_active == True)
-        .scalar()
-        or 0
-    )
+    total_clients = db.query(func.count(ClientWorkspaceAccount.id)).scalar() or 0
     suspended = (
-        db.query(func.count(ClientOrg.id))
+        db.query(func.count(ClientWorkspaceAccount.id))
+        .outerjoin(ClientOrg, ClientOrg.id == ClientWorkspaceAccount.client_org_id)
         .filter(ClientOrg.is_suspended == True)
         .scalar()
         or 0
     )
+    active_clients = max(0, total_clients - suspended)
     total_mrr = (
         db.query(func.sum(Subscription.price_monthly))
+        .join(ClientWorkspaceAccount, ClientWorkspaceAccount.subscription_id == Subscription.id)
         .filter(Subscription.status.in_([PlanStatus.active, PlanStatus.trial]))
         .scalar()
         or 0
     )
     trial_count = (
-        db.query(func.count(Subscription.id))
-        .filter(Subscription.status == PlanStatus.trial)
+        db.query(func.count(ClientWorkspaceAccount.id))
+        .filter(
+            ClientWorkspaceAccount.trial_ends_at.isnot(None),
+            ClientWorkspaceAccount.trial_ends_at > datetime.utcnow(),
+        )
+        .scalar()
+        or 0
+    )
+    payment_required_count = (
+        db.query(func.count(ClientWorkspaceAccount.id))
+        .filter(ClientWorkspaceAccount.payment_required == True)
+        .scalar()
+        or 0
+    )
+    setup_pending_count = (
+        db.query(func.count(ClientWorkspaceAccount.id))
+        .filter(ClientWorkspaceAccount.onboarding_completed == False)
+        .scalar()
+        or 0
+    )
+    open_reports_count = (
+        db.query(func.count(ClientPlatformReport.id))
+        .filter(ClientPlatformReport.status.notin_(["resolved", "dismissed"]))
+        .scalar()
+        or 0
+    )
+    pending_documents_count = (
+        db.query(func.count(ClientBusinessDocument.id))
+        .filter(ClientBusinessDocument.verification_status == "pending")
         .scalar()
         or 0
     )
@@ -70,11 +271,8 @@ def get_platform_summary(db: Session):
     plan_breakdown = {}
     for tier in PlanTier:
         count = (
-            db.query(func.count(Subscription.id))
-            .filter(
-                Subscription.plan_tier == tier,
-                Subscription.status.in_([PlanStatus.active, PlanStatus.trial]),
-            )
+            db.query(func.count(ClientWorkspaceAccount.id))
+            .filter(ClientWorkspaceAccount.plan_tier == tier)
             .scalar()
             or 0
         )
@@ -86,6 +284,10 @@ def get_platform_summary(db: Session):
         "monthly_recurring_revenue": round(float(total_mrr), 2),
         "paid_this_month": round(float(paid_this_month), 2),
         "trials_active": trial_count,
+        "payment_required_count": payment_required_count,
+        "setup_pending_count": setup_pending_count,
+        "open_reports_count": open_reports_count,
+        "pending_documents_count": pending_documents_count,
         "plan_breakdown": plan_breakdown,
     }
 
@@ -140,6 +342,10 @@ def get_clients_with_subscriptions(db: Session) -> List[dict]:
 def _ensure_platform_settings(db: Session):
     settings = db.query(PlatformSettings).first()
     if settings:
+        if settings.pricing_plans is None:
+            settings.pricing_plans = json.loads(json.dumps(_DEFAULT_PRICING_PLANS))
+            db.commit()
+            db.refresh(settings)
         return settings
     settings = PlatformSettings(
         platform_name="Benela AI",
@@ -153,6 +359,7 @@ def _ensure_platform_settings(db: Session):
         session_timeout_minutes=60,
         allow_marketplace=True,
         allow_plugin_purchases=True,
+        pricing_plans=json.loads(json.dumps(_DEFAULT_PRICING_PLANS)),
         webhook_signing_secret=f"whsec_{secrets.token_urlsafe(24)}",
         platform_api_key=f"bnl_{secrets.token_urlsafe(24)}",
     )
@@ -190,12 +397,31 @@ def update_platform_settings(db: Session, data: admin_schemas.PlatformSettingsUp
         if timeout is not None and (timeout < 5 or timeout > 1440):
             raise ValueError("session_timeout_minutes must be between 5 and 1440")
 
+    if "pricing_plans" in updates and updates["pricing_plans"] is not None:
+        updates["pricing_plans"] = _normalize_pricing_plans(updates["pricing_plans"])
+
     for key, value in updates.items():
         setattr(settings, key, value)
 
     db.commit()
     db.refresh(settings)
     return settings
+
+
+def get_platform_pricing_plans(db: Session) -> list[dict]:
+    settings = _ensure_platform_settings(db)
+    settings.pricing_plans = _normalize_pricing_plans(settings.pricing_plans)
+    db.commit()
+    db.refresh(settings)
+    return settings.pricing_plans
+
+
+def update_platform_pricing_plans(db: Session, plans: list[dict]) -> list[dict]:
+    settings = _ensure_platform_settings(db)
+    settings.pricing_plans = _normalize_pricing_plans(plans)
+    db.commit()
+    db.refresh(settings)
+    return settings.pricing_plans
 
 
 def set_maintenance_mode(db: Session, enabled: bool):
@@ -230,6 +456,34 @@ def rotate_webhook_signing_secret(db: Session):
     db.commit()
     db.refresh(settings)
     return settings.webhook_signing_secret
+
+
+def _ensure_platform_about_page(db: Session):
+    page = db.query(PlatformAboutPage).first()
+    if page:
+        return page
+
+    page = PlatformAboutPage(**_DEFAULT_PLATFORM_ABOUT)
+    db.add(page)
+    db.commit()
+    db.refresh(page)
+    return page
+
+
+def get_platform_about_page(db: Session):
+    return _ensure_platform_about_page(db)
+
+
+def update_platform_about_page(db: Session, data: admin_schemas.PlatformAboutPageUpdate):
+    page = _ensure_platform_about_page(db)
+    updates = data.model_dump(exclude_unset=True)
+
+    for key, value in updates.items():
+        setattr(page, key, value)
+
+    db.commit()
+    db.refresh(page)
+    return page
 
 
 # ── ClientOrg CRUD ────────────────────────────────────
@@ -726,8 +980,8 @@ def get_analytics_growth(db: Session, months: int = 12) -> List[dict]:
         else:
             end = datetime(year, month + 1, 1, 0, 0, 0, 0) - timedelta(seconds=1)
         new_count = (
-            db.query(func.count(ClientOrg.id))
-            .filter(ClientOrg.created_at >= start, ClientOrg.created_at <= end)
+            db.query(func.count(ClientWorkspaceAccount.id))
+            .filter(ClientWorkspaceAccount.created_at >= start, ClientWorkspaceAccount.created_at <= end)
             .scalar()
             or 0
         )

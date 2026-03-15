@@ -6,8 +6,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { Loader2, MailCheck } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function ForgotPasswordPage() {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -24,9 +26,9 @@ export default function ForgotPasswordPage() {
     });
 
     if (resetError) {
-      setError(resetError.message || "Failed to send reset link.");
+      setError(resetError.message || t("auth.forgotPassword.sendError"));
     } else {
-      setSuccess("Password reset link sent. Check your email inbox.");
+      setSuccess(t("auth.forgotPassword.sentSuccess"));
     }
     setLoading(false);
   };
@@ -54,10 +56,10 @@ export default function ForgotPasswordPage() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
             <MailCheck size={18} />
-            <h1 style={{ margin: 0, fontSize: "20px", color: "var(--text-primary)" }}>Reset password</h1>
+            <h1 style={{ margin: 0, fontSize: "20px", color: "var(--text-primary)" }}>{t("auth.forgotPassword.title")}</h1>
           </div>
           <p style={{ marginTop: 0, fontSize: "13px", color: "var(--text-subtle)" }}>
-            Enter your account email and we will send you a reset link.
+            {t("auth.forgotPassword.subtitle")}
           </p>
 
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}>
@@ -65,7 +67,7 @@ export default function ForgotPasswordPage() {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@company.com"
+              placeholder={t("auth.forgotPassword.emailPlaceholder")}
               required
               style={{
                 width: "100%",
@@ -133,18 +135,18 @@ export default function ForgotPasswordPage() {
               {loading ? (
                 <>
                   <Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} />
-                  Sending...
+                  {t("auth.forgotPassword.sending")}
                 </>
               ) : (
-                "Send reset link"
+                t("auth.forgotPassword.sendLink")
               )}
             </button>
           </form>
 
           <p style={{ marginTop: "14px", fontSize: "13px", color: "var(--text-subtle)" }}>
-            Back to{" "}
+            {t("auth.forgotPassword.backTo")}{" "}
             <Link href="/login" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>
-              Sign in
+              {t("auth.forgotPassword.signIn")}
             </Link>
           </p>
         </div>

@@ -25,10 +25,10 @@ import {
 import { useRouter } from "next/navigation";
 import { Section } from "@/types";
 import { getSupabase } from "@/lib/supabase";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 import {
   createClientPlatformReport,
   fetchClientSidebarSummary,
-  planLabel,
   type ClientSidebarSummary,
 } from "@/lib/client-account";
 
@@ -42,17 +42,17 @@ interface SidebarProps {
 }
 
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "projects", label: "Projects", icon: FolderKanban },
-  { id: "finance", label: "Finance", icon: Wallet },
-  { id: "hr", label: "HR", icon: Users },
-  { id: "sales", label: "Sales", icon: TrendingUp },
-  { id: "support", label: "Support", icon: Headset },
-  { id: "legal", label: "Legal", icon: Scale },
-  { id: "marketing", label: "Marketing", icon: Megaphone },
-  { id: "supply_chain", label: "Supply Chain", icon: Truck },
-  { id: "procurement", label: "Procurement", icon: ShoppingCart },
-  { id: "insights", label: "Insights", icon: BarChart3 },
+  { id: "dashboard", labelKey: "common.sections.dashboard", icon: LayoutDashboard },
+  { id: "projects", labelKey: "common.sections.projects", icon: FolderKanban },
+  { id: "finance", labelKey: "common.sections.finance", icon: Wallet },
+  { id: "hr", labelKey: "common.sections.hr", icon: Users },
+  { id: "sales", labelKey: "common.sections.sales", icon: TrendingUp },
+  { id: "support", labelKey: "common.sections.support", icon: Headset },
+  { id: "legal", labelKey: "common.sections.legal", icon: Scale },
+  { id: "marketing", labelKey: "common.sections.marketing", icon: Megaphone },
+  { id: "supply_chain", labelKey: "common.sections.supply_chain", icon: Truck },
+  { id: "procurement", labelKey: "common.sections.procurement", icon: ShoppingCart },
+  { id: "insights", labelKey: "common.sections.insights", icon: BarChart3 },
 ] as const;
 
 export default function Sidebar({
@@ -63,12 +63,13 @@ export default function Sidebar({
   mobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [summary, setSummary] = useState<ClientSidebarSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportTitle, setReportTitle] = useState("Platform issue");
+  const [reportTitle, setReportTitle] = useState("");
   const [reportMessage, setReportMessage] = useState("");
   const [reportSaving, setReportSaving] = useState(false);
   const [reportNotice, setReportNotice] = useState("");
@@ -76,6 +77,12 @@ export default function Sidebar({
   const [authUser, setAuthUser] = useState<{ id: string; email?: string | null } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const drawerMode = isMobile;
+  const planName = (tier?: string | null) =>
+    tier ? t(`common.planTiers.${tier}`, {}, tier) : t("sidebar.enterprisePlan");
+  const navItems = NAV.map((item) => ({
+    ...item,
+    label: t(item.labelKey),
+  }));
 
   const reloadSidebarSummary = async (userId: string) => {
     setSummaryLoading(true);
@@ -123,16 +130,25 @@ export default function Sidebar({
     void reloadSidebarSummary(authUser.id);
   }, [profileMenuOpen, authUser?.id]);
 
+  useEffect(() => {
+    if (!reportTitle.trim()) setReportTitle(t("sidebar.issueTitleDefault"));
+  }, [reportTitle, t]);
+
   const trialProgress = Math.min(100, Math.max(0, summary?.trial_progress_percent || 0));
   const showTrialSummary = Boolean(summary?.exists);
+  const remainingSetupItems = summary?.missing_setup_fields?.length || 0;
   const trialTitle = summary?.payment_required
-    ? "Payment Required"
-    : `${planLabel(summary?.plan_tier)} · Trial`;
+    ? t("sidebar.paymentRequired")
+    : showTrialSummary && !summary?.onboarding_completed
+    ? `Workspace setup · ${Math.round(summary?.setup_progress_percent || 0)}%`
+    : `${planName(summary?.plan_tier)} · ${t("sidebar.trial")}`;
   const trialSubtitle = summary?.payment_required
-    ? "This business is already registered. Payment is required to activate this account."
-    : summary?.trial_label || "Setup required";
-  const profileName = (summary?.owner_name || "Admin").trim() || "Admin";
-  const profilePlanLabel = summary?.plan_tier ? `${planLabel(summary.plan_tier)} Plan` : "Enterprise Plan";
+    ? t("auth.signup.paymentRequiredNotice")
+    : showTrialSummary && !summary?.onboarding_completed
+    ? `${remainingSetupItems} required item${remainingSetupItems === 1 ? "" : "s"} remaining · ${summary?.documents_uploaded_count || 0} document${summary?.documents_uploaded_count === 1 ? "" : "s"} uploaded`
+    : summary?.trial_label || t("sidebar.loadingPlanStatus");
+  const profileName = (summary?.owner_name || t("sidebar.profileFallback")).trim() || t("sidebar.profileFallback");
+  const profilePlanLabel = summary?.plan_tier ? `${planName(summary.plan_tier)} ${t("sidebar.plan")}` : t("sidebar.enterprisePlan");
   const profileInitial = profileName.charAt(0).toUpperCase();
 
   const closeDrawer = () => {
@@ -179,7 +195,7 @@ export default function Sidebar({
           {drawerMode ? (
             <button
               onClick={closeDrawer}
-              aria-label="Close menu"
+              aria-label={t("sidebar.closeMenu")}
               style={{
                 marginLeft: "auto",
                 width: "28px",
@@ -200,8 +216,8 @@ export default function Sidebar({
         </div>
       </div>
       <nav style={{ flex: 1, padding: "12px", overflowY: "auto" }}>
-        <div style={{ fontSize: "9px", color: "var(--text-quiet)", letterSpacing: "0.15em", padding: "4px 8px 8px", fontFamily: "monospace" }}>MODULES</div>
-        {NAV.map((item) => {
+        <div style={{ fontSize: "9px", color: "var(--text-quiet)", letterSpacing: "0.15em", padding: "4px 8px 8px", fontFamily: "monospace" }}>{t("sidebar.modules")}</div>
+        {navItems.map((item) => {
           const isActive = activeSection === item.id;
           const Icon = item.icon;
           return (
@@ -326,7 +342,7 @@ export default function Sidebar({
               }}
             >
               <Settings size={14} color="var(--text-muted)" />
-              Settings
+              {t("sidebar.settings")}
             </button>
             <button
               onClick={() => {
@@ -358,7 +374,7 @@ export default function Sidebar({
               }}
             >
               <ShoppingBag size={14} color="var(--text-muted)" />
-              Marketplace
+              {t("sidebar.marketplace")}
             </button>
             <button
               onClick={() => {
@@ -391,7 +407,7 @@ export default function Sidebar({
               }}
             >
               <Bell size={14} color="var(--text-muted)" />
-              Notifications
+              {t("sidebar.notifications")}
             </button>
             <button
               onClick={() => {
@@ -424,7 +440,7 @@ export default function Sidebar({
               }}
             >
               <LifeBuoy size={14} color={reportOpen ? "var(--accent)" : "var(--text-muted)"} />
-              Report Platform Issue
+              {t("sidebar.reportPlatformIssue")}
             </button>
             {reportOpen ? (
               <div
@@ -442,7 +458,7 @@ export default function Sidebar({
                 <input
                   value={reportTitle}
                   onChange={(e) => setReportTitle(e.target.value)}
-                  placeholder="Issue title"
+                  placeholder={t("sidebar.issueTitlePlaceholder")}
                   style={{
                     width: "100%",
                     borderRadius: "8px",
@@ -457,7 +473,7 @@ export default function Sidebar({
                 <textarea
                   value={reportMessage}
                   onChange={(e) => setReportMessage(e.target.value)}
-                  placeholder="Describe the issue you found..."
+                  placeholder={t("sidebar.issueDescriptionPlaceholder")}
                   rows={3}
                   style={{
                     width: "100%",
@@ -484,11 +500,11 @@ export default function Sidebar({
                   disabled={reportSaving}
                   onClick={async () => {
                     if (!authUser?.id) {
-                      setReportError("Sign in required.");
+                      setReportError(t("sidebar.signInRequired"));
                       return;
                     }
                     if (!reportTitle.trim() || !reportMessage.trim()) {
-                      setReportError("Title and message are required.");
+                      setReportError(t("sidebar.titleAndMessageRequired"));
                       return;
                     }
                     setReportSaving(true);
@@ -501,10 +517,10 @@ export default function Sidebar({
                         title: reportTitle.trim(),
                         message: reportMessage.trim(),
                       });
-                      setReportNotice("Report sent to Benela support.");
+                      setReportNotice(t("sidebar.reportSent"));
                       setReportMessage("");
                     } catch (err: unknown) {
-                      setReportError(err instanceof Error ? err.message : "Could not send report.");
+                      setReportError(err instanceof Error ? err.message : t("sidebar.reportFailed"));
                     } finally {
                       setReportSaving(false);
                     }
@@ -521,7 +537,7 @@ export default function Sidebar({
                     opacity: reportSaving ? 0.7 : 1,
                   }}
                 >
-                  {reportSaving ? "Sending..." : "Send Report"}
+                  {reportSaving ? t("sidebar.sending") : t("sidebar.sendReport")}
                 </button>
               </div>
             ) : null}
@@ -539,7 +555,7 @@ export default function Sidebar({
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
                 <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600 }}>
-                  {summaryLoading ? "Loading plan status..." : showTrialSummary ? trialTitle : "Plan setup pending"}
+                  {summaryLoading ? t("sidebar.loadingPlanStatus") : showTrialSummary ? trialTitle : t("sidebar.planSetupPending")}
                 </div>
                 {summary?.payment_required ? (
                   <span
@@ -556,16 +572,16 @@ export default function Sidebar({
                     }}
                   >
                     <AlertTriangle size={11} />
-                    Locked
+                    {t("sidebar.locked")}
                   </span>
                 ) : null}
               </div>
               <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
                 {summaryLoading
-                  ? "Checking trial..."
+                  ? t("sidebar.checkingTrial")
                   : showTrialSummary
                   ? trialSubtitle
-                  : "Complete onboarding in Settings to activate trial tracking."}
+                  : t("sidebar.activateTrialHint")}
               </div>
               <div
                 style={{
@@ -606,7 +622,7 @@ export default function Sidebar({
                     cursor: "pointer",
                   }}
                 >
-                  Complete business profile
+                  {t("sidebar.completeBusinessProfile")}
                 </button>
               ) : null}
             </div>
@@ -641,7 +657,7 @@ export default function Sidebar({
               }}
             >
               <LogOut size={14} color="var(--danger)" />
-              Log Out
+              {t("sidebar.logOut")}
             </button>
           </div>
         )}

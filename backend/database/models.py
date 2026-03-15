@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base
@@ -834,10 +834,61 @@ class PlatformSettings(Base):
     trusted_ip_ranges         = Column(Text, nullable=True)
     allow_marketplace         = Column(Boolean, default=True)
     allow_plugin_purchases    = Column(Boolean, default=True)
+    pricing_plans             = Column(JSON, nullable=False, default=list)
     webhook_signing_secret    = Column(String(255), nullable=True)
     platform_api_key          = Column(String(255), nullable=True)
     created_at                = Column(DateTime, default=func.now())
     updated_at                = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class PlatformAboutPage(Base):
+    __tablename__ = "platform_about_page"
+    id = Column(Integer, primary_key=True, index=True)
+    hero_eyebrow = Column(String(160), nullable=False, default="ABOUT BENELA")
+    hero_title = Column(String(255), nullable=False, default="A unified AI operating system for serious businesses.")
+    hero_subtitle = Column(
+        Text,
+        nullable=False,
+        default=(
+            "Benela brings finance, operations, collaboration, and AI execution into one platform so teams can run the "
+            "company with fewer tools, faster decisions, and stronger control."
+        ),
+    )
+    story_title = Column(String(160), nullable=False, default="Our Platform")
+    story_body = Column(
+        Text,
+        nullable=False,
+        default=(
+            "Benela is built for companies that have outgrown disconnected spreadsheets, chat threads, and point "
+            "solutions. We combine ERP workflows, collaboration, reporting, and AI copilots into a single command layer."
+        ),
+    )
+    platform_highlights = Column(JSON, nullable=False, default=list)
+    mission_title = Column(String(160), nullable=False, default="Our Mission")
+    mission_body = Column(
+        Text,
+        nullable=False,
+        default=(
+            "We help ambitious teams run faster, with better visibility and stronger discipline, by turning operational "
+            "complexity into one intelligent system."
+        ),
+    )
+    mission_points = Column(JSON, nullable=False, default=list)
+    team_title = Column(String(160), nullable=False, default="Leadership Team")
+    team_body = Column(
+        Text,
+        nullable=False,
+        default="Product, engineering, operations, and customer success leaders building the next generation of business infrastructure.",
+    )
+    team_members = Column(JSON, nullable=False, default=list)
+    faq_title = Column(String(160), nullable=False, default="Frequently Asked Questions")
+    faq_body = Column(
+        Text,
+        nullable=False,
+        default="Answers to the most important questions prospects and clients ask before rollout.",
+    )
+    faqs = Column(JSON, nullable=False, default=list)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 # ── Client Onboarding / Workspace Account ────────────

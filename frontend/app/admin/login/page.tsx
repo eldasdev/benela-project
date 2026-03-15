@@ -7,6 +7,11 @@ import { useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
 import { Loader2, Lock, ShieldCheck, Sparkles } from "lucide-react";
 
+function isAdminRole(role: unknown): boolean {
+  if (typeof role !== "string") return false;
+  return ["admin", "owner", "super_admin"].includes(role);
+}
+
 const input: React.CSSProperties = {
   width: "100%",
   padding: "12px 14px",
@@ -40,7 +45,7 @@ export default function AdminLoginPage() {
       return;
     }
     const role = data.user?.user_metadata?.role;
-    if (role !== "admin") {
+    if (!isAdminRole(role)) {
       await getSupabase().auth.signOut();
       router.push("/login");
       setLoading(false);

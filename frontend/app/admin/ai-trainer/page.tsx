@@ -1,10 +1,14 @@
 "use client";
 
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { authFetch } from "@/lib/auth-fetch";
 import {
-  AlertTriangle,
-  BookOpen,
-  CheckCircle2,
+  AdminMetricCard,
+  AdminMetricGrid,
+  AdminPageHero,
+  adminButtonStyle,
+} from "@/components/admin/ui";
+import {
   Database,
   FileUp,
   Globe,
@@ -15,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 type TrainerProvider = "auto" | "anthropic" | "openai";
 
@@ -165,7 +169,7 @@ export default function AdminAITrainerPage() {
   const loadProfiles = useCallback(async () => {
     setLoadingProfiles(true);
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/profiles`);
+      const res = await authFetch(`${API}/admin/ai-trainer/profiles`);
       const payload = await parseResponse<TrainerProfile[]>(res, "Failed to load AI trainer profiles.");
       setProfiles(payload);
 
@@ -190,8 +194,8 @@ export default function AdminAITrainerPage() {
     setError("");
     try {
       const [profileRes, sourcesRes] = await Promise.all([
-        fetch(`${API}/admin/ai-trainer/profile/${encodeURIComponent(section)}`),
-        fetch(`${API}/admin/ai-trainer/sources?section=${encodeURIComponent(section)}&limit=500`),
+        authFetch(`${API}/admin/ai-trainer/profile/${encodeURIComponent(section)}`),
+        authFetch(`${API}/admin/ai-trainer/sources?section=${encodeURIComponent(section)}&limit=500`),
       ]);
       const profilePayload = await parseResponse<TrainerProfile>(
         profileRes,
@@ -229,7 +233,7 @@ export default function AdminAITrainerPage() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/profile/${encodeURIComponent(selectedSection)}`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/profile/${encodeURIComponent(selectedSection)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -259,7 +263,7 @@ export default function AdminAITrainerPage() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/sources/url`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/sources/url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -290,7 +294,7 @@ export default function AdminAITrainerPage() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/sources/text`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/sources/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,7 +327,7 @@ export default function AdminAITrainerPage() {
       if (fileTitle.trim()) {
         form.append("title", fileTitle.trim());
       }
-      const res = await fetch(`${API}/admin/ai-trainer/sources/file`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/sources/file`, {
         method: "POST",
         body: form,
       });
@@ -348,7 +352,7 @@ export default function AdminAITrainerPage() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/sources/${source.id}/reindex`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/sources/${source.id}/reindex`, {
         method: "POST",
       });
       const updated = await parseResponse<TrainerSource>(res, "Failed to reindex source.");
@@ -372,7 +376,7 @@ export default function AdminAITrainerPage() {
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/sources/${source.id}`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/sources/${source.id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -393,7 +397,7 @@ export default function AdminAITrainerPage() {
     setRunningPreview(true);
     setError("");
     try {
-      const res = await fetch(`${API}/admin/ai-trainer/context-preview`, {
+      const res = await authFetch(`${API}/admin/ai-trainer/context-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -417,7 +421,7 @@ export default function AdminAITrainerPage() {
     setRunningTest(true);
     setError("");
     try {
-      const res = await fetch(`${API}/agents/${encodeURIComponent(selectedSection)}`, {
+      const res = await authFetch(`${API}/agents/${encodeURIComponent(selectedSection)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -443,21 +447,18 @@ export default function AdminAITrainerPage() {
   }
 
   return (
-    <div className="admin-page-shell" style={{ maxWidth: "1480px", margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "12px", flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "22px", color: "var(--text-primary)", fontWeight: 700 }}>
-            AI Trainer Studio
-          </h1>
-          <p style={{ marginTop: "4px", color: "var(--text-subtle)", fontSize: "12px" }}>
-            Train section-specific intelligence from websites, documents and curated internal notes.
-          </p>
-        </div>
-        <button onClick={() => void loadSectionData(selectedSection)} style={secondaryBtn} disabled={loadingSection}>
-          <RefreshCcw size={14} />
-          {loadingSection ? "Refreshing..." : "Refresh Section"}
-        </button>
-      </div>
+    <div className="admin-page-shell" style={{ maxWidth: "1480px", margin: "0 auto", display: "grid", gap: "16px" }}>
+      <AdminPageHero
+        eyebrow="Knowledge Operations"
+        title="AI Trainer Studio"
+        subtitle="Train section-specific intelligence from websites, documents, and curated internal notes. This surface controls retrieval quality, provider routing, and runtime behavior for each module assistant."
+        actions={
+          <button onClick={() => void loadSectionData(selectedSection)} style={adminButtonStyle("secondary")} disabled={loadingSection}>
+            <RefreshCcw size={14} />
+            {loadingSection ? "Refreshing..." : "Refresh Section"}
+          </button>
+        }
+      />
 
       {(error || notice) && (
         <div
@@ -475,13 +476,13 @@ export default function AdminAITrainerPage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px", marginBottom: "16px" }}>
-        <StatCard title="Sources" value={String(sourceStats.total)} tone="#60a5fa" icon={<Database size={14} />} />
-        <StatCard title="Ready" value={String(sourceStats.ready)} tone="#34d399" icon={<CheckCircle2 size={14} />} />
-        <StatCard title="Failed" value={String(sourceStats.failed)} tone="#f87171" icon={<AlertTriangle size={14} />} />
-        <StatCard title="Chunks" value={String(sourceStats.chunks)} tone="#a78bfa" icon={<BookOpen size={14} />} />
-        <StatCard title="Words Indexed" value={sourceStats.words.toLocaleString()} tone="#fbbf24" icon={<Search size={14} />} />
-      </div>
+      <AdminMetricGrid>
+        <AdminMetricCard label="Sources" value={String(sourceStats.total)} detail="Knowledge assets attached to this section" tone="accent" />
+        <AdminMetricCard label="Ready" value={String(sourceStats.ready)} detail="Indexed and retrievable" tone="success" />
+        <AdminMetricCard label="Failed" value={String(sourceStats.failed)} detail="Sources needing repair or reindexing" tone={sourceStats.failed > 0 ? "danger" : "neutral"} />
+        <AdminMetricCard label="Chunks" value={String(sourceStats.chunks)} detail="Fragments available to retrieval" tone="accent" />
+        <AdminMetricCard label="Words indexed" value={sourceStats.words.toLocaleString()} detail="Approximate knowledge volume" tone="warning" />
+      </AdminMetricGrid>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "16px" }}>
         <section style={panelStyle}>
@@ -725,37 +726,6 @@ export default function AdminAITrainerPage() {
       </section>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  tone,
-  icon,
-}: {
-  title: string;
-  value: string;
-  tone: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        border: `1px solid ${tone}44`,
-        background: `${tone}12`,
-        borderRadius: "12px",
-        padding: "10px 12px",
-        display: "grid",
-        gap: "6px",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{title}</span>
-        <span style={{ color: tone }}>{icon}</span>
-      </div>
-      <span style={{ fontSize: "22px", fontWeight: 700, color: tone, lineHeight: 1 }}>{value}</span>
     </div>
   );
 }

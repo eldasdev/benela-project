@@ -9,28 +9,33 @@ import {
   CreditCard,
   DollarSign,
   Bell,
+  ShieldCheck,
   TrendingUp,
   Store,
   BrainCircuit,
   Settings,
+  FileText,
   LogOut,
-  ArrowLeft,
   X,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
+import { useI18n } from "@/components/i18n/LanguageProvider";
+import { authFetch } from "@/lib/auth-fetch";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 const NAV = [
-  { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/admin/clients", label: "Clients", icon: Building2 },
-  { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
-  { href: "/admin/payments", label: "Payments", icon: DollarSign },
-  { href: "/admin/notifications", label: "Notifications", icon: Bell },
-  { href: "/admin/marketplace", label: "Marketplace", icon: Store },
-  { href: "/admin/analytics", label: "Analytics", icon: TrendingUp },
-  { href: "/admin/ai-trainer", label: "AI Trainer", icon: BrainCircuit },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+  { href: "/admin/dashboard", labelKey: "adminSidebar.overview", icon: LayoutDashboard },
+  { href: "/admin/clients", labelKey: "adminSidebar.clients", icon: Building2 },
+  { href: "/admin/subscriptions", labelKey: "adminSidebar.subscriptions", icon: CreditCard },
+  { href: "/admin/payments", labelKey: "adminSidebar.payments", icon: DollarSign },
+  { href: "/admin/notifications", labelKey: "adminSidebar.notificationsNav", icon: Bell },
+  { href: "/admin/site-compliances", labelKey: "adminSidebar.siteCompliances", icon: ShieldCheck },
+  { href: "/admin/marketplace", labelKey: "adminSidebar.marketplaceNav", icon: Store },
+  { href: "/admin/analytics", labelKey: "adminSidebar.analyticsNav", icon: TrendingUp },
+  { href: "/admin/about", labelKey: "adminSidebar.aboutPage", icon: FileText },
+  { href: "/admin/ai-trainer", labelKey: "adminSidebar.aiTrainer", icon: BrainCircuit },
+  { href: "/admin/settings", labelKey: "adminSidebar.settingsNav", icon: Settings },
 ] as const;
 
 export default function AdminSidebar({
@@ -42,6 +47,7 @@ export default function AdminSidebar({
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 }) {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [quickStats, setQuickStats] = useState<{
     monthly_recurring_revenue?: number;
@@ -50,7 +56,7 @@ export default function AdminSidebar({
   }>({});
 
   useEffect(() => {
-    fetch(`${API}/admin/summary`)
+    authFetch(`${API}/admin/summary`)
       .then((r) => r.ok ? r.json() : {})
       .then((d) => setQuickStats(d))
       .catch(() => {});
@@ -64,6 +70,10 @@ export default function AdminSidebar({
   const closeDrawer = () => {
     if (isMobile) onCloseMobile?.();
   };
+  const navItems = NAV.map((item) => ({
+    ...item,
+    label: t(item.labelKey),
+  }));
 
   return (
     <aside
@@ -123,13 +133,13 @@ export default function AdminSidebar({
                 letterSpacing: "0.1em",
               }}
             >
-              CONTROL CENTER
+                {t("adminSidebar.controlCenter")}
+              </div>
             </div>
-          </div>
           {isMobile ? (
             <button
               onClick={closeDrawer}
-              aria-label="Close menu"
+              aria-label={t("adminSidebar.closeMenu")}
               style={{
                 marginLeft: "auto",
                 width: "28px",
@@ -160,9 +170,9 @@ export default function AdminSidebar({
             fontFamily: "monospace",
           }}
         >
-          NAVIGATION
+          {t("adminSidebar.navigation")}
         </div>
-        {NAV.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
@@ -209,10 +219,10 @@ export default function AdminSidebar({
                   color: isActive ? "var(--sidebar-active-text)" : "var(--text-muted)",
                 }}
               >
-                {item.label}
-              </span>
-            </Link>
-          );
+                  {item.label}
+                </span>
+              </Link>
+            );
         })}
 
         <div
@@ -224,7 +234,7 @@ export default function AdminSidebar({
             fontFamily: "monospace",
           }}
         >
-          QUICK STATS
+          {t("adminSidebar.quickStats")}
         </div>
         <div
           style={{
@@ -238,19 +248,19 @@ export default function AdminSidebar({
           }}
         >
           <div style={{ marginBottom: "6px" }}>
-            MRR:{" "}
+            {t("adminSidebar.mrr")}:{" "}
             <span style={{ color: "#34d399", fontWeight: 600 }}>
               ${typeof quickStats.monthly_recurring_revenue === "number" ? quickStats.monthly_recurring_revenue.toLocaleString() : "—"}
             </span>
           </div>
           <div style={{ marginBottom: "6px" }}>
-            Clients:{" "}
+            {t("adminSidebar.clients")}:{" "}
             <span style={{ color: "#60a5fa", fontWeight: 600 }}>
               {quickStats.total_clients ?? "—"}
             </span>
           </div>
           <div>
-            Trials:{" "}
+            {t("adminSidebar.trials")}:{" "}
             <span style={{ color: "#fbbf24", fontWeight: 600 }}>
               {quickStats.trials_active ?? "—"}
             </span>
@@ -259,26 +269,6 @@ export default function AdminSidebar({
       </nav>
 
       <div style={{ padding: "12px", borderTop: "1px solid var(--border-default)" }}>
-        <Link
-          href="/dashboard"
-          onClick={closeDrawer}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "8px 12px",
-            borderRadius: "8px",
-            fontSize: "12px",
-            color: "var(--text-muted)",
-            textDecoration: "none",
-            marginBottom: "6px",
-            transition: "background 0.15s",
-            border: "1px solid transparent",
-          }}
-        >
-          <ArrowLeft size={14} />
-          Back to Platform
-        </Link>
         <button
           onClick={handleLogout}
           style={{
@@ -297,8 +287,8 @@ export default function AdminSidebar({
           }}
         >
           <LogOut size={14} />
-          Logout
-        </button>
+            {t("adminSidebar.logout")}
+          </button>
       </div>
     </aside>
   );

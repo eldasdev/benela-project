@@ -9,6 +9,11 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 import { PanelLeft } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
+function isAdminRole(role: unknown): boolean {
+  if (typeof role !== "string") return false;
+  return ["admin", "owner", "super_admin"].includes(role);
+}
+
 function LoadingSpinner() {
   return (
     <div
@@ -55,7 +60,7 @@ export default function AdminLayout({
     getSupabase()
       .auth.getUser()
       .then(({ data }) => {
-        const isAdmin = data.user?.user_metadata?.role === "admin";
+        const isAdmin = isAdminRole(data.user?.user_metadata?.role);
         if (!data.user || !isAdmin) {
           router.push("/admin/login");
         } else {

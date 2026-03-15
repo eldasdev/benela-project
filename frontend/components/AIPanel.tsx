@@ -25,6 +25,7 @@ import {
   Mic,
   Square,
 } from "lucide-react";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 interface MessageAttachment {
   file_name: string;
@@ -911,11 +912,6 @@ const TEXT_ATTACHMENT_MIME_EXACT = new Set([
   "application/vnd.ms-excel",
 ]);
 
-const SECTION_OPTIONS = (Object.keys(SECTION_CONTEXT) as Section[]).map((value) => ({
-  value,
-  label: SECTION_CONTEXT[value].label,
-}));
-
 const storageIdentityKey = (userId: string, workspaceId: string): string =>
   `${userId || "anon"}__${workspaceId || "default-workspace"}`;
 
@@ -949,8 +945,8 @@ const parseThreadIdFromSessionId = (sessionId: string): string => {
   return sessionId.slice(index + marker.length) || sessionId;
 };
 
-const defaultThreadTitle = (section: Section): string =>
-  `${SECTION_CONTEXT[section]?.label ?? "Workspace"} Chat`;
+const defaultThreadTitle = (section: Section, sectionLabel?: string): string =>
+  `${sectionLabel ?? SECTION_CONTEXT[section]?.label ?? "Workspace"} Chat`;
 
 const deriveThreadTitle = (input: string, fallback: string): string => {
   const normalized = cleanLabel(input)
@@ -966,6 +962,7 @@ const buildNewThread = (
   model: AssistantModelId,
   userId?: string,
   workspaceId?: string,
+  sectionLabel?: string,
 ): ChatThread => {
   const id = makeThreadId();
   const now = new Date().toISOString();
@@ -973,7 +970,7 @@ const buildNewThread = (
     id,
     section,
     sessionId: buildSessionId(section, id, userId, workspaceId),
-    title: defaultThreadTitle(section),
+    title: defaultThreadTitle(section, sectionLabel),
     preview: "",
     model,
     pinned: false,
@@ -987,17 +984,6 @@ const sortThreads = (threads: ChatThread[]): ChatThread[] =>
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
-
-const formatThreadTime = (isoValue: string): string => {
-  const timestamp = new Date(isoValue).getTime();
-  if (!Number.isFinite(timestamp)) return "";
-  const deltaMs = Date.now() - timestamp;
-  if (deltaMs < 60_000) return "now";
-  if (deltaMs < 3_600_000) return `${Math.floor(deltaMs / 60_000)}m`;
-  if (deltaMs < 86_400_000) return `${Math.floor(deltaMs / 3_600_000)}h`;
-  if (deltaMs < 7 * 86_400_000) return `${Math.floor(deltaMs / 86_400_000)}d`;
-  return new Date(isoValue).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
 
 const formatBytes = (value: number): string => {
   if (!Number.isFinite(value) || value < 0) return "0 B";
@@ -1111,6 +1097,7 @@ const findModelOption = (modelId: AssistantModelId): AssistantModelOption =>
   MODEL_OPTIONS.find((model) => model.id === modelId) ?? MODEL_OPTIONS[0];
 
 export default function AIPanel({ isOpen, section, onClose, onSectionChange }: Props) {
+  const { t, getValue } = useI18n();
   const isMobile = useIsMobile(980);
   const [authUserId, setAuthUserId] = useState("");
   const [workspaceId, setWorkspaceId] = useState("default-workspace");
@@ -1145,10 +1132,44 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speechTranscriptRef = useRef("");
   const speechErrorRef = useRef<string | null>(null);
-  const ctx = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
+  const translatedSectionContext = getValue<Partial<Record<Section, { label?: string; prompts?: string[] }>>>(
+    "ai.sectionContext",
+    {},
+  );
+  const ctxBase = SECTION_CONTEXT[section] ?? SECTION_CONTEXT.dashboard;
+  const ctxLocale = translatedSectionContext?.[section];
+  const ctx = {
+    ...ctxBase,
+    label: typeof ctxLocale?.label === "string" ? ctxLocale.label : ctxBase.label,
+    prompts:
+      Array.isArray(ctxLocale?.prompts) && ctxLocale.prompts.every((item) => typeof item === "string")
+        ? ctxLocale.prompts
+        : ctxBase.prompts,
+  };
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
   const selectedModel = findModelOption(model);
   const storageIdentity = storageIdentityKey(authUserId, workspaceId);
+  const sectionOptions = useMemo(
+    () =>
+      (Object.keys(SECTION_CONTEXT) as Section[]).map((value) => {
+        const item = translatedSectionContext?.[value];
+        return {
+          value,
+          label: typeof item?.label === "string" ? item.label : SECTION_CONTEXT[value].label,
+        };
+      }),
+    [translatedSectionContext],
+  );
+  const formatThreadTimeLabel = (isoValue: string): string => {
+    const timestamp = new Date(isoValue).getTime();
+    if (!Number.isFinite(timestamp)) return "";
+    const deltaMs = Date.now() - timestamp;
+    if (deltaMs < 60_000) return t("ai.shell.now", {}, "now");
+    if (deltaMs < 3_600_000) return t("ai.shell.minutesAgo", { count: Math.floor(deltaMs / 60_000) }, "{{count}}m");
+    if (deltaMs < 86_400_000) return t("ai.shell.hoursAgo", { count: Math.floor(deltaMs / 3_600_000) }, "{{count}}h");
+    if (deltaMs < 7 * 86_400_000) return t("ai.shell.daysAgo", { count: Math.floor(deltaMs / 86_400_000) }, "{{count}}d");
+    return new Date(isoValue).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
 
   const filteredThreads = useMemo(() => {
     const query = threadSearch.trim().toLowerCase();
@@ -1232,7 +1253,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   };
 
   const transcribeAudioBlob = async (blob: Blob) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+    const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
     const extension = blob.type.includes("mp4") ? "m4a" : "webm";
     const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
       type: blob.type || "audio/webm",
@@ -1275,7 +1296,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const ensureThread = (): ChatThread => {
     const existing = threadsRef.current.find((thread) => thread.id === activeThreadId);
     if (existing) return existing;
-    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
+    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined, ctx.label);
     setThreads((prev) => sortThreads([created, ...prev]));
     setActiveThreadId(created.id);
     return created;
@@ -1287,7 +1308,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     workspace: string,
     localThreads: ChatThread[],
   ): Promise<ChatThread[]> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+    const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
     const query = new URLSearchParams({
       user_id: userId,
       workspace_id: workspace,
@@ -1295,7 +1316,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     });
     const res = await fetch(`${apiUrl}/chat/${sectionName}/sessions?${query.toString()}`);
     if (!res.ok) {
-      throw new Error("Could not load cloud chat sessions.");
+      throw new Error(t("ai.shell.cloudSessionsError", {}, "Could not load cloud chat sessions."));
     }
     const remote = (await res.json()) as RemoteChatSession[];
     const localBySession = new Map(localThreads.map((thread) => [thread.sessionId, thread]));
@@ -1307,8 +1328,8 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       const threadId = local?.id || parseThreadIdFromSessionId(item.session_id);
       const fallbackTitle =
         item.message_count > 0
-          ? deriveThreadTitle(item.last_message_preview, defaultThreadTitle(sectionName))
-          : defaultThreadTitle(sectionName);
+          ? deriveThreadTitle(item.last_message_preview, defaultThreadTitle(sectionName, ctx.label))
+          : defaultThreadTitle(sectionName, ctx.label);
       return {
         id: threadId,
         section: sectionName,
@@ -1334,7 +1355,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setHistoryLoading(true);
     setMessages([]);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+      const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
       const res = await fetch(
         `${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}&limit=100`,
       );
@@ -1392,7 +1413,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     assistantText: string,
     attachments: MessageAttachment[] = [],
   ) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+    const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
     await fetch(`${apiUrl}/chat/${section}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1425,7 +1446,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     const thread = activeThread;
     if (!thread) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+      const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
       await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}`, {
         method: "DELETE",
       });
@@ -1450,7 +1471,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     audioChunksRef.current = [];
     speechTranscriptRef.current = "";
     speechErrorRef.current = null;
-    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
+    const created = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined, ctx.label);
     setThreads((prev) => sortThreads([created, ...prev]));
     setActiveThreadId(created.id);
     setMessages([]);
@@ -1475,7 +1496,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     const existing = [...pendingAttachments];
     const availableSlots = MAX_FILE_ATTACHMENTS - existing.length;
     if (availableSlots <= 0) {
-      setAttachmentNotice(`You can attach up to ${MAX_FILE_ATTACHMENTS} files per prompt.`);
+      setAttachmentNotice(
+        t("ai.shell.attachmentLimit", { max: MAX_FILE_ATTACHMENTS }, "You can attach up to {{max}} files per prompt."),
+      );
       return;
     }
 
@@ -1490,12 +1513,22 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         if (duplicate) continue;
         next.push(parsed);
       } catch (error) {
-        errors.push(error instanceof Error ? error.message : `${file.name} could not be attached.`);
+        errors.push(
+          error instanceof Error
+            ? error.message
+            : t("ai.shell.fileAttachError", { file: file.name }, "{{file}} could not be attached."),
+        );
       }
     }
 
     if (files.length > availableSlots) {
-      errors.push(`Only ${availableSlots} more file(s) could be attached in this prompt.`);
+      errors.push(
+        t(
+          "ai.shell.fileAttachOnlyMore",
+          { count: availableSlots },
+          "Only {{count}} more file(s) could be attached in this prompt.",
+        ),
+      );
     }
 
     setPendingAttachments(next);
@@ -1505,11 +1538,15 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const startRecordingAudio = async () => {
     if (loading || historyLoading || isTranscribingAudio || isRecordingAudio) return;
     if (typeof window === "undefined" || typeof navigator === "undefined") {
-      setAttachmentNotice("Audio recording is not available in this environment.");
+      setAttachmentNotice(
+        t("ai.shell.audioUnavailable", {}, "Audio recording is not available in this environment."),
+      );
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setAttachmentNotice("This browser does not support microphone recording.");
+      setAttachmentNotice(
+        t("ai.shell.microphoneUnsupported", {}, "This browser does not support microphone recording."),
+      );
       return;
     }
 
@@ -1542,12 +1579,14 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         setIsRecordingAudio(false);
 
         if (!audioBlob.size) {
-          setAttachmentNotice("The recording was empty. Please try again.");
+          setAttachmentNotice(
+            t("ai.shell.recordingEmpty", {}, "The recording was empty. Please try again."),
+          );
           return;
         }
 
         setIsTranscribingAudio(true);
-        setAttachmentNotice("Transcribing audio...");
+        setAttachmentNotice(t("ai.shell.transcribingAudioNotice", {}, "Transcribing audio..."));
         void (async () => {
           const fallbackTranscript = speechTranscriptRef.current.trim();
           try {
@@ -1558,7 +1597,11 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
           } catch (error) {
             if (fallbackTranscript) {
               setAttachmentNotice(
-                "Provider transcription unavailable. Used browser speech recognition fallback.",
+                t(
+                  "ai.shell.providerFallbackUsed",
+                  {},
+                  "Provider transcription unavailable. Used browser speech recognition fallback.",
+                ),
               );
               setInput(fallbackTranscript);
               await send(fallbackTranscript);
@@ -1568,10 +1611,14 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             const providerMessage =
               error instanceof Error
                 ? error.message
-                : "Audio transcription failed. Please try again.";
+                : t("ai.shell.audioTranscriptionFailed", {}, "Audio transcription failed. Please try again.");
             if (speechErrorRef.current) {
               setAttachmentNotice(
-                `${providerMessage} Browser fallback also failed (${speechErrorRef.current}).`,
+                t(
+                  "ai.shell.browserFallbackFailed",
+                  { message: providerMessage, fallback: speechErrorRef.current },
+                  "{{message}} Browser fallback also failed ({{fallback}}).",
+                ),
               );
             } else {
               setAttachmentNotice(providerMessage);
@@ -1588,7 +1635,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         setIsRecordingAudio(false);
         stopSpeechRecognition();
         stopMediaStream();
-        setAttachmentNotice("Audio recording failed. Please try again.");
+        setAttachmentNotice(
+          t("ai.shell.audioRecordingFailed", {}, "Audio recording failed. Please try again."),
+        );
       };
 
       recorder.start();
@@ -1596,12 +1645,18 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       setHasSpeechFallback(speechFallbackEnabled);
       setAttachmentNotice(
         speechFallbackEnabled
-          ? "Recording... click stop when finished. Browser speech fallback is active."
-          : "Recording... click stop when finished.",
+          ? t(
+              "ai.shell.recordingWithFallback",
+              {},
+              "Recording... click stop when finished. Browser speech fallback is active.",
+            )
+          : t("ai.shell.recording", {}, "Recording... click stop when finished."),
       );
       setIsRecordingAudio(true);
     } catch {
-      setAttachmentNotice("Microphone permission denied or unavailable.");
+      setAttachmentNotice(
+        t("ai.shell.microphoneDenied", {}, "Microphone permission denied or unavailable."),
+      );
       setIsRecordingAudio(false);
       stopSpeechRecognition();
       stopMediaStream();
@@ -1620,11 +1675,17 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const deleteThread = async (threadId: string) => {
     const target = threadsRef.current.find((thread) => thread.id === threadId);
     if (!target) return;
-    const approved = window.confirm(`Delete chat "${target.title}"? This removes its history.`);
+    const approved = window.confirm(
+      t(
+        "ai.shell.deleteChatConfirm",
+        { title: target.title },
+        'Delete chat "{{title}}"? This removes its history.',
+      ),
+    );
     if (!approved) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+      const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
       await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(target.sessionId)}`, {
         method: "DELETE",
       });
@@ -1634,7 +1695,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
     const remaining = sortThreads(threadsRef.current.filter((thread) => thread.id !== threadId));
     if (!remaining.length) {
-      const fallback = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined);
+      const fallback = buildNewThread(section, model, authUserId || undefined, workspaceId || undefined, ctx.label);
       setThreads([fallback]);
       setActiveThreadId(fallback.id);
       setMessages([]);
@@ -1657,9 +1718,19 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     if ((!text && !hasAttachments) || loading || historyLoading || isRecordingAudio || isTranscribingAudio) return;
 
     const displayText =
-      text || `Analyze ${attachmentsForSend.length} attached file${attachmentsForSend.length > 1 ? "s" : ""}.`;
+      text ||
+      t(
+        "ai.shell.analyzeAttachedFiles",
+        { count: attachmentsForSend.length },
+        "Analyze {{count}} attached file(s).",
+      );
     const effectiveMessage =
-      text || "Please analyze the attached files and provide clear, practical insights.";
+      text ||
+      t(
+        "ai.shell.analyzeFilesPrompt",
+        {},
+        "Please analyze the attached files and provide clear, practical insights.",
+      );
     const thread = ensureThread();
     const selectedModelId = model;
     const selectedModel = MODEL_OPTIONS.find((option) => option.id === selectedModelId);
@@ -1687,7 +1758,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setPdfNotice("");
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? `/api` : "http://localhost:8000");
+      const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
       const readAgentDiagnostics = async () => {
         try {
           const healthRes = await fetch(`${apiUrl}/agents/health`);
@@ -1742,11 +1813,23 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       if (!res.ok) {
         let fallback = payload.detail || "";
         if (!fallback && res.status === 504) {
-          fallback = "AI backend timed out in cloud. Check backend health and provider connectivity.";
+          fallback = t(
+            "ai.shell.timeoutCloud",
+            {},
+            "AI backend timed out in cloud. Check backend health and provider connectivity.",
+          );
         } else if (!fallback && (res.status === 502 || res.status === 503)) {
-          fallback = "AI backend is temporarily unavailable. Please retry shortly.";
+          fallback = t(
+            "ai.shell.backendTempUnavailable",
+            {},
+            "AI backend is temporarily unavailable. Please retry shortly.",
+          );
         } else if (!fallback) {
-          fallback = `Assistant request failed (HTTP ${res.status}).`;
+          fallback = t(
+            "ai.shell.assistantRequestFailed",
+            { status: res.status },
+            "Assistant request failed (HTTP {{status}}).",
+          );
         }
 
         if (res.status === 502 || res.status === 503 || res.status === 504) {
@@ -1758,13 +1841,17 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         throw new Error(fallback);
       }
 
-      let assistantText = payload.response ?? payload.detail ?? "Something went wrong.";
+      let assistantText = payload.response ?? payload.detail ?? t("ai.shell.somethingWentWrong", {}, "Something went wrong.");
       const refusalAboutFiles =
         /\b(can'?t|cannot|unable|do not have)\b/i.test(assistantText) &&
         /\b(pdf|file|download)\b/i.test(assistantText);
       if (wantsReport && refusalAboutFiles) {
         assistantText +=
-          "\n\nPDF report generation is available in this workspace. I will generate a downloadable report for this request.";
+          `\n\n${t(
+            "ai.shell.reportGenerationAvailable",
+            {},
+            "PDF report generation is available in this workspace. I will generate a downloadable report for this request.",
+          )}`;
       }
 
       const assistantMsg: Message = {
@@ -1776,13 +1863,13 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
       saveMessages(thread.sessionId, displayText, assistantText, userAttachments).catch(console.error);
 
-      const defaultTitle = defaultThreadTitle(section);
+      const defaultTitle = defaultThreadTitle(section, ctx.label);
       const shouldRetitle =
         !thread.title ||
         thread.title === defaultTitle ||
-        thread.title.toLowerCase() === "new chat";
+        thread.title.toLowerCase() === t("ai.shell.newChat", {}, "New chat").toLowerCase();
       const preview = stripAssistantMarkdown(assistantText).slice(0, 120);
-      const titleSeed = text || attachmentsForSend[0]?.file_name || "File Analysis";
+      const titleSeed = text || attachmentsForSend[0]?.file_name || t("ai.shell.fileAnalysis", {}, "File Analysis");
       updateThread(thread.id, {
         title: shouldRetitle ? deriveThreadTitle(titleSeed, defaultTitle) : thread.title,
         preview,
@@ -1802,8 +1889,12 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             fileName = `${companySlug}-income-statement-${timestampForFileName()}.pdf`;
             blob = await generateIncomeStatementPdfBlob(statementData);
           } else {
-            const reportTitle = `${ctx.label} Report`;
-            const reportSubtitle = `Prepared by Benela AI on ${new Date().toLocaleString()}`;
+            const reportTitle = t("ai.shell.reportTitle", { section: ctx.label }, "{{section}} Report");
+            const reportSubtitle = t(
+              "ai.shell.reportPreparedOn",
+              { date: new Date().toLocaleString() },
+              "Prepared by Benela AI on {{date}}",
+            );
             const reportBody = buildReportBody(ctx.label, text, assistantText);
             blob = await generatePdfBlob(reportTitle, reportSubtitle, reportBody);
           }
@@ -1814,16 +1905,32 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
             id: `${Date.now()}-r`,
             role: "assistant",
             content: wantsIncomeStatement
-              ? `Income statement generated and downloaded: ${fileName}`
-              : `Report generated and downloaded: ${fileName}`,
+              ? t(
+                  "ai.shell.incomeStatementGenerated",
+                  { fileName },
+                  "Income statement generated and downloaded: {{fileName}}",
+                )
+              : t(
+                  "ai.shell.reportGenerated",
+                  { fileName },
+                  "Report generated and downloaded: {{fileName}}",
+                ),
             report: { fileName, url },
           };
           setMessages((prev) => [...prev, reportMsg]);
         } catch {
           setPdfNotice(
             wantsIncomeStatement
-              ? "Could not generate the income statement PDF for this request."
-              : "Could not generate the report PDF for this request.",
+              ? t(
+                  "ai.shell.incomeStatementPdfError",
+                  {},
+                  "Could not generate the income statement PDF for this request.",
+                )
+              : t(
+                  "ai.shell.reportPdfError",
+                  {},
+                  "Could not generate the report PDF for this request.",
+                ),
           );
         } finally {
           setPdfLoading(false);
@@ -1836,7 +1943,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       const errMsg =
         error instanceof Error
           ? error.message
-          : "Backend not connected. Check your API configuration.";
+          : t("ai.shell.backendNotConnected", {}, "Backend not connected. Check your API configuration.");
       const assistantMsg: Message = {
         id: `${Date.now()}-e`,
         role: "assistant",
@@ -1860,7 +1967,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       const now = new Date().toLocaleString();
       const conversation = messages
         .map((msg) => {
-          const role = msg.role === "assistant" ? "AI Assistant" : "User";
+          const role = msg.role === "assistant" ? t("ai.shell.assistantRole", {}, "AI Assistant") : t("ai.shell.userRole", {}, "User");
           const text =
             msg.role === "assistant" ? stripAssistantMarkdown(msg.content) : msg.content;
           return `${role}:\n${text}`;
@@ -1869,14 +1976,14 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
       const fileName = `${slugifyFileName(ctx.label)}-ai-chat-${timestampForFileName()}.pdf`;
       const blob = await generatePdfBlob(
-        `${ctx.label} AI Conversation`,
-        `Generated from Benela AI on ${now}`,
+        t("ai.shell.conversationTitle", { section: ctx.label }, "{{section}} AI Conversation"),
+        t("ai.shell.generatedAt", { date: now }, "Generated from Benela AI on {{date}}"),
         conversation,
       );
       const url = downloadBlob(blob, fileName);
       reportUrlsRef.current.push(url);
     } catch {
-      setPdfNotice("Could not export PDF right now. Please try again.");
+      setPdfNotice(t("ai.shell.exportPdfError", {}, "Could not export PDF right now. Please try again."));
     } finally {
       setPdfLoading(false);
     }
@@ -1972,7 +2079,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       }
 
       if (!initialThreads.length) {
-        initialThreads = [buildNewThread(section, DEFAULT_MODEL, authUserId || undefined, workspaceId || undefined)];
+        initialThreads = [buildNewThread(section, DEFAULT_MODEL, authUserId || undefined, workspaceId || undefined, ctx.label)];
       }
 
       const storedActiveId = readStoredActiveThreadId(section, storageIdentity);
@@ -2097,13 +2204,13 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 </div>
                 <div>
                   <p style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em" }}>BENELA AI</p>
-                  <p style={{ fontSize: "10px", color: "var(--text-subtle)" }}>Conversations</p>
+                  <p style={{ fontSize: "10px", color: "var(--text-subtle)" }}>{t("ai.shell.conversations")}</p>
                 </div>
               </div>
 
               <button
                 onClick={createNewThread}
-                title="New chat"
+                title={t("ai.shell.newChat")}
                 style={{
                   width: "30px",
                   height: "30px",
@@ -2122,7 +2229,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               {isMobile ? (
                 <button
                   onClick={() => setMobileThreadsOpen(false)}
-                  title="Close chats"
+                  title={t("ai.shell.closeChats")}
                   style={{
                     width: "30px",
                     height: "30px",
@@ -2156,7 +2263,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               <input
                 value={threadSearch}
                 onChange={(event) => setThreadSearch(event.target.value)}
-                placeholder="Search chats"
+                placeholder={t("ai.shell.searchChats")}
                 style={{
                   width: "100%",
                   border: "none",
@@ -2181,7 +2288,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   fontSize: "12px",
                 }}
               >
-                No chats match your search.
+                {t("ai.shell.noChatsMatch")}
               </div>
             ) : (
               filteredThreads.map((thread) => {
@@ -2227,7 +2334,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                         {thread.title}
                       </span>
                       <span style={{ fontSize: "10px", color: "var(--text-quiet)" }}>
-                        {formatThreadTime(thread.updatedAt)}
+                        {formatThreadTimeLabel(thread.updatedAt)}
                       </span>
                     </div>
 
@@ -2241,7 +2348,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                         marginBottom: "8px",
                       }}
                     >
-                      {thread.preview || "No messages yet"}
+                      {thread.preview || t("ai.shell.noMessagesYet")}
                     </p>
 
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2263,7 +2370,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                             event.stopPropagation();
                             updateThread(thread.id, { pinned: !thread.pinned });
                           }}
-                          title={thread.pinned ? "Unpin chat" : "Pin chat"}
+                          title={thread.pinned ? t("ai.shell.unpinChat", {}, "Unpin chat") : t("ai.shell.pinChat", {}, "Pin chat")}
                           style={{
                             width: "24px",
                             height: "24px",
@@ -2283,7 +2390,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                             event.stopPropagation();
                             void deleteThread(thread.id);
                           }}
-                          title="Delete chat"
+                          title={t("ai.shell.deleteChat", {}, "Delete chat")}
                           style={{
                             width: "24px",
                             height: "24px",
@@ -2308,7 +2415,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
           <div style={{ borderTop: "1px solid var(--ai-border-default)", padding: "10px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "10px", color: "var(--text-subtle)" }}>Chats</span>
+              <span style={{ fontSize: "10px", color: "var(--text-subtle)" }}>{t("ai.shell.chats")}</span>
               <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "monospace" }}>
                 {threads.length}
               </span>
@@ -2319,7 +2426,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         {isMobile && mobileThreadsOpen ? (
           <button
             type="button"
-            aria-label="Close chats overlay"
+            aria-label={t("ai.shell.closeChats")}
             onClick={() => setMobileThreadsOpen(false)}
             style={{
               position: "absolute",
@@ -2338,7 +2445,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               {isMobile ? (
                 <button
                   onClick={() => setMobileThreadsOpen(true)}
-                  title="Open chats"
+                  title={t("ai.shell.openChats")}
                   style={{
                     width: "30px",
                     height: "30px",
@@ -2385,7 +2492,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     cursor: onSectionChange ? "pointer" : "not-allowed",
                   }}
                 >
-                  {SECTION_OPTIONS.map((option) => (
+                  {sectionOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -2424,14 +2531,14 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     cursor: "pointer",
                   }}
                 >
-                  <optgroup label="Anthropic Claude">
+                  <optgroup label={t("ai.shell.anthropicGroup")}>
                     {MODEL_OPTIONS.filter((option) => option.provider === "anthropic").map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label}
                       </option>
                     ))}
                   </optgroup>
-                  <optgroup label="OpenAI GPT">
+                  <optgroup label={t("ai.shell.openaiGroup")}>
                     {MODEL_OPTIONS.filter((option) => option.provider === "openai").map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label}
@@ -2445,7 +2552,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 <button
                   onClick={() => void exportFullConversation()}
                   disabled={!messages.length || historyLoading || pdfLoading}
-                  title="Export active chat as PDF"
+                  title={t("ai.shell.exportPdf")}
                   style={{
                     height: "30px",
                     borderRadius: "8px",
@@ -2477,7 +2584,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
                 <button
                   onClick={() => setShowClearConfirm((prev) => !prev)}
-                  title="Clear active chat"
+                  title={t("ai.shell.clearChat")}
                   style={{
                     width: "30px",
                     height: "30px",
@@ -2496,7 +2603,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
                 <button
                   onClick={onClose}
-                  title="Close"
+                  title={t("ai.shell.close")}
                   style={{
                     width: "30px",
                     height: "30px",
@@ -2526,7 +2633,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   whiteSpace: "nowrap",
                 }}
               >
-                {activeThread?.title ?? defaultThreadTitle(section)}
+                {activeThread?.title ?? defaultThreadTitle(section, ctx.label)}
               </p>
               <span
                 style={{
@@ -2559,7 +2666,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
               }}
             >
               <p style={{ fontSize: "12px", color: "var(--danger)" }}>
-                Clear all messages in the active chat?
+                {t("ai.shell.clearConfirm")}
               </p>
               <div style={{ display: "inline-flex", gap: "8px" }}>
                 <button
@@ -2574,7 +2681,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     cursor: "pointer",
                   }}
                 >
-                  Cancel
+                  {t("ai.shell.cancel")}
                 </button>
                 <button
                   onClick={() => void clearActiveConversation()}
@@ -2588,7 +2695,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     cursor: "pointer",
                   }}
                 >
-                  Clear
+                  {t("ai.shell.clear")}
                 </button>
               </div>
             </div>
@@ -2608,7 +2715,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 }}
               >
                 <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-                Loading chat history...
+                {t("ai.shell.loadingHistory")}
               </div>
             ) : messages.length === 0 ? (
               <div style={{ maxWidth: "620px", margin: "18px auto 0" }}>
@@ -2622,11 +2729,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   }}
                 >
                   <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "6px" }}>
-                    {ctx.label} Intelligence Workspace
+                    {t("ai.shell.workspaceTitle", { section: ctx.label }, "{{section}} Intelligence Workspace")}
                   </p>
                   <p style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.6 }}>
-                    Ask for summaries, anomalies, reports, forecasts, and recommendations. For financial
-                    statement requests, this workspace will auto-generate a professional PDF.
+                    {t("ai.shell.workspaceDescription")}
                   </p>
                 </div>
 
@@ -2639,7 +2745,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                     marginBottom: "9px",
                   }}
                 >
-                  SUGGESTED PROMPTS
+                  {t("ai.shell.suggestedPrompts")}
                 </p>
 
                 {ctx.prompts.map((prompt) => (
@@ -2773,7 +2879,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                               }}
                             >
                               <Download size={10} />
-                              Download Report
+                              {t("ai.shell.downloadReport")}
                             </a>
                           </div>
                         )}
@@ -2812,7 +2918,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       }}
                     >
                       <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
-                      Thinking...
+                      {t("ai.shell.thinking")}
                     </div>
                   </div>
                 )}
@@ -2918,7 +3024,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                           alignItems: "center",
                           justifyContent: "center",
                         }}
-                        title="Remove attachment"
+                        title={t("ai.shell.removeAttachment")}
                       >
                         <X size={10} />
                       </button>
@@ -2937,7 +3043,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   }
                 }}
                 rows={2}
-                placeholder={`Ask ${ctx.label} anything...`}
+                placeholder={t("ai.shell.askAnything", { section: ctx.label })}
                 style={{
                   width: "100%",
                   minHeight: "46px",
@@ -2992,10 +3098,10 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                           ? 0.6
                           : 1,
                     }}
-                    title={`Attach files (${MAX_FILE_ATTACHMENTS} max)`}
+                    title={t("ai.shell.attachTitle", { max: MAX_FILE_ATTACHMENTS })}
                   >
                     <Paperclip size={10} />
-                    Attach
+                    {t("ai.shell.attach")}
                   </button>
                   <button
                     onClick={() => {
@@ -3022,21 +3128,21 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                       cursor: loading || historyLoading || isTranscribingAudio ? "not-allowed" : "pointer",
                       opacity: loading || historyLoading || isTranscribingAudio ? 0.6 : 1,
                     }}
-                    title={isRecordingAudio ? "Stop recording" : "Record audio prompt"}
+                    title={isRecordingAudio ? t("ai.shell.stopRecording") : t("ai.shell.recordAudioPrompt")}
                   >
                     {isRecordingAudio ? <Square size={10} /> : <Mic size={10} />}
-                    {isRecordingAudio ? "Stop" : "Record"}
+                    {isRecordingAudio ? t("ai.shell.stop") : t("ai.shell.record")}
                   </button>
-                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>ENTER send</span>
-                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>SHIFT+ENTER newline</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>{t("ai.shell.enterSend")}</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>{t("ai.shell.shiftEnter")}</span>
                   <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>
                     {isTranscribingAudio
-                      ? "transcribing audio..."
+                      ? t("ai.shell.transcribingAudio")
                       : hasSpeechFallback
-                        ? "voice prompts enabled (api+browser fallback)"
-                        : "voice prompts enabled"}
+                        ? t("ai.shell.voiceFallbackEnabled")
+                        : t("ai.shell.voiceEnabled")}
                   </span>
-                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>auto-report enabled</span>
+                  <span className="ai-panel-hint-text" style={{ fontFamily: "monospace" }}>{t("ai.shell.autoReportEnabled")}</span>
                 </div>
 
                 <button
@@ -3081,7 +3187,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                         ? "pointer"
                         : "not-allowed",
                   }}
-                  title="Send message"
+                  title={t("ai.shell.sendMessage", {}, "Send message")}
                 >
                   <Send size={14} />
                 </button>

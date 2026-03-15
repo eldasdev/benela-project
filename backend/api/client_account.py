@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from core.auth import assert_request_user_matches
 from database import models
 from database.connection import get_db
 
@@ -27,6 +28,11 @@ BUSINESS_DOCS_ROOT = Path(
     )
 )
 BUSINESS_DOCS_ROOT.mkdir(parents=True, exist_ok=True)
+BLOCKED_CLIENT_EMAIL_DOMAINS = {
+    domain.strip().lower()
+    for domain in os.getenv("CLIENT_ACCOUNT_BLOCKED_EMAIL_DOMAINS", "benela.ai,benela.dev").split(",")
+    if domain.strip()
+}
 
 PLAN_CONFIG: dict[str, dict[str, int | float]] = {
     "starter": {"price_monthly": 49.0, "seats": 10},
@@ -93,6 +99,9 @@ class ClientAccountOut(BaseModel):
     trial_seconds_total: int
     trial_seconds_remaining: int
     trial_progress_percent: float
+    documents_uploaded_count: int
+    missing_setup_fields: list[str]
+    setup_progress_percent: float
 
     created_at: datetime
     updated_at: datetime
@@ -111,6 +120,9 @@ class ClientSidebarOut(BaseModel):
     trial_seconds_total: int = 0
     trial_seconds_remaining: int = 0
     trial_progress_percent: float = 0.0
+    documents_uploaded_count: int = 0
+    missing_setup_fields: list[str] = []
+    setup_progress_percent: float = 0.0
     trial_label: str = ""
 
 
@@ -158,6 +170,12 @@ class _TrialMeta(BaseModel):
     label: str
 
 
+class _SetupMeta(BaseModel):
+    documents_uploaded_count: int
+    missing_fields: list[str]
+    progress_percent: float
+
+
 def _normalize_plan_tier(raw: str | None, fallback: str = "starter") -> str:
     value = (raw or fallback).strip().lower()
     if value == "trial":
@@ -175,6 +193,22 @@ def _slugify(value: str) -> str:
 
 def _normalize_token(value: str | None) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def _is_internal_platform_email(value: str | None) -> bool:
+    normalized = (value or "").strip().lower()
+    if "@" not in normalized:
+        return False
+    domain = normalized.rsplit("@", 1)[-1]
+    return domain in BLOCKED_CLIENT_EMAIL_DOMAINS
+
+
+def _assert_client_boundary(user_email: str | None) -> None:
+    if _is_internal_platform_email(user_email):
+        raise HTTPException(
+            status_code=403,
+            detail="Internal admin accounts cannot access client workspace account flows.",
+        )
 
 
 def _build_business_fingerprint(
@@ -255,8 +289,34 @@ def _compute_trial_meta(account: models.ClientWorkspaceAccount) -> _TrialMeta:
     )
 
 
-def _serialize_account(account: models.ClientWorkspaceAccount) -> ClientAccountOut:
+def _compute_setup_meta(db: Session, account: models.ClientWorkspaceAccount) -> _SetupMeta:
+    docs_count = (
+        db.query(models.ClientBusinessDocument.id)
+        .filter(models.ClientBusinessDocument.account_id == account.id)
+        .count()
+    )
+    checks = [
+        ("business_name", bool((account.business_name or "").strip())),
+        ("registration_number", bool((account.registration_number or "").strip())),
+        ("country", bool((account.country or "").strip())),
+        ("city", bool((account.city or "").strip())),
+        ("address", bool((account.address or "").strip())),
+        ("owner_name", bool((account.owner_name or "").strip())),
+        ("employee_count", bool(account.employee_count and account.employee_count > 0)),
+        ("documents", docs_count > 0),
+    ]
+    completed = sum(1 for _, ok in checks if ok)
+    progress = round((completed / len(checks)) * 100.0, 2) if checks else 0.0
+    return _SetupMeta(
+        documents_uploaded_count=docs_count,
+        missing_fields=[field for field, ok in checks if not ok],
+        progress_percent=progress,
+    )
+
+
+def _serialize_account(db: Session, account: models.ClientWorkspaceAccount) -> ClientAccountOut:
     trial = _compute_trial_meta(account)
+    setup = _compute_setup_meta(db, account)
     return ClientAccountOut(
         id=account.id,
         user_id=account.user_id,
@@ -281,6 +341,9 @@ def _serialize_account(account: models.ClientWorkspaceAccount) -> ClientAccountO
         trial_seconds_total=trial.total_seconds,
         trial_seconds_remaining=trial.remaining_seconds,
         trial_progress_percent=trial.progress_percent,
+        documents_uploaded_count=setup.documents_uploaded_count,
+        missing_setup_fields=setup.missing_fields,
+        setup_progress_percent=setup.progress_percent,
         created_at=account.created_at,
         updated_at=account.updated_at,
     )
@@ -315,13 +378,8 @@ def _is_business_profile_complete(account: models.ClientWorkspaceAccount) -> boo
 
 
 def _recompute_onboarding_completion(db: Session, account: models.ClientWorkspaceAccount) -> None:
-    docs_exist = (
-        db.query(models.ClientBusinessDocument.id)
-        .filter(models.ClientBusinessDocument.account_id == account.id)
-        .first()
-        is not None
-    )
-    account.onboarding_completed = _is_business_profile_complete(account) and docs_exist
+    setup = _compute_setup_meta(db, account)
+    account.onboarding_completed = _is_business_profile_complete(account) and setup.documents_uploaded_count > 0
 
 
 def _find_account_by_user(db: Session, user_id: str) -> models.ClientWorkspaceAccount | None:
@@ -330,6 +388,14 @@ def _find_account_by_user(db: Session, user_id: str) -> models.ClientWorkspaceAc
         .filter(models.ClientWorkspaceAccount.user_id == user_id)
         .first()
     )
+
+
+def _draft_workspace_id(db: Session, user_id: str) -> str:
+    return _unique_workspace_id(db, f"client-{user_id[:8]}")
+
+
+def _draft_business_slug(db: Session, user_id: str) -> str:
+    return _unique_workspace_id(db, f"workspace-{user_id[:8]}")
 
 
 def _sync_client_org_and_subscription(
@@ -446,8 +512,39 @@ def _apply_duplicate_and_trial_logic(
         account.trial_ends_at = now_utc + timedelta(days=max(1, TRIAL_DAYS_DEFAULT))
 
 
+@router.post("/bootstrap", response_model=ClientAccountOut)
+def bootstrap_client_account(request: Request, db: Session = Depends(get_db)):
+    auth_user = assert_request_user_matches(request)
+    _assert_client_boundary(auth_user.email)
+
+    account = _find_account_by_user(db, auth_user.user_id)
+    if not account:
+        account = models.ClientWorkspaceAccount(
+            user_id=auth_user.user_id,
+            user_email=auth_user.email,
+            workspace_id=_draft_workspace_id(db, auth_user.user_id),
+            business_name="",
+            business_slug=_draft_business_slug(db, auth_user.user_id),
+            business_fingerprint=hashlib.sha256(f"draft:{auth_user.user_id}".encode("utf-8")).hexdigest(),
+            owner_name=((auth_user.claims.get("user_metadata") or {}).get("full_name") or "").strip() or None,
+            plan_tier=models.PlanTier.starter,
+            payment_required=False,
+            onboarding_completed=False,
+        )
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+    elif not account.user_email and auth_user.email:
+        account.user_email = auth_user.email
+        account.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(account)
+
+    return _serialize_account(db, account)
+
+
 @router.post("/onboard", response_model=ClientAccountOut)
-def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
+def onboard_client(payload: ClientOnboardingIn, request: Request, db: Session = Depends(get_db)):
     user_id = payload.user_id.strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
@@ -459,6 +556,12 @@ def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
     country = payload.country.strip()
     if not country:
         raise HTTPException(status_code=400, detail="country is required.")
+    auth_user = assert_request_user_matches(
+        request,
+        user_id=user_id,
+        email=payload.user_email,
+    )
+    _assert_client_boundary(auth_user.email or payload.user_email)
 
     plan_tier = _normalize_plan_tier(payload.plan_tier)
     business_slug = _slugify(business_name)
@@ -473,7 +576,7 @@ def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
     if not account:
         account = models.ClientWorkspaceAccount(
             user_id=user_id,
-            user_email=(payload.user_email or "").strip().lower() or None,
+            user_email=auth_user.email or (payload.user_email or "").strip().lower() or None,
             workspace_id=_unique_workspace_id(db, business_slug),
             business_name=business_name,
             business_slug=business_slug,
@@ -491,7 +594,7 @@ def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
         db.add(account)
         db.flush()
     else:
-        account.user_email = (payload.user_email or account.user_email or "").strip().lower() or account.user_email
+        account.user_email = auth_user.email or (payload.user_email or account.user_email or "").strip().lower() or account.user_email
         account.business_name = business_name
         account.business_slug = business_slug
         account.business_fingerprint = fingerprint
@@ -508,7 +611,7 @@ def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
     _sync_client_org_and_subscription(
         db,
         account=account,
-        owner_email=(payload.user_email or account.user_email),
+        owner_email=(auth_user.email or payload.user_email or account.user_email),
         owner_name=(payload.owner_name or account.owner_name),
     )
     _recompute_onboarding_completion(db, account)
@@ -516,37 +619,43 @@ def onboard_client(payload: ClientOnboardingIn, db: Session = Depends(get_db)):
     account.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(account)
-    return _serialize_account(account)
+    return _serialize_account(db, account)
 
 
 @router.get("/profile", response_model=ClientAccountOut)
 def get_client_profile(
+    request: Request,
     user_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
-    return _serialize_account(account)
+    _assert_client_boundary(account.user_email)
+    return _serialize_account(db, account)
 
 
 @router.patch("/profile", response_model=ClientAccountOut)
 def update_client_profile(
     payload: ClientAccountPatch,
+    request: Request,
     user_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
+    _assert_client_boundary(account.user_email)
 
     updates = payload.model_dump(exclude_unset=True)
     if "owner_name" in updates:
@@ -592,23 +701,27 @@ def update_client_profile(
     account.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(account)
-    return _serialize_account(account)
+    return _serialize_account(db, account)
 
 
 @router.get("/sidebar", response_model=ClientSidebarOut)
 def get_sidebar_summary(
+    request: Request,
     user_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         return ClientSidebarOut(exists=False, trial_label="Setup required")
+    _assert_client_boundary(account.user_email)
 
     trial = _compute_trial_meta(account)
+    setup = _compute_setup_meta(db, account)
     return ClientSidebarOut(
         exists=True,
         workspace_id=account.workspace_id,
@@ -622,22 +735,28 @@ def get_sidebar_summary(
         trial_seconds_total=trial.total_seconds,
         trial_seconds_remaining=trial.remaining_seconds,
         trial_progress_percent=trial.progress_percent,
+        documents_uploaded_count=setup.documents_uploaded_count,
+        missing_setup_fields=setup.missing_fields,
+        setup_progress_percent=setup.progress_percent,
         trial_label=trial.label,
     )
 
 
 @router.get("/trial", response_model=TrialSummaryOut)
 def get_trial_summary(
+    request: Request,
     user_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
+    _assert_client_boundary(account.user_email)
 
     trial = _compute_trial_meta(account)
     return TrialSummaryOut(
@@ -652,7 +771,7 @@ def get_trial_summary(
 
 
 @router.post("/reports", response_model=ClientPlatformReportOut)
-def create_platform_report(payload: ClientPlatformReportIn, db: Session = Depends(get_db)):
+def create_platform_report(payload: ClientPlatformReportIn, request: Request, db: Session = Depends(get_db)):
     user_id = payload.user_id.strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required.")
@@ -664,13 +783,21 @@ def create_platform_report(payload: ClientPlatformReportIn, db: Session = Depend
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required.")
+    auth_user = assert_request_user_matches(
+        request,
+        user_id=user_id,
+        email=payload.user_email,
+    )
+    _assert_client_boundary(auth_user.email or payload.user_email)
 
     account = _find_account_by_user(db, user_id)
+    if account:
+        _assert_client_boundary(account.user_email)
     row = models.ClientPlatformReport(
         account_id=account.id if account else None,
         workspace_id=account.workspace_id if account else None,
         user_id=user_id,
-        user_email=(payload.user_email or (account.user_email if account else "") or "").strip().lower() or None,
+        user_email=(auth_user.email or payload.user_email or (account.user_email if account else "") or "").strip().lower() or None,
         title=title[:255],
         message=message[:8000],
         status="open",
@@ -690,6 +817,7 @@ def create_platform_report(payload: ClientPlatformReportIn, db: Session = Depend
 
 @router.get("/documents", response_model=list[ClientBusinessDocumentOut])
 def list_business_documents(
+    request: Request,
     user_id: str = Query(...),
     limit: int = Query(100, ge=1, le=400),
     db: Session = Depends(get_db),
@@ -697,10 +825,12 @@ def list_business_documents(
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
+    _assert_client_boundary(account.user_email)
 
     rows = (
         db.query(models.ClientBusinessDocument)
@@ -714,6 +844,7 @@ def list_business_documents(
 
 @router.post("/documents", response_model=ClientBusinessDocumentOut)
 async def upload_business_document(
+    request: Request,
     user_id: str = Form(...),
     document_type: str = Form("official"),
     file: UploadFile = File(...),
@@ -722,10 +853,12 @@ async def upload_business_document(
     normalized_user = user_id.strip()
     if not normalized_user:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized_user)
 
     account = _find_account_by_user(db, normalized_user)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
+    _assert_client_boundary(account.user_email)
 
     content = await file.read()
     size_bytes = len(content)
@@ -764,6 +897,7 @@ async def upload_business_document(
 
 @router.get("/documents/{document_id}/download")
 def download_business_document(
+    request: Request,
     document_id: int,
     user_id: str = Query(...),
     db: Session = Depends(get_db),
@@ -771,10 +905,12 @@ def download_business_document(
     normalized = user_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="user_id is required.")
+    assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
     if not account:
         raise HTTPException(status_code=404, detail="Client account not found.")
+    _assert_client_boundary(account.user_email)
 
     row = (
         db.query(models.ClientBusinessDocument)

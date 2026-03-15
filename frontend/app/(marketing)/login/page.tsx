@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
-import { syncWorkspaceFromClientAccount } from "@/lib/client-account";
+import { ensureClientWorkspaceAccount } from "@/lib/client-account";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading]   = useState(false);
@@ -27,15 +29,27 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
+    const role = typeof data.user?.user_metadata?.role === "string" ? data.user.user_metadata.role : "";
+    if (role === "admin" || role === "owner" || role === "super_admin") {
+      router.push("/admin/dashboard");
+      setLoading(false);
+      return;
+    }
     try {
       const userId = data.user?.id;
       if (userId) {
-        await syncWorkspaceFromClientAccount(userId);
+        const { summary, bootstrapped } = await ensureClientWorkspaceAccount(userId);
+        if (bootstrapped || summary?.exists === false) {
+          router.push("/settings?setup=business");
+          setLoading(false);
+          return;
+        }
       }
     } catch {
       // non-blocking: dashboard can still load and retry profile sync
     }
     router.push("/dashboard");
+    setLoading(false);
   };
 
   const handleGoogle = async () => {
@@ -68,7 +82,7 @@ export default function LoginPage() {
             </div>
             <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "1px" }}>BENELA</span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>Sign in to your workspace</p>
+          <p style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{t("auth.login.subtitle")}</p>
         </div>
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "32px" }}>
           <button onClick={handleGoogle}
@@ -79,26 +93,26 @@ export default function LoginPage() {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
-            Continue with Google
+            {t("auth.login.continueGoogle")}
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
             <div style={{ flex: 1, height: "1px", background: "var(--border-default)" }} />
-            <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>or</span>
+            <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>{t("auth.login.separator")}</span>
             <div style={{ flex: 1, height: "1px", background: "var(--border-default)" }} />
           </div>
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
-              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" style={input}
+              <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.login.email")}</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t("auth.login.emailPlaceholder")} style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "var(--accent)"}
                 onBlur={e => (e.target as HTMLInputElement).style.borderColor = "var(--border-default)"} required />
             </div>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                <label style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Password</label>
-                <Link href="/forgot-password" style={{ fontSize: "12px", color: "var(--accent)", textDecoration: "none" }}>Forgot?</Link>
+                <label style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{t("auth.login.password")}</label>
+                <Link href="/forgot-password" style={{ fontSize: "12px", color: "var(--accent)", textDecoration: "none" }}>{t("auth.login.forgot")}</Link>
               </div>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={input}
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t("auth.login.passwordPlaceholder")} style={input}
                 onFocus={e => (e.target as HTMLInputElement).style.borderColor = "var(--accent)"}
                 onBlur={e => (e.target as HTMLInputElement).style.borderColor = "var(--border-default)"} required />
             </div>
@@ -109,13 +123,13 @@ export default function LoginPage() {
             )}
             <button type="submit" disabled={loading}
               style={{ width: "100%", padding: "12px", borderRadius: "10px", background: "linear-gradient(135deg, var(--accent), var(--accent-2))", border: "none", color: "white", fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "4px" }}>
-              {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Signing in...</> : "Sign in"}
+              {loading ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> {t("auth.login.signingIn")}</> : t("auth.login.signIn")}
             </button>
           </form>
         </div>
         <p style={{ textAlign: "center", marginTop: "20px", fontSize: "13px", color: "var(--text-subtle)" }}>
-          Don&apos;t have an account?{" "}
-          <Link href="/signup" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>Sign up</Link>
+          {t("auth.login.noAccount")}{" "}
+          <Link href="/signup" style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>{t("auth.login.signUp")}</Link>
         </p>
       </div>
     </div>

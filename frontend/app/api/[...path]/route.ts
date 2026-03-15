@@ -1,3 +1,4 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ function resolveBackendOrigin(): string {
     process.env.NEXT_PUBLIC_API_URL?.startsWith("http") ? process.env.NEXT_PUBLIC_API_URL : "",
   ];
   for (const candidate of candidates) {
-    const value = (candidate || "").trim().replace(/\/+$/, "");
+    const value = (candidate || "").trim().replace(/\/+$/, "").replace(/\/api$/i, "");
     if (!value) continue;
     if (/^https?:\/\//i.test(value)) {
       return value;
@@ -29,7 +30,7 @@ function resolveBackendOrigin(): string {
 function buildTargetUrl(request: NextRequest, path: string[]): URL {
   const base = resolveBackendOrigin();
   const cleanSegments = (path || []).filter(Boolean).map(encodeURIComponent).join("/");
-  const target = new URL(`/api/${cleanSegments}`, base);
+  const target = new URL(`/${cleanSegments}`, base);
   const current = new URL(request.url);
   target.search = current.search;
   return target;
@@ -45,9 +46,43 @@ function prepareHeaders(request: NextRequest): Headers {
   return headers;
 }
 
+async function resolveAccessToken(request: NextRequest): Promise<string | null> {
+  const existingAuthHeader = (request.headers.get("authorization") || "").trim();
+  if (existingAuthHeader.toLowerCase().startsWith("bearer ")) {
+    return existingAuthHeader.slice(7).trim() || null;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll() {
+        // Proxy route does not own auth cookie refresh persistence.
+      },
+    },
+  });
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return session?.access_token || null;
+}
+
 async function forward(request: NextRequest, path: string[], method: ForwardMethod): Promise<Response> {
   const target = buildTargetUrl(request, path);
   const headers = prepareHeaders(request);
+  const accessToken = await resolveAccessToken(request);
+  if (accessToken) {
+    headers.set("authorization", `Bearer ${accessToken}`);
+  }
   const init: RequestInit = {
     method,
     headers,

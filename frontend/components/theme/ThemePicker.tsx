@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, Palette } from "lucide-react";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 import { THEMES, ThemeId } from "@/lib/theme";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
@@ -14,6 +15,7 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
   const isMobile = useIsMobile(900);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -54,10 +56,10 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
             }}
           >
             <p style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
-              Theme Studio
+              {t("themePicker.title")}
             </p>
             <p style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "2px" }}>
-              Apply a visual preset to the full platform.
+              {t("themePicker.subtitle")}
             </p>
           </div>
 
@@ -139,7 +141,8 @@ export default function ThemePicker({ activeTheme, onChange }: ThemePickerProps)
           boxShadow: "var(--panel-flyout-shadow)",
           cursor: "pointer",
         }}
-        aria-label="Open theme picker"
+        aria-label={t("themePicker.open")}
+        title={t("themePicker.open")}
       >
         <Palette size={18} />
       </button>
