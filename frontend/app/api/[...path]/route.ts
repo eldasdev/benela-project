@@ -1,5 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest } from "next/server";
+import {
+  findFallbackBlogPost,
+  findFallbackBlogPostBySlug,
+  getFallbackAboutPage,
+  getFallbackBlogPosts,
+  getFallbackPricingPlans,
+  getFallbackRuntimeStatus,
+} from "@/lib/platform-public-fallback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +52,66 @@ function prepareHeaders(request: NextRequest): Headers {
   // Let upstream decide transfer encoding; avoid mismatched compressed payload handling.
   headers.delete("accept-encoding");
   return headers;
+}
+
+function fallbackJson(payload: unknown, status = 200): Response {
+  return Response.json(payload, {
+    status,
+    headers: {
+      "x-benela-fallback": "1",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function tryResolvePlatformFallback(request: NextRequest, path: string[], method: ForwardMethod): Response | null {
+  if (path[0] !== "platform") return null;
+
+  if (method === "GET" && path.length === 2 && path[1] === "pricing-plans") {
+    return fallbackJson(getFallbackPricingPlans());
+  }
+
+  if (method === "GET" && path.length === 2 && path[1] === "runtime") {
+    return fallbackJson(getFallbackRuntimeStatus());
+  }
+
+  if (method === "GET" && path.length === 2 && path[1] === "about") {
+    return fallbackJson(getFallbackAboutPage());
+  }
+
+  if (path[1] === "blog" && path[2] === "posts") {
+    if (method === "GET" && path.length === 3) {
+      const featuredOnly = request.nextUrl.searchParams.get("featured_only") === "true";
+      const requestedLimit = Number(request.nextUrl.searchParams.get("limit") || "24");
+      const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 24;
+      const posts = getFallbackBlogPosts();
+      const filtered = featuredOnly ? posts.filter((post) => post.is_featured) : posts;
+      return fallbackJson(filtered.slice(0, limit));
+    }
+
+    if (method === "GET" && path.length === 4) {
+      const post = findFallbackBlogPostBySlug(path[3]);
+      if (post) return fallbackJson(post);
+      return null;
+    }
+
+    if (method === "GET" && path.length === 5) {
+      const post = findFallbackBlogPost(path[3], path[4]);
+      if (post) return fallbackJson(post);
+      return null;
+    }
+
+    if (method === "POST" && ((path.length === 5 && path[4] === "comments") || (path.length === 6 && path[5] === "comments"))) {
+      return fallbackJson(
+        {
+          detail: "Comments are temporarily unavailable while the publishing service is updating.",
+        },
+        503,
+      );
+    }
+  }
+
+  return null;
 }
 
 async function resolveAccessToken(request: NextRequest): Promise<string | null> {
@@ -103,6 +171,8 @@ async function forward(request: NextRequest, path: string[], method: ForwardMeth
   try {
     upstream = await fetch(target, init);
   } catch (error) {
+    const fallback = tryResolvePlatformFallback(request, path, method);
+    if (fallback) return fallback;
     const detail = error instanceof Error ? error.message : "Upstream request failed.";
     const status = detail.toLowerCase().includes("timeout") ? 504 : 502;
     return Response.json(
@@ -111,6 +181,10 @@ async function forward(request: NextRequest, path: string[], method: ForwardMeth
     );
   }
   const responseHeaders = new Headers(upstream.headers);
+  if (upstream.status === 404 || upstream.status === 502 || upstream.status === 503 || upstream.status === 504) {
+    const fallback = tryResolvePlatformFallback(request, path, method);
+    if (fallback) return fallback;
+  }
   // Node fetch may return a decoded body while preserving upstream encoding headers.
   // Drop hop-by-hop / payload-size headers to prevent browser decode failures.
   responseHeaders.delete("content-encoding");
