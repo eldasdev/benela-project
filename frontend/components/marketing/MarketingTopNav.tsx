@@ -11,6 +11,7 @@ type NavItem = {
 const NAV_LINKS: NavItem[] = [
   { key: "features", href: "/#features" },
   { key: "pricing", href: "/#pricing" },
+  { key: "blog", href: "/blog" },
   { key: "about", href: "/about" },
 ];
 
@@ -70,7 +71,12 @@ export default function MarketingTopNav({ currentPath = "/" }: { currentPath?: s
 
       <div className="marketing-nav-links" style={{ display: "flex", alignItems: "center", gap: "32px" }}>
         {NAV_LINKS.map((link) => {
-          const active = link.href === "/about" ? currentPath === "/about" : currentPath === "/";
+          const active =
+            link.href === "/about"
+              ? currentPath === "/about"
+              : link.href === "/blog"
+                ? currentPath === "/blog" || currentPath.startsWith("/blog/")
+                : currentPath === "/";
           return (
             <Link
               key={link.key}

@@ -15,6 +15,7 @@ import {
   BrainCircuit,
   Settings,
   FileText,
+  Newspaper,
   LogOut,
   X,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const NAV = [
   { href: "/admin/site-compliances", labelKey: "adminSidebar.siteCompliances", icon: ShieldCheck },
   { href: "/admin/marketplace", labelKey: "adminSidebar.marketplaceNav", icon: Store },
   { href: "/admin/analytics", labelKey: "adminSidebar.analyticsNav", icon: TrendingUp },
+  { href: "/admin/blog", labelKey: "adminSidebar.blogStudio", icon: Newspaper },
   { href: "/admin/about", labelKey: "adminSidebar.aboutPage", icon: FileText },
   { href: "/admin/ai-trainer", labelKey: "adminSidebar.aiTrainer", icon: BrainCircuit },
   { href: "/admin/settings", labelKey: "adminSidebar.settingsNav", icon: Settings },

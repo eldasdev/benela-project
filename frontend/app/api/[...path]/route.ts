@@ -58,22 +58,26 @@ async function resolveAccessToken(request: NextRequest): Promise<string | null> 
     return null;
   }
 
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // Proxy route does not own auth cookie refresh persistence.
+        },
       },
-      setAll() {
-        // Proxy route does not own auth cookie refresh persistence.
-      },
-    },
-  });
+    });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  return session?.access_token || null;
+    return session?.access_token || null;
+  } catch {
+    return null;
+  }
 }
 
 async function forward(request: NextRequest, path: string[], method: ForwardMethod): Promise<Response> {
@@ -88,13 +92,24 @@ async function forward(request: NextRequest, path: string[], method: ForwardMeth
     headers,
     redirect: "manual",
     cache: "no-store",
+    signal: AbortSignal.timeout(45_000),
   };
 
   if (!["GET", "HEAD"].includes(method)) {
     init.body = await request.arrayBuffer();
   }
 
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Upstream request failed.";
+    const status = detail.toLowerCase().includes("timeout") ? 504 : 502;
+    return Response.json(
+      { detail: status === 504 ? "Backend request timed out." : "Backend request failed." },
+      { status },
+    );
+  }
   const responseHeaders = new Headers(upstream.headers);
   // Node fetch may return a decoded body while preserving upstream encoding headers.
   // Drop hop-by-hop / payload-size headers to prevent browser decode failures.

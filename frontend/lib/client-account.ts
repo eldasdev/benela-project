@@ -131,11 +131,15 @@ export function formatTrialRemaining(seconds: number): string {
 }
 
 export async function upsertClientOnboarding(
-  payload: ClientOnboardingPayload
+  payload: ClientOnboardingPayload,
+  accessToken?: string | null,
 ): Promise<ClientAccountProfile> {
   const res = await authFetch(`${API}/client-account/onboard`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

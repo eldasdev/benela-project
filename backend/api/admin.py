@@ -1,6 +1,9 @@
 import time
+from io import BytesIO
 from datetime import datetime, timedelta
 from typing import List, Optional
+from uuid import uuid4
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -14,6 +17,13 @@ from database import admin_schemas
 from database import admin_crud as crud
 from database import models
 from database.models import PlanStatus, PaymentStatus, NotificationTarget, NotificationType
+from core.platform_media import (
+    MAX_PLATFORM_IMAGE_UPLOAD_BYTES,
+    PLATFORM_IMAGE_ROOT,
+    build_platform_image_public_url,
+    build_platform_image_relative_path,
+    safe_platform_media_segment,
+)
 from api.client_account import (
     BUSINESS_DOCS_ROOT,
     _apply_duplicate_and_trial_logic,
@@ -46,6 +56,13 @@ _WORKSPACE_PLAN_PRICES = {
     "starter": 49.0,
     "pro": 149.0,
     "enterprise": 499.0,
+}
+
+_ALLOWED_PLATFORM_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
 }
 
 
@@ -1534,6 +1551,116 @@ def get_about_page(db: Session = Depends(get_db)):
 @router.put("/about", response_model=admin_schemas.PlatformAboutPageOut)
 def update_about_page(data: admin_schemas.PlatformAboutPageUpdate, db: Session = Depends(get_db)):
     return crud.update_platform_about_page(db, data)
+
+
+@router.get("/blog/summary", response_model=admin_schemas.AdminBlogSummaryOut)
+def get_blog_summary(db: Session = Depends(get_db)):
+    return crud.get_platform_blog_summary(db)
+
+
+@router.get("/blog/posts", response_model=List[admin_schemas.AdminBlogPostListOut])
+def list_blog_posts(
+    q: Optional[str] = Query(default=None),
+    status: str = Query(default="all"),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return crud.list_platform_blog_posts(db, q=q, status=status, limit=limit)
+
+
+@router.get("/blog/posts/{post_id}", response_model=admin_schemas.AdminBlogPostDetailOut)
+def get_blog_post(post_id: int, db: Session = Depends(get_db)):
+    post = crud.get_platform_blog_post(db, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+    return post
+
+
+@router.post("/blog/posts", response_model=admin_schemas.AdminBlogPostDetailOut)
+def create_blog_post(data: admin_schemas.AdminBlogPostCreate, db: Session = Depends(get_db)):
+    return crud.create_platform_blog_post(db, data)
+
+
+@router.put("/blog/posts/{post_id}", response_model=admin_schemas.AdminBlogPostDetailOut)
+def update_blog_post(post_id: int, data: admin_schemas.AdminBlogPostUpdate, db: Session = Depends(get_db)):
+    post = crud.update_platform_blog_post(db, post_id, data)
+    if not post:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+    return post
+
+
+@router.delete("/blog/posts/{post_id}")
+def delete_blog_post(post_id: int, db: Session = Depends(get_db)):
+    deleted = crud.delete_platform_blog_post(db, post_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+    return {"ok": True}
+
+
+@router.get("/blog/comments", response_model=List[admin_schemas.AdminBlogCommentOut])
+def list_blog_comments(
+    status: str = Query(default="all"),
+    post_id: Optional[int] = Query(default=None),
+    limit: int = Query(default=300, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return crud.list_platform_blog_comments(db, status=status, post_id=post_id, limit=limit)
+
+
+@router.patch("/blog/comments/{comment_id}", response_model=admin_schemas.AdminBlogCommentOut)
+def update_blog_comment(comment_id: int, body: admin_schemas.AdminBlogCommentStatusBody, db: Session = Depends(get_db)):
+    comment = crud.update_platform_blog_comment_status(db, comment_id, body.status)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Blog comment not found")
+    return comment
+
+
+@router.post("/media/images", response_model=admin_schemas.AdminUploadedImageOut)
+async def upload_admin_image(
+    asset_type: str = Form(default="general"),
+    file: UploadFile = File(...),
+):
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    if len(payload) > MAX_PLATFORM_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Uploaded image is too large.")
+    if file.content_type and file.content_type.lower() not in _ALLOWED_PLATFORM_IMAGE_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported image type.")
+
+    try:
+        image = Image.open(BytesIO(payload))
+        image = ImageOps.exif_transpose(image)
+    except UnidentifiedImageError:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image.")
+
+    if image.width < 32 or image.height < 32:
+        raise HTTPException(status_code=400, detail="Image is too small.")
+
+    image.thumbnail((2400, 2400))
+    converted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+    output = BytesIO()
+    converted.save(output, format="WEBP", quality=90)
+    normalized = output.getvalue()
+
+    file_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:12]}.webp"
+    relative_path = build_platform_image_relative_path(
+        safe_platform_media_segment(asset_type, "general"),
+        file_name,
+    )
+    absolute_path = (PLATFORM_IMAGE_ROOT / relative_path).resolve()
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    absolute_path.write_bytes(normalized)
+
+    return admin_schemas.AdminUploadedImageOut(
+        url=build_platform_image_public_url(relative_path),
+        asset_type=safe_platform_media_segment(asset_type, "general"),
+        width=converted.width,
+        height=converted.height,
+        content_type="image/webp",
+        size_bytes=len(normalized),
+        file_name=file_name,
+    )
 
 
 # ── AI Trainer ────────────────────────────────────────

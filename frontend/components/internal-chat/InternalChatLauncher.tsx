@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { getSupabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/auth-fetch";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { isClientModulePath } from "@/lib/section-routes";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -407,7 +408,7 @@ export default function InternalChatLauncher() {
       };
 
       if (!next.some((thread) => thread.scope === "judith_assistant")) {
-        const res = await fetch(`${API}/internal-chat/threads/judith`, {
+        const res = await authFetch(`${API}/internal-chat/threads/judith`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -419,7 +420,7 @@ export default function InternalChatLauncher() {
       }
 
       if (!viewer.isSuperAdmin && !next.some((thread) => thread.scope === "owner_direct")) {
-        const res = await fetch(`${API}/internal-chat/threads/owner-direct`, {
+        const res = await authFetch(`${API}/internal-chat/threads/owner-direct`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -449,7 +450,7 @@ export default function InternalChatLauncher() {
         query.set("workspace_id", effectiveWorkspace);
       }
 
-      const res = await fetch(`${API}/internal-chat/threads?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads?${query.toString()}`);
       if (!res.ok) {
         throw new Error("Could not load internal chat threads.");
       }
@@ -489,7 +490,7 @@ export default function InternalChatLauncher() {
         user_role: viewer.role,
         limit: "300",
       });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/messages?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThreadId}/messages?${query.toString()}`);
       if (!res.ok) {
         throw new Error("Could not load conversation messages.");
       }
@@ -523,7 +524,7 @@ export default function InternalChatLauncher() {
       if (effectiveWorkspace) {
         query.set("workspace_id", effectiveWorkspace);
       }
-      const res = await fetch(`${API}/internal-chat/contacts?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/contacts?${query.toString()}`);
       if (!res.ok) return;
       const payload = (await res.json()) as InternalChatContact[];
       setContacts(payload);
@@ -540,7 +541,7 @@ export default function InternalChatLauncher() {
     setTaskLoading(true);
     try {
       const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role, limit: "200" });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/tasks?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThreadId}/judith/tasks?${query.toString()}`);
       if (!res.ok) return;
       const payload = (await res.json()) as InternalChatTask[];
       setJudithTasks(payload);
@@ -559,7 +560,7 @@ export default function InternalChatLauncher() {
     setTelegramLinkLoading(true);
     try {
       const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/telegram-link?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThreadId}/judith/telegram-link?${query.toString()}`);
       if (!res.ok) {
         return;
       }
@@ -580,7 +581,7 @@ export default function InternalChatLauncher() {
     setTelegramLinksLoading(true);
     try {
       const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/telegram-links?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThreadId}/judith/telegram-links?${query.toString()}`);
       if (!res.ok) {
         return;
       }
@@ -601,7 +602,7 @@ export default function InternalChatLauncher() {
     setZoomLinkLoading(true);
     try {
       const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThreadId}/judith/zoom-link?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThreadId}/judith/zoom-link?${query.toString()}`);
       if (!res.ok) {
         return;
       }
@@ -620,7 +621,7 @@ export default function InternalChatLauncher() {
     try {
       const query = new URLSearchParams({ user_id: viewer.id, user_role: viewer.role, limit: "20" });
       if (workspace) query.set("workspace_id", workspace);
-      const res = await fetch(`${API}/internal-chat/judith/reminders?${query.toString()}`);
+      const res = await authFetch(`${API}/internal-chat/judith/reminders?${query.toString()}`);
       if (!res.ok) return;
       const payload = (await res.json()) as InternalChatTask[];
       setReminders(payload);
@@ -821,7 +822,7 @@ export default function InternalChatLauncher() {
     }
 
     try {
-      const res = await fetch(`${API}/internal-chat/threads/direct`, {
+      const res = await authFetch(`${API}/internal-chat/threads/direct`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -862,7 +863,7 @@ export default function InternalChatLauncher() {
     setPending("");
 
     try {
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/messages`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -927,7 +928,7 @@ export default function InternalChatLauncher() {
       if (caption) formData.append("caption", caption);
       formData.append("file", file);
 
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/attachments`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/attachments`, {
         method: "POST",
         body: formData,
       });
@@ -981,7 +982,7 @@ export default function InternalChatLauncher() {
     });
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`${API}/agents/transcribe`, {
+    const response = await authFetch(`${API}/agents/transcribe`, {
       method: "POST",
       body: formData,
     });
@@ -1099,7 +1100,7 @@ export default function InternalChatLauncher() {
 
     setTaskLoading(true);
     try {
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/judith/tasks`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/judith/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1134,7 +1135,7 @@ export default function InternalChatLauncher() {
   const toggleJudithTask = async (task: InternalChatTask) => {
     if (!viewer) return;
     try {
-      const res = await fetch(`${API}/internal-chat/judith/tasks/${task.id}`, {
+      const res = await authFetch(`${API}/internal-chat/judith/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1164,7 +1165,7 @@ export default function InternalChatLauncher() {
         user_id: viewer.id,
         user_role: viewer.role,
       });
-      const res = await fetch(`${API}/internal-chat/judith/tasks/${task.id}?${query.toString()}`, {
+      const res = await authFetch(`${API}/internal-chat/judith/tasks/${task.id}?${query.toString()}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -1192,7 +1193,7 @@ export default function InternalChatLauncher() {
         user_id: viewer.id,
         user_role: viewer.role,
       });
-      const res = await fetch(`${API}/internal-chat/messages/${message.id}?${query.toString()}`, {
+      const res = await authFetch(`${API}/internal-chat/messages/${message.id}?${query.toString()}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -1220,7 +1221,7 @@ export default function InternalChatLauncher() {
         user_id: viewer.id,
         user_role: viewer.role,
       });
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/messages?${query.toString()}`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/messages?${query.toString()}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -1248,7 +1249,7 @@ export default function InternalChatLauncher() {
 
     setTelegramLinkSaving(true);
     try {
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/judith/telegram-link`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/judith/telegram-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1290,7 +1291,7 @@ export default function InternalChatLauncher() {
         user_id: viewer.id,
         user_role: viewer.role,
       });
-      const res = await fetch(
+      const res = await authFetch(
         `${API}/internal-chat/threads/${activeThread.id}/judith/telegram-link/${linkId}?${query.toString()}`,
         { method: "DELETE" },
       );
@@ -1318,7 +1319,7 @@ export default function InternalChatLauncher() {
 
     setZoomLinkSaving(true);
     try {
-      const res = await fetch(`${API}/internal-chat/threads/${activeThread.id}/judith/zoom-link`, {
+      const res = await authFetch(`${API}/internal-chat/threads/${activeThread.id}/judith/zoom-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

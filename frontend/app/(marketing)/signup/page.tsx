@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
@@ -10,6 +11,7 @@ import { upsertClientOnboarding, type PaidPlanTier } from "@/lib/client-account"
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function SignupPage() {
+  const router = useRouter();
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -55,9 +57,15 @@ export default function SignupPage() {
         email: email.trim(),
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard`,
           data: {
             full_name: fullName.trim(),
             role: "client",
+            business_name: businessName.trim(),
+            country: country.trim(),
+            city: city.trim(),
+            employee_count: Number.parseInt(employeeCount, 10) || null,
+            plan_tier: planTier,
           },
         },
       });
@@ -68,7 +76,7 @@ export default function SignupPage() {
 
       const userId = data.user?.id;
       if (userId) {
-        const account = await upsertClientOnboarding({
+        const onboardingPayload = {
           user_id: userId,
           user_email: email.trim(),
           owner_name: fullName.trim(),
@@ -77,21 +85,23 @@ export default function SignupPage() {
           city: city.trim() || null,
           employee_count: Number.parseInt(employeeCount, 10) || null,
           plan_tier: planTier,
-        });
+        };
 
-        if (account.workspace_id) {
-          const current = readClientSettings();
-          saveClientSettings({
-            workspaceId: account.workspace_id,
-            defaultSection: current.defaultSection || "dashboard",
-            notifications: current.notifications,
-          });
-        }
+        if (data.session?.access_token) {
+          const account = await upsertClientOnboarding(onboardingPayload, data.session.access_token);
 
-        if (account.payment_required) {
-          setTrialNotice(t("auth.signup.paymentRequiredNotice"));
+          if (account.workspace_id) {
+            const current = readClientSettings();
+            saveClientSettings({
+              workspaceId: account.workspace_id,
+              defaultSection: current.defaultSection || "dashboard",
+              notifications: current.notifications,
+            });
+          }
+          router.push("/settings?setup=business");
+          return;
         } else {
-          setTrialNotice(t("auth.signup.trialActiveNotice"));
+          setTrialNotice(t("auth.signup.provisioningNotice"));
         }
       }
 

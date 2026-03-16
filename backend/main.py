@@ -68,6 +68,8 @@ from database.models import (
     AITrainerChunk,
     PlatformSettings,
     PlatformAboutPage,
+    PlatformBlogPost,
+    PlatformBlogComment,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -75,6 +77,10 @@ _db_bootstrap_ok = False
 _reminder_worker_thread = None
 _reminder_worker_stop_event = threading.Event()
 _telegram_updates_offset = None
+_maintenance_state_lock = threading.Lock()
+_maintenance_state_checked_at = 0.0
+_maintenance_state_cached = False
+_MAINTENANCE_CACHE_TTL_SECONDS = max(1.0, float(os.getenv("MAINTENANCE_MODE_CACHE_SECONDS", "5")))
 _MAINTENANCE_EXACT_PATHS = {
     "/docs",
     "/openapi.json",
@@ -282,6 +288,8 @@ def _should_auto_create_platform_content_tables() -> bool:
 def _ensure_platform_content_schema():
     PlatformSettings.__table__.create(bind=engine, checkfirst=True)
     PlatformAboutPage.__table__.create(bind=engine, checkfirst=True)
+    PlatformBlogPost.__table__.create(bind=engine, checkfirst=True)
+    PlatformBlogComment.__table__.create(bind=engine, checkfirst=True)
 
     dialect = engine.dialect.name
     with engine.begin() as conn:
@@ -411,12 +419,25 @@ def _is_maintenance_exempt_path(path: str) -> bool:
 
 
 def _is_maintenance_enabled() -> bool:
+    global _maintenance_state_checked_at, _maintenance_state_cached
+
+    now = time.monotonic()
+    with _maintenance_state_lock:
+        if now - _maintenance_state_checked_at <= _MAINTENANCE_CACHE_TTL_SECONDS:
+            return _maintenance_state_cached
+
     db = SessionLocal()
     try:
         settings_row = db.query(PlatformSettings).first()
-        return bool(settings_row and settings_row.maintenance_mode)
+        enabled = bool(settings_row and settings_row.maintenance_mode)
     finally:
         db.close()
+
+    with _maintenance_state_lock:
+        _maintenance_state_cached = enabled
+        _maintenance_state_checked_at = time.monotonic()
+
+    return enabled
 
 
 @app.middleware("http")

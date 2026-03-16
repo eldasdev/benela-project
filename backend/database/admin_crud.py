@@ -2,13 +2,14 @@ from datetime import datetime, timedelta
 import hashlib
 import html as html_lib
 import json
+import os
 import re
 import secrets
 from typing import List, Optional
 
 import httpx
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 from database.models import (
     ClientOrg,
@@ -26,6 +27,8 @@ from database.models import (
     NotificationTarget,
     PlatformSettings,
     PlatformAboutPage,
+    PlatformBlogPost,
+    PlatformBlogComment,
     ClientBusinessDocument,
     ClientPlatformReport,
     AITrainerProfile,
@@ -126,6 +129,35 @@ _DEFAULT_PLATFORM_ABOUT = {
         },
     ],
 }
+
+_DEFAULT_PLATFORM_BLOG_POSTS = [
+    {
+        "title": "Introducing the Benela Journal",
+        "slug": "introducing-the-benela-journal",
+        "excerpt": "A new editorial home for Benela news, industry analysis, operating insights, and product updates.",
+        "cover_image_url": "",
+        "category": "Company News",
+        "author_name": "Benela Editorial Team",
+        "tags": ["Benela", "News", "Operations"],
+        "content_markdown": (
+            "## A new publishing layer for serious operators\n\n"
+            "The Benela Journal is where we publish product updates, operating insights, industry breakdowns, and "
+            "practical guidance for business teams using AI-native systems.\n\n"
+            "### What you can expect\n\n"
+            "- Product launch notes and roadmap signals\n"
+            "- Industry and business operations analysis\n"
+            "- Implementation lessons from modern ERP rollouts\n"
+            "- Perspectives on AI, governance, and company execution\n\n"
+            "### Why this matters\n\n"
+            "Benela is not only software. It is a point of view on how ambitious companies should run. The journal gives "
+            "that point of view a permanent, searchable home.\n"
+        ),
+        "seo_title": "Introducing the Benela Journal",
+        "seo_description": "Meet the new editorial home for Benela news, business insights, and industry analysis.",
+        "is_published": True,
+        "is_featured": True,
+    }
+]
 
 _DEFAULT_PRICING_PLANS = [
     {
@@ -484,6 +516,486 @@ def update_platform_about_page(db: Session, data: admin_schemas.PlatformAboutPag
     db.commit()
     db.refresh(page)
     return page
+
+
+def _slugify(value: str) -> str:
+    value = re.sub(r"[^a-zA-Z0-9\\s-]", "", (value or "").strip().lower())
+    value = re.sub(r"[\\s_-]+", "-", value)
+    value = re.sub(r"^-+|-+$", "", value)
+    return value or f"post-{secrets.token_hex(4)}"
+
+
+def _normalize_blog_tags(tags: Optional[list[str]]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for item in tags or []:
+        if not isinstance(item, str):
+            continue
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(cleaned[:40])
+    return normalized
+
+
+def _blog_category_slug(category: Optional[str]) -> str:
+    return _slugify(category or "general") or "general"
+
+
+def _blog_tag_slugs(tags: Optional[list[str]]) -> list[str]:
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for tag in tags or []:
+        slug = _slugify(tag or "")
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        slugs.append(slug)
+    return slugs
+
+
+def _strip_markdown(content: str) -> str:
+    text = re.sub(r"`{1,3}.*?`{1,3}", " ", content or "", flags=re.S)
+    text = re.sub(r"!\\[[^\\]]*\\]\\([^\\)]*\\)", " ", text)
+    text = re.sub(r"\\[[^\\]]*\\]\\([^\\)]*\\)", " ", text)
+    text = re.sub(r"[#>*_~\\-]{1,}", " ", text)
+    text = re.sub(r"\\s+", " ", text)
+    return html_lib.unescape(text).strip()
+
+
+def _estimate_read_time_minutes(content: str) -> int:
+    words = len((_strip_markdown(content) or "").split())
+    if words <= 0:
+        return 1
+    return max(1, int(round(words / 220.0)))
+
+
+def _build_blog_excerpt(excerpt: Optional[str], content: str) -> str:
+    cleaned = (excerpt or "").strip()
+    if cleaned:
+        return cleaned[:320]
+    generated = _strip_markdown(content)
+    return generated[:280].strip()
+
+
+def _build_unique_blog_slug(db: Session, title: str, requested_slug: Optional[str] = None, exclude_id: Optional[int] = None) -> str:
+    base = _slugify(requested_slug or title)
+    slug = base
+    suffix = 2
+    while True:
+        query = db.query(PlatformBlogPost).filter(PlatformBlogPost.slug == slug)
+        if exclude_id is not None:
+            query = query.filter(PlatformBlogPost.id != exclude_id)
+        if not query.first():
+            return slug
+        slug = f"{base}-{suffix}"
+        suffix += 1
+
+
+def _ensure_platform_blog_seed(db: Session):
+    if os.getenv("SEED_DEFAULT_BLOG_POSTS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return
+    existing = db.query(PlatformBlogPost).first()
+    if existing:
+        return
+
+    for item in _DEFAULT_PLATFORM_BLOG_POSTS:
+        post = PlatformBlogPost(
+            title=item["title"],
+            slug=item["slug"],
+            excerpt=item["excerpt"],
+            cover_image_url=item["cover_image_url"] or None,
+            category=item["category"],
+            author_name=item["author_name"],
+            tags=item["tags"],
+            content_markdown=item["content_markdown"],
+            seo_title=item["seo_title"],
+            seo_description=item["seo_description"],
+            is_published=bool(item["is_published"]),
+            is_featured=bool(item["is_featured"]),
+            read_time_minutes=_estimate_read_time_minutes(item["content_markdown"]),
+            published_at=datetime.utcnow() if item["is_published"] else None,
+        )
+        db.add(post)
+    db.commit()
+
+
+def _serialize_public_blog_comment(comment: PlatformBlogComment):
+    return admin_schemas.PublicBlogCommentOut(
+        id=comment.id,
+        author_name=comment.author_name,
+        body=comment.body,
+        created_at=comment.created_at,
+    )
+
+
+def _serialize_admin_blog_comment(comment: PlatformBlogComment, post: PlatformBlogPost):
+    return admin_schemas.AdminBlogCommentOut(
+        id=comment.id,
+        post_id=comment.post_id,
+        post_title=post.title,
+        post_slug=post.slug,
+        post_category_slug=_blog_category_slug(post.category),
+        author_name=comment.author_name,
+        author_email=comment.author_email,
+        body=comment.body,
+        status=comment.status,
+        created_at=comment.created_at,
+        reviewed_at=comment.reviewed_at,
+    )
+
+
+def _serialize_admin_blog_post(
+    post: PlatformBlogPost,
+    comments_total: int = 0,
+    comments_pending: int = 0,
+):
+    return admin_schemas.AdminBlogPostListOut(
+        id=post.id,
+        title=post.title,
+        slug=post.slug,
+        category_slug=_blog_category_slug(post.category),
+        excerpt=post.excerpt,
+        cover_image_url=post.cover_image_url,
+        category=post.category,
+        author_name=post.author_name,
+        tags=list(post.tags or []),
+        tag_slugs=_blog_tag_slugs(list(post.tags or [])),
+        is_published=bool(post.is_published),
+        is_featured=bool(post.is_featured),
+        read_time_minutes=post.read_time_minutes,
+        comments_total=comments_total,
+        comments_pending=comments_pending,
+        published_at=post.published_at,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+    )
+
+
+def _serialize_public_blog_post(post: PlatformBlogPost):
+    return admin_schemas.PublicBlogPostSummaryOut(
+        id=post.id,
+        title=post.title,
+        slug=post.slug,
+        category_slug=_blog_category_slug(post.category),
+        excerpt=post.excerpt,
+        cover_image_url=post.cover_image_url,
+        category=post.category,
+        author_name=post.author_name,
+        tags=list(post.tags or []),
+        tag_slugs=_blog_tag_slugs(list(post.tags or [])),
+        read_time_minutes=post.read_time_minutes,
+        is_featured=bool(post.is_featured),
+        published_at=post.published_at,
+    )
+
+
+def get_platform_blog_summary(db: Session):
+    _ensure_platform_blog_seed(db)
+    total_posts = db.query(func.count(PlatformBlogPost.id)).scalar() or 0
+    published_posts = db.query(func.count(PlatformBlogPost.id)).filter(PlatformBlogPost.is_published == True).scalar() or 0
+    featured_posts = db.query(func.count(PlatformBlogPost.id)).filter(PlatformBlogPost.is_featured == True).scalar() or 0
+    pending_comments = db.query(func.count(PlatformBlogComment.id)).filter(PlatformBlogComment.status == "pending").scalar() or 0
+    approved_comments = db.query(func.count(PlatformBlogComment.id)).filter(PlatformBlogComment.status == "approved").scalar() or 0
+    return admin_schemas.AdminBlogSummaryOut(
+        total_posts=total_posts,
+        published_posts=published_posts,
+        draft_posts=max(0, total_posts - published_posts),
+        featured_posts=featured_posts,
+        pending_comments=pending_comments,
+        approved_comments=approved_comments,
+    )
+
+
+def list_platform_blog_posts(
+    db: Session,
+    q: Optional[str] = None,
+    status: str = "all",
+    limit: int = 200,
+):
+    _ensure_platform_blog_seed(db)
+    query = db.query(PlatformBlogPost).order_by(
+        PlatformBlogPost.is_featured.desc(),
+        PlatformBlogPost.published_at.desc().nullslast(),
+        PlatformBlogPost.updated_at.desc(),
+    )
+    if status == "published":
+        query = query.filter(PlatformBlogPost.is_published == True)
+    elif status == "draft":
+        query = query.filter(PlatformBlogPost.is_published == False)
+    if q:
+        term = f"%{q.strip().lower()}%"
+        query = query.filter(
+            func.lower(PlatformBlogPost.title).like(term)
+            | func.lower(func.coalesce(PlatformBlogPost.excerpt, "")).like(term)
+            | func.lower(func.coalesce(PlatformBlogPost.category, "")).like(term)
+        )
+    posts = query.limit(limit).all()
+    post_ids = [item.id for item in posts]
+    comment_counts = {
+        post_id: {"total": total, "pending": pending}
+        for post_id, total, pending in (
+            db.query(
+                PlatformBlogComment.post_id,
+                func.count(PlatformBlogComment.id),
+                func.sum(case((PlatformBlogComment.status == "pending", 1), else_=0)),
+            )
+            .filter(PlatformBlogComment.post_id.in_(post_ids))
+            .group_by(PlatformBlogComment.post_id)
+            .all()
+            if post_ids
+            else []
+        )
+    }
+    return [
+        _serialize_admin_blog_post(
+            post,
+            comments_total=int(comment_counts.get(post.id, {}).get("total") or 0),
+            comments_pending=int(comment_counts.get(post.id, {}).get("pending") or 0),
+        )
+        for post in posts
+    ]
+
+
+def get_platform_blog_post(db: Session, post_id: int):
+    _ensure_platform_blog_seed(db)
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.id == post_id).first()
+    if not post:
+        return None
+    comments = (
+        db.query(PlatformBlogComment)
+        .filter(PlatformBlogComment.post_id == post.id)
+        .order_by(PlatformBlogComment.created_at.desc(), PlatformBlogComment.id.desc())
+        .all()
+    )
+    comments_total = len(comments)
+    comments_pending = sum(1 for item in comments if item.status == "pending")
+    row = _serialize_admin_blog_post(post, comments_total=comments_total, comments_pending=comments_pending)
+    return admin_schemas.AdminBlogPostDetailOut(
+        **row.model_dump(),
+        content_markdown=post.content_markdown,
+        seo_title=post.seo_title,
+        seo_description=post.seo_description,
+        comments=[_serialize_admin_blog_comment(comment, post) for comment in comments],
+    )
+
+
+def create_platform_blog_post(db: Session, data: admin_schemas.AdminBlogPostCreate):
+    _ensure_platform_blog_seed(db)
+    payload = data.model_dump()
+    slug = _build_unique_blog_slug(db, payload["title"], payload.get("slug"))
+    is_published = bool(payload.get("is_published"))
+    post = PlatformBlogPost(
+        title=payload["title"].strip(),
+        slug=slug,
+        excerpt=_build_blog_excerpt(payload.get("excerpt"), payload.get("content_markdown", "")),
+        cover_image_url=(payload.get("cover_image_url") or "").strip() or None,
+        category=(payload.get("category") or "Insights").strip(),
+        author_name=(payload.get("author_name") or "Benela Team").strip(),
+        tags=_normalize_blog_tags(payload.get("tags")),
+        content_markdown=payload.get("content_markdown", "").strip(),
+        seo_title=(payload.get("seo_title") or "").strip() or None,
+        seo_description=(payload.get("seo_description") or "").strip() or None,
+        is_published=is_published,
+        is_featured=bool(payload.get("is_featured")),
+        read_time_minutes=_estimate_read_time_minutes(payload.get("content_markdown", "")),
+        published_at=payload.get("published_at") or (datetime.utcnow() if is_published else None),
+    )
+    if post.is_featured:
+        db.query(PlatformBlogPost).update({"is_featured": False})
+    db.add(post)
+    db.commit()
+    db.refresh(post)
+    return get_platform_blog_post(db, post.id)
+
+
+def update_platform_blog_post(db: Session, post_id: int, data: admin_schemas.AdminBlogPostUpdate):
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.id == post_id).first()
+    if not post:
+        return None
+    payload = data.model_dump(exclude_unset=True)
+    if "title" in payload and payload["title"] is not None:
+        post.title = payload["title"].strip()
+    if "slug" in payload:
+        post.slug = _build_unique_blog_slug(db, post.title, payload.get("slug"), exclude_id=post.id)
+    if "category" in payload and payload["category"] is not None:
+        post.category = payload["category"].strip()
+    if "author_name" in payload and payload["author_name"] is not None:
+        post.author_name = payload["author_name"].strip()
+    if "tags" in payload and payload["tags"] is not None:
+        post.tags = _normalize_blog_tags(payload["tags"])
+    if "cover_image_url" in payload:
+        post.cover_image_url = (payload.get("cover_image_url") or "").strip() or None
+    if "content_markdown" in payload and payload["content_markdown"] is not None:
+        post.content_markdown = payload["content_markdown"].strip()
+    if "excerpt" in payload:
+        post.excerpt = _build_blog_excerpt(payload.get("excerpt"), post.content_markdown)
+    if "seo_title" in payload:
+        post.seo_title = (payload.get("seo_title") or "").strip() or None
+    if "seo_description" in payload:
+        post.seo_description = (payload.get("seo_description") or "").strip() or None
+    if "is_published" in payload and payload["is_published"] is not None:
+        post.is_published = bool(payload["is_published"])
+        if post.is_published and not post.published_at:
+            post.published_at = datetime.utcnow()
+        if not post.is_published:
+            post.published_at = None
+    if "published_at" in payload:
+        post.published_at = payload.get("published_at")
+    if "is_featured" in payload and payload["is_featured"] is not None:
+        post.is_featured = bool(payload["is_featured"])
+        if post.is_featured:
+            db.query(PlatformBlogPost).filter(PlatformBlogPost.id != post.id).update({"is_featured": False})
+    post.read_time_minutes = _estimate_read_time_minutes(post.content_markdown)
+    db.commit()
+    db.refresh(post)
+    return get_platform_blog_post(db, post.id)
+
+
+def delete_platform_blog_post(db: Session, post_id: int) -> bool:
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.id == post_id).first()
+    if not post:
+        return False
+    db.delete(post)
+    db.commit()
+    return True
+
+
+def list_platform_blog_comments(
+    db: Session,
+    status: str = "all",
+    post_id: Optional[int] = None,
+    limit: int = 300,
+):
+    _ensure_platform_blog_seed(db)
+    query = db.query(PlatformBlogComment, PlatformBlogPost).join(
+        PlatformBlogPost, PlatformBlogPost.id == PlatformBlogComment.post_id
+    )
+    if status != "all":
+        query = query.filter(PlatformBlogComment.status == status)
+    if post_id is not None:
+        query = query.filter(PlatformBlogComment.post_id == post_id)
+    rows = query.order_by(PlatformBlogComment.created_at.desc(), PlatformBlogComment.id.desc()).limit(limit).all()
+    return [_serialize_admin_blog_comment(comment, post) for comment, post in rows]
+
+
+def update_platform_blog_comment_status(db: Session, comment_id: int, status: str):
+    comment = db.query(PlatformBlogComment).filter(PlatformBlogComment.id == comment_id).first()
+    if not comment:
+        return None
+    comment.status = status
+    comment.reviewed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(comment)
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.id == comment.post_id).first()
+    if not post:
+        return None
+    return _serialize_admin_blog_comment(comment, post)
+
+
+def list_public_blog_posts(db: Session, featured_only: bool = False, limit: int = 24):
+    _ensure_platform_blog_seed(db)
+    query = db.query(PlatformBlogPost).filter(PlatformBlogPost.is_published == True)
+    if featured_only:
+        query = query.filter(PlatformBlogPost.is_featured == True)
+    posts = (
+        query.order_by(
+            PlatformBlogPost.is_featured.desc(),
+            PlatformBlogPost.published_at.desc().nullslast(),
+            PlatformBlogPost.updated_at.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+    return [_serialize_public_blog_post(post) for post in posts]
+
+
+def get_public_blog_post_by_slug(db: Session, slug: str):
+    _ensure_platform_blog_seed(db)
+    post = (
+        db.query(PlatformBlogPost)
+        .filter(PlatformBlogPost.slug == slug, PlatformBlogPost.is_published == True)
+        .first()
+    )
+    if not post:
+        return None
+    comments = (
+        db.query(PlatformBlogComment)
+        .filter(
+            PlatformBlogComment.post_id == post.id,
+            PlatformBlogComment.status == "approved",
+        )
+        .order_by(PlatformBlogComment.created_at.desc(), PlatformBlogComment.id.desc())
+        .all()
+    )
+    summary = _serialize_public_blog_post(post)
+    return admin_schemas.PublicBlogPostDetailOut(
+        **summary.model_dump(),
+        content_markdown=post.content_markdown,
+        seo_title=post.seo_title,
+        seo_description=post.seo_description,
+        comments=[_serialize_public_blog_comment(comment) for comment in comments],
+    )
+
+
+def get_public_blog_post_by_category_and_slug(db: Session, category_slug: str, slug: str):
+    post = get_public_blog_post_by_slug(db, slug)
+    if not post:
+        return None
+    if _blog_category_slug(post.category) != _slugify(category_slug or ""):
+        return None
+    return post
+
+
+def create_public_blog_comment(db: Session, slug: str, data: admin_schemas.PublicBlogCommentCreate):
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.slug == slug, PlatformBlogPost.is_published == True).first()
+    if not post:
+        return None
+    comment = PlatformBlogComment(
+        post_id=post.id,
+        author_name=data.author_name.strip(),
+        author_email=data.author_email.strip().lower(),
+        body=data.body.strip(),
+        status="pending",
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return admin_schemas.PublicBlogCommentSubmissionOut(
+        id=comment.id,
+        status=comment.status,
+        message="Comment submitted and waiting for review.",
+    )
+
+
+def create_public_blog_comment_by_category_and_slug(
+    db: Session,
+    category_slug: str,
+    slug: str,
+    data: admin_schemas.PublicBlogCommentCreate,
+):
+    post = db.query(PlatformBlogPost).filter(PlatformBlogPost.slug == slug, PlatformBlogPost.is_published == True).first()
+    if not post or _blog_category_slug(post.category) != _slugify(category_slug or ""):
+        return None
+    comment = PlatformBlogComment(
+        post_id=post.id,
+        author_name=data.author_name.strip(),
+        author_email=data.author_email.strip().lower(),
+        body=data.body.strip(),
+        status="pending",
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return admin_schemas.PublicBlogCommentSubmissionOut(
+        id=comment.id,
+        status=comment.status,
+        message="Comment submitted and waiting for review.",
+    )
 
 
 # ── ClientOrg CRUD ────────────────────────────────────

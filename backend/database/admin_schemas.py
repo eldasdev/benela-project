@@ -726,6 +726,153 @@ class PlatformAboutPageOut(BaseModel):
         from_attributes = True
 
 
+# ── Platform Blog ────────────────────────────────────
+class PlatformBlogPostBase(BaseModel):
+    title: str
+    slug: Optional[str] = None
+    excerpt: str = ""
+    cover_image_url: Optional[str] = None
+    category: str = "Insights"
+    author_name: str = "Benela Team"
+    tags: list[str] = Field(default_factory=list)
+    content_markdown: str = ""
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    is_published: bool = False
+    is_featured: bool = False
+    published_at: Optional[datetime] = None
+
+
+class AdminBlogPostCreate(PlatformBlogPostBase):
+    title: str = Field(min_length=3, max_length=255)
+    category: str = Field(default="Insights", min_length=2, max_length=120)
+    author_name: str = Field(default="Benela Team", min_length=2, max_length=160)
+    content_markdown: str = Field(min_length=20)
+
+
+class AdminBlogPostUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=3, max_length=255)
+    slug: Optional[str] = None
+    excerpt: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    category: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    author_name: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    tags: Optional[list[str]] = None
+    content_markdown: Optional[str] = Field(default=None, min_length=20)
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    is_published: Optional[bool] = None
+    is_featured: Optional[bool] = None
+    published_at: Optional[datetime] = None
+
+
+class AdminBlogCommentOut(BaseModel):
+    id: int
+    post_id: int
+    post_title: str
+    post_slug: str
+    post_category_slug: str
+    author_name: str
+    author_email: str
+    body: str
+    status: str
+    created_at: datetime
+    reviewed_at: Optional[datetime]
+
+
+class AdminBlogPostListOut(BaseModel):
+    id: int
+    title: str
+    slug: str
+    category_slug: str
+    excerpt: str
+    cover_image_url: Optional[str]
+    category: str
+    author_name: str
+    tags: list[str] = Field(default_factory=list)
+    tag_slugs: list[str] = Field(default_factory=list)
+    is_published: bool
+    is_featured: bool
+    read_time_minutes: int
+    comments_total: int
+    comments_pending: int
+    published_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminBlogPostDetailOut(AdminBlogPostListOut):
+    content_markdown: str
+    seo_title: Optional[str]
+    seo_description: Optional[str]
+    comments: list[AdminBlogCommentOut] = Field(default_factory=list)
+
+
+class AdminBlogCommentStatusBody(BaseModel):
+    status: Literal["pending", "approved", "rejected"]
+
+
+class AdminBlogSummaryOut(BaseModel):
+    total_posts: int
+    published_posts: int
+    draft_posts: int
+    featured_posts: int
+    pending_comments: int
+    approved_comments: int
+
+
+class PublicBlogCommentOut(BaseModel):
+    id: int
+    author_name: str
+    body: str
+    created_at: datetime
+
+
+class PublicBlogPostSummaryOut(BaseModel):
+    id: int
+    title: str
+    slug: str
+    category_slug: str
+    excerpt: str
+    cover_image_url: Optional[str]
+    category: str
+    author_name: str
+    tags: list[str] = Field(default_factory=list)
+    tag_slugs: list[str] = Field(default_factory=list)
+    read_time_minutes: int
+    is_featured: bool
+    published_at: Optional[datetime]
+
+
+class PublicBlogPostDetailOut(PublicBlogPostSummaryOut):
+    content_markdown: str
+    seo_title: Optional[str]
+    seo_description: Optional[str]
+    comments: list[PublicBlogCommentOut] = Field(default_factory=list)
+
+
+class PublicBlogCommentCreate(BaseModel):
+    author_name: str = Field(min_length=2, max_length=160)
+    author_email: str = Field(min_length=5, max_length=255)
+    body: str = Field(min_length=10, max_length=4000)
+
+
+class PublicBlogCommentSubmissionOut(BaseModel):
+    id: int
+    status: str
+    message: str
+
+
+class AdminUploadedImageOut(BaseModel):
+    url: str
+    asset_type: str
+    width: int
+    height: int
+    content_type: str
+    size_bytes: int
+    file_name: str
+
+
 # ── AI Trainer ────────────────────────────────────────
 class AITrainerProfileUpdate(BaseModel):
     provider: Optional[Literal["auto", "anthropic", "openai"]] = None

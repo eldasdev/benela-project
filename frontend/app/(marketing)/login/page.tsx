@@ -55,7 +55,7 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     await getSupabase().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard` },
     });
   };
 

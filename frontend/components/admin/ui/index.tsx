@@ -60,16 +60,18 @@ export function AdminMetricCard({
   value,
   detail,
   tone = "accent",
+  valueSize = "display",
 }: {
   label: string;
   value: ReactNode;
   detail?: ReactNode;
   tone?: "accent" | "success" | "warning" | "danger" | "neutral";
+  valueSize?: "display" | "standard" | "compact";
 }) {
   return (
     <section className={`admin-ui-surface admin-ui-metric admin-ui-tone-${tone}`}>
       <div className="admin-ui-metric-label">{label}</div>
-      <div className="admin-ui-metric-value">{value}</div>
+      <div className={`admin-ui-metric-value admin-ui-metric-value-${valueSize}`}>{value}</div>
       {detail ? <div className="admin-ui-metric-detail">{detail}</div> : null}
     </section>
   );

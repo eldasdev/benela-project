@@ -398,6 +398,100 @@ def _draft_business_slug(db: Session, user_id: str) -> str:
     return _unique_workspace_id(db, f"workspace-{user_id[:8]}")
 
 
+def _metadata_str(metadata: dict, key: str) -> str | None:
+    raw = metadata.get(key)
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
+def _metadata_int(metadata: dict, key: str) -> int | None:
+    raw = metadata.get(key)
+    if raw in (None, ""):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _safe_plan_tier(raw: str | None, fallback: str = "starter") -> str:
+    try:
+        return _normalize_plan_tier(raw, fallback=fallback)
+    except HTTPException:
+        return fallback
+
+
+def _hydrate_account_from_auth_metadata(
+    db: Session,
+    account: models.ClientWorkspaceAccount,
+    auth_user,
+) -> bool:
+    metadata = auth_user.claims.get("user_metadata") or {}
+    changed = False
+
+    business_name = _metadata_str(metadata, "business_name")
+    country = _metadata_str(metadata, "country")
+    city = _metadata_str(metadata, "city")
+    owner_name = _metadata_str(metadata, "full_name")
+    employee_count = _metadata_int(metadata, "employee_count")
+    plan_tier = _safe_plan_tier(
+        _metadata_str(metadata, "plan_tier"),
+        fallback=(account.plan_tier.value if hasattr(account.plan_tier, "value") else str(account.plan_tier or "starter")),
+    )
+
+    if auth_user.email and account.user_email != auth_user.email:
+        account.user_email = auth_user.email
+        changed = True
+
+    if owner_name and not (account.owner_name or "").strip():
+        account.owner_name = owner_name
+        changed = True
+
+    if business_name and not (account.business_name or "").strip():
+        account.business_name = business_name
+        account.business_slug = _slugify(business_name)
+        changed = True
+
+    if country and not (account.country or "").strip():
+        account.country = country
+        changed = True
+
+    if city and not (account.city or "").strip():
+        account.city = city
+        changed = True
+
+    if employee_count and not account.employee_count:
+        account.employee_count = employee_count
+        changed = True
+
+    current_plan = account.plan_tier.value if hasattr(account.plan_tier, "value") else str(account.plan_tier)
+    if plan_tier != current_plan:
+        account.plan_tier = models.PlanTier(plan_tier)
+        changed = True
+
+    if (account.business_name or "").strip() and (account.country or "").strip():
+        account.business_fingerprint = _build_business_fingerprint(
+            business_name=account.business_name,
+            country=account.country,
+            city=account.city,
+            registration_number=account.registration_number,
+        )
+        _apply_duplicate_and_trial_logic(db, account, fingerprint=account.business_fingerprint, plan_tier=plan_tier)
+        _sync_client_org_and_subscription(
+            db,
+            account=account,
+            owner_email=account.user_email or auth_user.email,
+            owner_name=account.owner_name or owner_name,
+        )
+        _recompute_onboarding_completion(db, account)
+        changed = True
+
+    return changed
+
+
 def _sync_client_org_and_subscription(
     db: Session,
     account: models.ClientWorkspaceAccount,
@@ -516,29 +610,64 @@ def _apply_duplicate_and_trial_logic(
 def bootstrap_client_account(request: Request, db: Session = Depends(get_db)):
     auth_user = assert_request_user_matches(request)
     _assert_client_boundary(auth_user.email)
+    metadata = auth_user.claims.get("user_metadata") or {}
+    business_name = _metadata_str(metadata, "business_name") or ""
+    country = _metadata_str(metadata, "country")
+    city = _metadata_str(metadata, "city")
+    owner_name = _metadata_str(metadata, "full_name")
+    employee_count = _metadata_int(metadata, "employee_count")
+    plan_tier = _safe_plan_tier(_metadata_str(metadata, "plan_tier"), fallback="starter")
 
     account = _find_account_by_user(db, auth_user.user_id)
     if not account:
+        business_slug = _slugify(business_name) if business_name else _draft_business_slug(db, auth_user.user_id)
         account = models.ClientWorkspaceAccount(
             user_id=auth_user.user_id,
             user_email=auth_user.email,
-            workspace_id=_draft_workspace_id(db, auth_user.user_id),
-            business_name="",
-            business_slug=_draft_business_slug(db, auth_user.user_id),
-            business_fingerprint=hashlib.sha256(f"draft:{auth_user.user_id}".encode("utf-8")).hexdigest(),
-            owner_name=((auth_user.claims.get("user_metadata") or {}).get("full_name") or "").strip() or None,
-            plan_tier=models.PlanTier.starter,
+            workspace_id=_unique_workspace_id(db, business_slug) if business_name else _draft_workspace_id(db, auth_user.user_id),
+            business_name=business_name,
+            business_slug=business_slug,
+            business_fingerprint=(
+                _build_business_fingerprint(
+                    business_name=business_name,
+                    country=country,
+                    city=city,
+                    registration_number=None,
+                )
+                if business_name and country
+                else hashlib.sha256(f"draft:{auth_user.user_id}".encode("utf-8")).hexdigest()
+            ),
+            owner_name=owner_name,
+            country=country,
+            city=city,
+            employee_count=employee_count,
+            plan_tier=models.PlanTier(plan_tier),
             payment_required=False,
             onboarding_completed=False,
         )
         db.add(account)
+        db.flush()
+
+        if business_name and country:
+            _apply_duplicate_and_trial_logic(db, account, fingerprint=account.business_fingerprint, plan_tier=plan_tier)
+            _sync_client_org_and_subscription(
+                db,
+                account=account,
+                owner_email=auth_user.email,
+                owner_name=owner_name,
+            )
+            _recompute_onboarding_completion(db, account)
+
         db.commit()
         db.refresh(account)
-    elif not account.user_email and auth_user.email:
-        account.user_email = auth_user.email
-        account.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(account)
+    else:
+        changed = _hydrate_account_from_auth_metadata(db, account, auth_user)
+        if changed or (not account.user_email and auth_user.email):
+            account.updated_at = datetime.utcnow()
+            if not account.user_email and auth_user.email:
+                account.user_email = auth_user.email
+            db.commit()
+            db.refresh(account)
 
     return _serialize_account(db, account)
 

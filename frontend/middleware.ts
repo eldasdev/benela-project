@@ -4,6 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 const PROTECTED_PATH_PREFIXES = ["/dashboard", "/settings", "/notifications", "/admin"] as const;
 const ADMIN_PUBLIC_PATHS = ["/admin/login"] as const;
 const MAINTENANCE_PATH = "/maintenance";
+const AUTH_CALLBACK_PATH = "/auth/callback";
+
+function hasAuthCallbackParams(url: URL): boolean {
+  const keys = ["code", "token_hash", "type", "error", "error_code", "error_description", "access_token", "refresh_token"];
+  return keys.some((key) => url.searchParams.has(key));
+}
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -62,6 +68,12 @@ async function getMaintenanceMode(): Promise<boolean> {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (pathname === "/" && hasAuthCallbackParams(request.nextUrl)) {
+    const nextUrl = new URL(AUTH_CALLBACK_PATH, request.url);
+    nextUrl.search = request.nextUrl.search;
+    return applyNoStoreHeaders(NextResponse.redirect(nextUrl));
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -109,7 +121,7 @@ export async function middleware(request: NextRequest) {
 
   const isAdminPath = pathname.startsWith("/admin");
   const isApiPath = pathname.startsWith("/api");
-  if (!isAdminPath && !isApiPath) {
+  if (!isAdminPath && !isApiPath && pathname !== AUTH_CALLBACK_PATH) {
     const maintenanceMode = await getMaintenanceMode();
 
     if (maintenanceMode) {
@@ -132,7 +144,8 @@ export async function middleware(request: NextRequest) {
     isAdminPublicPath(pathname) ||
     pathname === "/login" ||
     pathname === "/signup" ||
-    pathname === MAINTENANCE_PATH
+    pathname === MAINTENANCE_PATH ||
+    pathname === AUTH_CALLBACK_PATH
   ) {
     applyNoStoreHeaders(response);
   }
@@ -141,5 +154,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

@@ -104,18 +104,25 @@ def _engine_kwargs(url: str) -> dict:
         kwargs["poolclass"] = NullPool
         return kwargs
 
-    default_pool_size = "2"
-    default_max_overflow = "1"
-    if not _is_supabase_pooler(url):
-        default_pool_size = "5"
-        default_max_overflow = "5"
+    default_pool_size = "5"
+    default_max_overflow = "5"
+    default_pool_timeout = "20"
+
+    # Transaction-heavy surfaces such as internal chat can issue several
+    # concurrent requests at once. A 2-connection default pool is too small
+    # for local/dev and causes artificial timeout noise under normal usage.
+    # Keep the pool bounded, but not starved.
+    if _is_supabase_pooler(url) and _env_bool("DB_SMALL_POOL_MODE", False):
+        default_pool_size = "2"
+        default_max_overflow = "2"
+        default_pool_timeout = "10"
 
     kwargs.update(
         {
             "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "600")),
             "pool_size": int(os.getenv("DB_POOL_SIZE", default_pool_size)),
             "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", default_max_overflow)),
-            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", default_pool_timeout)),
             "pool_use_lifo": _env_bool("DB_POOL_USE_LIFO", True),
             "pool_reset_on_return": "rollback",
         }

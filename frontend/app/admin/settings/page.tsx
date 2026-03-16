@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { AlertTriangle, Copy, Lock, RefreshCcw, Save, Shield } from "lucide-react";
 import { authFetch } from "@/lib/auth-fetch";
-import { formatDateTime, readErrorMessage } from "@/lib/admin-utils";
+import { formatDate, readErrorMessage } from "@/lib/admin-utils";
 import {
   AdminEmptyState,
   AdminMetricCard,
@@ -183,6 +183,16 @@ export default function AdminSettingsPage() {
     return { tone: "success" as const, label: "Open" };
   }, [settings]);
 
+  const lastUpdatedTime = useMemo(() => {
+    if (!settings) return "Time unavailable";
+    const date = new Date(settings.updated_at);
+    if (Number.isNaN(date.getTime())) return "Time unavailable";
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, [settings]);
+
   if (loading) {
     return (
       <div style={centerStyle}>
@@ -239,11 +249,22 @@ export default function AdminSettingsPage() {
       )}
 
       <AdminMetricGrid>
-        <AdminMetricCard label="Security posture" value={posture.label} detail={settings.enforce_admin_mfa ? "Admin MFA enforced" : "Admin MFA optional"} tone={posture.tone} />
-        <AdminMetricCard label="Trial default" value={`${settings.default_trial_days} days`} detail={`${settings.default_currency} billing base`} tone="accent" />
-        <AdminMetricCard label="Tax default" value={`${settings.default_tax_rate}%`} detail={`Invoice prefix ${settings.invoice_prefix}`} tone="accent" />
-        <AdminMetricCard label="Marketplace" value={settings.allow_marketplace ? "Enabled" : "Disabled"} detail={settings.allow_plugin_purchases ? "Purchases allowed" : "Purchases blocked"} tone={settings.allow_marketplace ? "success" : "warning"} />
-        <AdminMetricCard label="Last updated" value={formatDateTime(settings.updated_at)} detail={settings.support_email || "No support email configured"} tone="neutral" />
+        <AdminMetricCard label="Security posture" value={posture.label} valueSize="standard" detail={settings.enforce_admin_mfa ? "Admin MFA enforced" : "Admin MFA optional"} tone={posture.tone} />
+        <AdminMetricCard label="Trial default" value={`${settings.default_trial_days} days`} valueSize="standard" detail={`${settings.default_currency} billing base`} tone="accent" />
+        <AdminMetricCard label="Tax default" value={`${settings.default_tax_rate}%`} valueSize="standard" detail={`Invoice prefix ${settings.invoice_prefix}`} tone="accent" />
+        <AdminMetricCard label="Marketplace" value={settings.allow_marketplace ? "Enabled" : "Disabled"} valueSize="standard" detail={settings.allow_plugin_purchases ? "Purchases allowed" : "Purchases blocked"} tone={settings.allow_marketplace ? "success" : "warning"} />
+        <AdminMetricCard
+          label="Last updated"
+          value={formatDate(settings.updated_at)}
+          valueSize="compact"
+          detail={
+            <div style={{ display: "grid", gap: "4px" }}>
+              <span>{lastUpdatedTime}</span>
+              <span>{settings.support_email || "No support email configured"}</span>
+            </div>
+          }
+          tone="neutral"
+        />
       </AdminMetricGrid>
 
       <div className="admin-settings-grid" style={{ display: "grid", gridTemplateColumns: "1.15fr 0.95fr", gap: "18px" }}>

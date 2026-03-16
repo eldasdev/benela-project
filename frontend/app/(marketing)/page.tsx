@@ -12,6 +12,7 @@ import {
   type PricingPlanDefinition,
 } from "@/lib/pricing-plans";
 import { fetchPublicPricingPlans } from "@/lib/platform-pricing";
+import { buildBlogPostPath, fetchPublicBlogPosts, formatReadTime, type BlogPostSummary } from "@/lib/platform-blog";
 
 const FEATURE_META = [
   { icon: Sparkles, color: "var(--accent)" },
@@ -40,6 +41,7 @@ const INITIAL_MARKETING_PRICING_PLANS = toMarketingPlans(DEFAULT_PRICING_PLANS);
 export default function LandingPage() {
   const { t, getValue } = useI18n();
   const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>(INITIAL_MARKETING_PRICING_PLANS);
+  const [latestJournalPosts, setLatestJournalPosts] = useState<BlogPostSummary[]>([]);
   const features = useMemo(
     () =>
       ((getValue("landing.features", []) as Array<{ title: string; desc: string }>) || []).map((feature, index) => ({
@@ -59,6 +61,20 @@ export default function LandingPage() {
     ) as Array<{ name: string; role: string; text: string; avatar: string }>) || [];
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.pathname !== "/") return;
+
+    const search = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const authKeys = ["code", "token_hash", "type", "error", "error_code", "error_description", "access_token", "refresh_token"];
+    const hasAuthParams = authKeys.some((key) => search.has(key) || hash.has(key));
+
+    if (hasAuthParams) {
+      window.location.replace(`/auth/callback${window.location.search}${window.location.hash}`);
+    }
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadPricing = async () => {
@@ -67,6 +83,28 @@ export default function LandingPage() {
     };
 
     void loadPricing();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadJournal = async () => {
+      try {
+        const posts = await fetchPublicBlogPosts(false);
+        if (!cancelled) {
+          setLatestJournalPosts(posts.slice(0, 3));
+        }
+      } catch {
+        if (!cancelled) {
+          setLatestJournalPosts([]);
+        }
+      }
+    };
+
+    void loadJournal();
     return () => {
       cancelled = true;
     };
@@ -396,6 +434,138 @@ export default function LandingPage() {
         </div>
         </div>
       </section>
+
+      {latestJournalPosts.length ? (
+        <section className="marketing-section" style={{ padding: "0 40px 86px", maxWidth: "1240px", margin: "0 auto" }}>
+          <div className="marketing-surface-shell">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-end",
+                gap: "18px",
+                flexWrap: "wrap",
+                marginBottom: "28px",
+                position: "relative",
+              }}
+            >
+              <div style={{ maxWidth: "660px" }}>
+                <div style={{ fontSize: "12px", color: "var(--accent)", letterSpacing: "0.16em", fontFamily: "monospace", marginBottom: "12px" }}>
+                  BENELA JOURNAL
+                </div>
+                <h2
+                  style={{
+                    fontSize: "clamp(32px, 4vw, 46px)",
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                    lineHeight: 1.08,
+                    letterSpacing: "-0.04em",
+                    margin: 0,
+                  }}
+                >
+                  Latest thinking from the Benela editorial desk.
+                </h2>
+                <p style={{ marginTop: "14px", marginBottom: 0, fontSize: "16px", lineHeight: 1.8, color: "var(--text-subtle)" }}>
+                  Product updates, operating insight, industry analysis, and rollout guidance from the team building AI-native ERP infrastructure.
+                </p>
+              </div>
+
+              <Link
+                href="/blog"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  minHeight: "46px",
+                  padding: "0 18px",
+                  borderRadius: "14px",
+                  border: "1px solid color-mix(in srgb, var(--accent) 26%, var(--border-default))",
+                  background: "color-mix(in srgb, var(--bg-surface) 92%, transparent)",
+                  color: "var(--text-primary)",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                Explore the journal <ArrowRight size={16} />
+              </Link>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "18px" }} className="marketing-testimonials-grid">
+              {latestJournalPosts.map((post) => (
+                <Link key={post.id} href={buildBlogPostPath(post)} style={{ textDecoration: "none" }}>
+                  <article
+                    style={{
+                      height: "100%",
+                      display: "grid",
+                      alignContent: "start",
+                      borderRadius: "24px",
+                      border: "1px solid var(--border-default)",
+                      background: "linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 96%, white 4%), var(--bg-surface))",
+                      overflow: "hidden",
+                      boxShadow: "0 20px 48px rgba(15, 23, 42, 0.08)",
+                    }}
+                  >
+                    {post.cover_image_url ? (
+                      <div
+                        style={{
+                          aspectRatio: "16 / 9",
+                          backgroundImage: `url(${post.cover_image_url})`,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          aspectRatio: "16 / 9",
+                          background:
+                            "linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--accent-2) 16%, transparent))",
+                        }}
+                      />
+                    )}
+
+                    <div style={{ padding: "20px", display: "grid", gap: "12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            minHeight: "30px",
+                            padding: "0 12px",
+                            borderRadius: "999px",
+                            border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border-default))",
+                            background: post.is_featured
+                              ? "color-mix(in srgb, var(--accent-soft) 18%, transparent)"
+                              : "color-mix(in srgb, var(--bg-panel) 92%, transparent)",
+                            color: post.is_featured ? "var(--accent)" : "var(--text-subtle)",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {post.is_featured ? "Featured" : post.category}
+                        </span>
+                        <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>
+                          {formatLandingDate(post.published_at)}
+                        </span>
+                      </div>
+
+                      <h3 style={{ margin: 0, fontSize: "24px", lineHeight: 1.1, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
+                        {post.title}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: "14px", lineHeight: 1.76, color: "var(--text-subtle)" }}>{post.excerpt}</p>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", fontSize: "12px", color: "var(--text-quiet)" }}>
+                        <span>{post.author_name}</span>
+                        <span>{formatReadTime(post.read_time_minutes)}</span>
+                      </div>
+                    </div>
+                  </article>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {/* CTA */}
       <section className="marketing-section marketing-section-cta" style={{ padding: "10px 40px 100px", position: "relative", overflow: "hidden" }}>
@@ -1074,4 +1244,11 @@ export default function LandingPage() {
       `}</style>
     </div>
   );
+}
+
+function formatLandingDate(value?: string | null) {
+  if (!value) return "Draft";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Draft";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

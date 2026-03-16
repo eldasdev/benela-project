@@ -20,9 +20,17 @@ import {
   Bell,
   AlertTriangle,
   LifeBuoy,
+  Bug,
+  CreditCard,
+  MessageSquareText,
+  ShieldAlert,
+  SendHorizonal,
   X,
+  Route,
+  Radar,
+  FileText,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Section } from "@/types";
 import { getSupabase } from "@/lib/supabase";
 import { useI18n } from "@/components/i18n/LanguageProvider";
@@ -31,6 +39,7 @@ import {
   fetchClientSidebarSummary,
   type ClientSidebarSummary,
 } from "@/lib/client-account";
+import { AdminModal, adminButtonStyle, adminInputStyle } from "@/components/admin/ui";
 
 interface SidebarProps {
   activeSection?: Section;
@@ -65,10 +74,12 @@ export default function Sidebar({
 }: SidebarProps) {
   const { t } = useI18n();
   const router = useRouter();
+  const pathname = usePathname();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [summary, setSummary] = useState<ClientSidebarSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState("bug");
   const [reportTitle, setReportTitle] = useState("");
   const [reportMessage, setReportMessage] = useState("");
   const [reportSaving, setReportSaving] = useState(false);
@@ -131,8 +142,124 @@ export default function Sidebar({
   }, [profileMenuOpen, authUser?.id]);
 
   useEffect(() => {
-    if (!reportTitle.trim()) setReportTitle(t("sidebar.issueTitleDefault"));
+    if (reportTitle.trim()) return;
+    setReportTitle(t("sidebar.issueTitleDefault"));
   }, [reportTitle, t]);
+
+  const currentSectionLabel = (() => {
+    if (activeSection === "settings") return t("sidebar.settings");
+    if (activeSection) return t(`common.sections.${activeSection}`, {}, activeSection);
+    return t("common.sections.dashboard");
+  })();
+
+  const reportCategoryOptions = [
+    {
+      value: "bug",
+      label: t("sidebar.reportCategoryBug"),
+      description: t("sidebar.reportCategoryBugDesc"),
+      icon: Bug,
+    },
+    {
+      value: "access",
+      label: t("sidebar.reportCategoryAccess"),
+      description: t("sidebar.reportCategoryAccessDesc"),
+      icon: ShieldAlert,
+    },
+    {
+      value: "billing",
+      label: t("sidebar.reportCategoryBilling"),
+      description: t("sidebar.reportCategoryBillingDesc"),
+      icon: CreditCard,
+    },
+    {
+      value: "feedback",
+      label: t("sidebar.reportCategoryFeedback"),
+      description: t("sidebar.reportCategoryFeedbackDesc"),
+      icon: MessageSquareText,
+    },
+  ] as const;
+
+  const selectedReportCategory =
+    reportCategoryOptions.find((option) => option.value === reportCategory) ?? reportCategoryOptions[0];
+  const SelectedReportIcon = selectedReportCategory.icon;
+  const reportContextEntries = [
+    { label: t("sidebar.reportContextWorkspace"), value: summary?.workspace_id || "unknown" },
+    { label: t("sidebar.reportContextBusiness"), value: summary?.business_name || t("sidebar.reportContextNotConfigured") },
+    { label: t("sidebar.reportContextModule"), value: currentSectionLabel },
+    { label: t("sidebar.reportContextPath"), value: pathname || "/" },
+    { label: t("sidebar.reportContextPlan"), value: summary?.plan_tier ? planName(summary.plan_tier) : t("sidebar.enterprisePlan") },
+  ];
+  const reportChecklist = [
+    t("sidebar.reportChecklistItemSteps"),
+    t("sidebar.reportChecklistItemExpected"),
+    t("sidebar.reportChecklistItemImpact"),
+    t("sidebar.reportChecklistItemEvidence"),
+  ];
+
+  const resetReportComposer = () => {
+    setReportCategory("bug");
+    setReportTitle(t("sidebar.issueTitleDefault"));
+    setReportMessage("");
+    setReportSaving(false);
+    setReportNotice("");
+    setReportError("");
+  };
+
+  const openReportModal = () => {
+    setReportNotice("");
+    setReportError("");
+    setProfileMenuOpen(false);
+    setReportModalOpen(true);
+    closeDrawer();
+  };
+
+  const closeReportModal = () => {
+    setReportModalOpen(false);
+  };
+
+  const submitReport = async () => {
+    if (!authUser?.id) {
+      setReportError(t("sidebar.signInRequired"));
+      return;
+    }
+    if (!reportTitle.trim() || !reportMessage.trim()) {
+      setReportError(t("sidebar.titleAndMessageRequired"));
+      return;
+    }
+
+    setReportSaving(true);
+    setReportError("");
+    setReportNotice("");
+    try {
+      const contextLines = [
+        `${t("sidebar.reportContextCategory")}: ${selectedReportCategory.label}`,
+        `${t("sidebar.reportContextModule")}: ${currentSectionLabel}`,
+        `${t("sidebar.reportContextWorkspace")}: ${summary?.workspace_id || "unknown"}`,
+        `${t("sidebar.reportContextPath")}: ${pathname || "/"}`,
+      ];
+      if (summary?.business_name) {
+        contextLines.splice(2, 0, `${t("sidebar.reportContextBusiness")}: ${summary.business_name}`);
+      }
+      if (summary?.plan_tier) {
+        contextLines.push(`${t("sidebar.reportContextPlan")}: ${planName(summary.plan_tier)}`);
+      }
+
+      await createClientPlatformReport({
+        user_id: authUser.id,
+        user_email: authUser.email || null,
+        title: reportTitle.trim(),
+        message: `${reportMessage.trim()}\n\n---\n${contextLines.join("\n")}`,
+      });
+      setReportNotice(t("sidebar.reportSent"));
+      setReportMessage("");
+      setReportTitle(t("sidebar.issueTitleDefault"));
+      setReportCategory("bug");
+    } catch (err: unknown) {
+      setReportError(err instanceof Error ? err.message : t("sidebar.reportFailed"));
+    } finally {
+      setReportSaving(false);
+    }
+  };
 
   const trialProgress = Math.min(100, Math.max(0, summary?.trial_progress_percent || 0));
   const showTrialSummary = Boolean(summary?.exists);
@@ -411,9 +538,7 @@ export default function Sidebar({
             </button>
             <button
               onClick={() => {
-                setReportOpen((prev) => !prev);
-                setReportNotice("");
-                setReportError("");
+                openReportModal();
               }}
               style={{
                 width: "100%",
@@ -426,121 +551,22 @@ export default function Sidebar({
                 background: "transparent",
                 cursor: "pointer",
                 textAlign: "left",
-                color: reportOpen ? "var(--accent)" : "var(--text-muted)",
+                color: "var(--text-muted)",
                 fontSize: "13px",
                 transition: "background 0.15s ease",
               }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "var(--bg-elevated)";
-                if (!reportOpen) (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
+                (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "transparent";
-                (e.currentTarget as HTMLElement).style.color = reportOpen ? "var(--accent)" : "var(--text-muted)";
+                (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
               }}
             >
-              <LifeBuoy size={14} color={reportOpen ? "var(--accent)" : "var(--text-muted)"} />
+              <LifeBuoy size={14} color="var(--text-muted)" />
               {t("sidebar.reportPlatformIssue")}
             </button>
-            {reportOpen ? (
-              <div
-                style={{
-                  marginTop: "6px",
-                  borderRadius: "9px",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-elevated)",
-                  padding: "9px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                }}
-              >
-                <input
-                  value={reportTitle}
-                  onChange={(e) => setReportTitle(e.target.value)}
-                  placeholder={t("sidebar.issueTitlePlaceholder")}
-                  style={{
-                    width: "100%",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-soft)",
-                    background: "var(--bg-surface)",
-                    color: "var(--text-primary)",
-                    fontSize: "12px",
-                    padding: "7px 8px",
-                    outline: "none",
-                  }}
-                />
-                <textarea
-                  value={reportMessage}
-                  onChange={(e) => setReportMessage(e.target.value)}
-                  placeholder={t("sidebar.issueDescriptionPlaceholder")}
-                  rows={3}
-                  style={{
-                    width: "100%",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-soft)",
-                    background: "var(--bg-surface)",
-                    color: "var(--text-primary)",
-                    fontSize: "12px",
-                    lineHeight: 1.4,
-                    padding: "7px 8px",
-                    outline: "none",
-                    resize: "vertical",
-                    minHeight: "72px",
-                  }}
-                />
-                {reportError ? (
-                  <div style={{ fontSize: "11px", color: "var(--danger)" }}>{reportError}</div>
-                ) : null}
-                {reportNotice ? (
-                  <div style={{ fontSize: "11px", color: "var(--success)" }}>{reportNotice}</div>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={reportSaving}
-                  onClick={async () => {
-                    if (!authUser?.id) {
-                      setReportError(t("sidebar.signInRequired"));
-                      return;
-                    }
-                    if (!reportTitle.trim() || !reportMessage.trim()) {
-                      setReportError(t("sidebar.titleAndMessageRequired"));
-                      return;
-                    }
-                    setReportSaving(true);
-                    setReportError("");
-                    setReportNotice("");
-                    try {
-                      await createClientPlatformReport({
-                        user_id: authUser.id,
-                        user_email: authUser.email || null,
-                        title: reportTitle.trim(),
-                        message: reportMessage.trim(),
-                      });
-                      setReportNotice(t("sidebar.reportSent"));
-                      setReportMessage("");
-                    } catch (err: unknown) {
-                      setReportError(err instanceof Error ? err.message : t("sidebar.reportFailed"));
-                    } finally {
-                      setReportSaving(false);
-                    }
-                  }}
-                  style={{
-                    height: "30px",
-                    borderRadius: "8px",
-                    border: "1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default))",
-                    background: "var(--accent)",
-                    color: "white",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    cursor: reportSaving ? "not-allowed" : "pointer",
-                    opacity: reportSaving ? 0.7 : 1,
-                  }}
-                >
-                  {reportSaving ? t("sidebar.sending") : t("sidebar.sendReport")}
-                </button>
-              </div>
-            ) : null}
             <div
               style={{
                 marginTop: "7px",
@@ -662,6 +688,381 @@ export default function Sidebar({
           </div>
         )}
       </div>
+      <AdminModal
+        open={reportModalOpen}
+        onClose={closeReportModal}
+        title={t("sidebar.reportModalTitle")}
+        description={t("sidebar.reportModalDescription")}
+        width={920}
+      >
+        <div style={{ display: "grid", gap: "18px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: drawerMode ? "1fr" : "minmax(0, 1.1fr) minmax(280px, 0.9fr)",
+              gap: "16px",
+            }}
+          >
+            <div
+              style={{
+                borderRadius: "20px",
+                border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border-default))",
+                background:
+                  "linear-gradient(160deg, color-mix(in srgb, var(--bg-surface) 94%, var(--accent-soft) 6%), color-mix(in srgb, var(--bg-panel) 88%, transparent))",
+                padding: "20px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+                <div
+                  style={{
+                    width: "46px",
+                    height: "46px",
+                    borderRadius: "14px",
+                    border: "1px solid color-mix(in srgb, var(--accent) 26%, transparent)",
+                    background: "color-mix(in srgb, var(--accent) 14%, var(--bg-panel))",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <SelectedReportIcon size={20} color="var(--accent)" />
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--accent)", fontFamily: "monospace" }}>
+                    {t("sidebar.reportPlatformIssue")}
+                  </div>
+                  <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", marginTop: "4px" }}>
+                    {t("sidebar.reportFastTrackTitle")}
+                  </div>
+                </div>
+              </div>
+              <p style={{ margin: 0, fontSize: "14px", lineHeight: 1.75, color: "var(--text-subtle)" }}>
+                {t("sidebar.reportModalGuidance")}
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "16px" }}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    minHeight: "34px",
+                    padding: "0 12px",
+                    borderRadius: "999px",
+                    border: "1px solid color-mix(in srgb, var(--accent) 28%, transparent)",
+                    background: "color-mix(in srgb, var(--accent-soft) 18%, transparent)",
+                    color: "var(--accent)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
+                >
+                  <Radar size={14} />
+                  {selectedReportCategory.label}
+                </span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    minHeight: "34px",
+                    padding: "0 12px",
+                    borderRadius: "999px",
+                    border: "1px solid var(--border-default)",
+                    background: "color-mix(in srgb, var(--bg-surface) 90%, transparent)",
+                    color: "var(--text-subtle)",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <Route size={14} />
+                  {currentSectionLabel}
+                </span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: "20px",
+                border: "1px solid var(--border-default)",
+                background: "color-mix(in srgb, var(--bg-surface) 95%, var(--bg-panel) 5%)",
+                padding: "18px",
+                display: "grid",
+                gap: "14px",
+                alignContent: "start",
+              }}
+            >
+              <div style={{ fontSize: "11px", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-quiet)", fontFamily: "monospace" }}>
+                {t("sidebar.reportContext")}
+              </div>
+              {reportContextEntries.map(({ label, value }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "baseline" }}>
+                  <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>{label}</span>
+                  <span style={{ fontSize: "13px", color: "var(--text-primary)", textAlign: "right", fontWeight: 600 }}>{value}</span>
+                </div>
+              ))}
+              <div
+                style={{
+                  borderRadius: "14px",
+                  border: "1px solid color-mix(in srgb, var(--accent) 18%, transparent)",
+                  background: "color-mix(in srgb, var(--accent-soft) 12%, transparent)",
+                  padding: "12px 14px",
+                }}
+              >
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "4px" }}>
+                  {t("sidebar.reportResponseExpectation")}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.6 }}>
+                  {t("sidebar.reportAutoContextHint")}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: drawerMode ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
+              gap: "14px",
+            }}
+          >
+            {reportCategoryOptions.map((option) => {
+              const Icon = option.icon;
+              const selected = option.value === reportCategory;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setReportCategory(option.value)}
+                  style={{
+                    display: "grid",
+                    gap: "10px",
+                    minHeight: drawerMode ? "150px" : "138px",
+                    padding: "16px",
+                    borderRadius: "18px",
+                    border: selected
+                      ? "1px solid color-mix(in srgb, var(--accent) 42%, transparent)"
+                      : "1px solid var(--border-default)",
+                    background: selected
+                      ? "linear-gradient(160deg, color-mix(in srgb, var(--accent-soft) 24%, var(--bg-surface) 76%), color-mix(in srgb, var(--bg-panel) 92%, transparent))"
+                      : "color-mix(in srgb, var(--bg-surface) 94%, var(--bg-panel) 6%)",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    boxShadow: selected ? "0 18px 28px color-mix(in srgb, var(--accent) 12%, transparent)" : "none",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "42px",
+                      height: "42px",
+                      borderRadius: "14px",
+                      border: selected
+                        ? "1px solid color-mix(in srgb, var(--accent) 28%, transparent)"
+                        : "1px solid color-mix(in srgb, var(--border-default) 76%, transparent)",
+                      background: selected
+                        ? "color-mix(in srgb, var(--accent) 12%, var(--bg-panel))"
+                        : "color-mix(in srgb, var(--bg-panel) 88%, transparent)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon size={18} color={selected ? "var(--accent)" : "var(--text-subtle)"} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "6px" }}>
+                      {option.label}
+                    </div>
+                    <div style={{ fontSize: "12px", lineHeight: 1.6, color: "var(--text-subtle)" }}>
+                      {option.description}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: drawerMode ? "1fr" : "minmax(0, 1.15fr) minmax(280px, 0.85fr)",
+              gap: "16px",
+              alignItems: "start",
+            }}
+          >
+            <div
+              style={{
+                borderRadius: "20px",
+                border: "1px solid var(--border-default)",
+                background: "color-mix(in srgb, var(--bg-surface) 96%, transparent)",
+                padding: "18px",
+                display: "grid",
+                gap: "14px",
+              }}
+            >
+              <div>
+                <label style={{ display: "block", fontSize: "12px", color: "var(--text-subtle)", marginBottom: "8px" }}>
+                  {t("sidebar.reportTitleLabel")}
+                </label>
+                <input
+                  value={reportTitle}
+                  onChange={(event) => setReportTitle(event.target.value)}
+                  placeholder={t("sidebar.issueTitlePlaceholder")}
+                  style={adminInputStyle({ minHeight: "48px", borderRadius: "14px" })}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", color: "var(--text-subtle)", marginBottom: "8px" }}>
+                  {t("sidebar.reportDetailsLabel")}
+                </label>
+                <textarea
+                  value={reportMessage}
+                  onChange={(event) => setReportMessage(event.target.value)}
+                  placeholder={t("sidebar.issueDescriptionPlaceholder")}
+                  rows={8}
+                  style={{
+                    ...adminInputStyle({
+                      minHeight: "220px",
+                      borderRadius: "16px",
+                      padding: "14px 16px",
+                    }),
+                    lineHeight: 1.7,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: "20px",
+                border: "1px solid color-mix(in srgb, var(--border-default) 78%, transparent)",
+                background: "linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 90%, var(--accent-soft) 10%), color-mix(in srgb, var(--bg-surface) 96%, transparent))",
+                padding: "18px",
+                display: "grid",
+                gap: "14px",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "11px", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-quiet)", fontFamily: "monospace", marginBottom: "8px" }}>
+                  {t("sidebar.reportChecklistTitle")}
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-subtle)", lineHeight: 1.65 }}>
+                  {t("sidebar.reportChecklistDescription")}
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: "10px" }}>
+                {reportChecklist.map((item, index) => (
+                  <div
+                    key={item}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "28px minmax(0, 1fr)",
+                      gap: "10px",
+                      alignItems: "start",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "10px",
+                        border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)",
+                        background: "color-mix(in srgb, var(--accent-soft) 16%, transparent)",
+                        color: "var(--accent)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {index + 1}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.65 }}>{item}</div>
+                  </div>
+                ))}
+              </div>
+              <div
+                style={{
+                  borderRadius: "14px",
+                  border: "1px solid color-mix(in srgb, var(--accent) 16%, transparent)",
+                  background: "color-mix(in srgb, var(--accent-soft) 10%, transparent)",
+                  padding: "12px 14px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", color: "var(--accent)" }}>
+                  <FileText size={14} />
+                  <span style={{ fontSize: "12px", fontWeight: 700 }}>{t("sidebar.reportAutoContextTitle")}</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.65 }}>
+                  {t("sidebar.reportAutoContextHint")}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {reportError ? (
+            <div
+              style={{
+                borderRadius: "14px",
+                border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+                background: "color-mix(in srgb, var(--danger) 10%, transparent)",
+                color: "var(--danger)",
+                padding: "12px 14px",
+                fontSize: "13px",
+              }}
+            >
+              {reportError}
+            </div>
+          ) : null}
+
+          {reportNotice ? (
+            <div
+              style={{
+                borderRadius: "14px",
+                border: "1px solid color-mix(in srgb, var(--success) 30%, transparent)",
+                background: "color-mix(in srgb, var(--success) 10%, transparent)",
+                color: "var(--success)",
+                padding: "12px 14px",
+                fontSize: "13px",
+              }}
+            >
+              {reportNotice}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ fontSize: "12px", color: "var(--text-quiet)", lineHeight: 1.6 }}>
+              {t("sidebar.reportFooterHint")}
+            </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  closeReportModal();
+                  resetReportComposer();
+                }}
+                style={adminButtonStyle("ghost", { minWidth: "120px" })}
+              >
+                {t("sidebar.close")}
+              </button>
+              <button
+                type="button"
+                disabled={reportSaving}
+                onClick={() => void submitReport()}
+                style={adminButtonStyle("primary", {
+                  minWidth: drawerMode ? "100%" : "180px",
+                  opacity: reportSaving ? 0.7 : 1,
+                  cursor: reportSaving ? "not-allowed" : "pointer",
+                })}
+              >
+                <SendHorizonal size={16} />
+                {reportSaving ? t("sidebar.sending") : t("sidebar.sendReport")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </AdminModal>
     </aside>
   );
 }

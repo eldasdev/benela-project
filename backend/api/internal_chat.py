@@ -104,11 +104,12 @@ def _resolve_verified_actor(
     role: str | None,
     email: str | None = None,
 ):
+    # Only the authenticated JWT subject is authoritative here.
+    # Client-supplied role/email fields are compatibility inputs for older
+    # payloads and query strings; they must not participate in access control.
     return assert_request_user_matches(
         request,
         user_id=(user_id or "").strip(),
-        role=role,
-        email=email,
     )
 
 

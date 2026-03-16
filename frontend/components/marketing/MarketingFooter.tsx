@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 const FOOTER_LINKS = [
+  { key: "blog", href: "/blog" },
   { key: "privacy", href: "/privacy" },
   { key: "terms", href: "/terms" },
   { key: "contact", href: "/contact" },

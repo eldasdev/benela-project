@@ -645,9 +645,25 @@ html[data-theme="emerald"] {
 
 .admin-ui-metric-value {
   color: var(--text-primary);
-  font-size: clamp(28px, 3vw, 38px);
-  line-height: 1;
+  font-size: clamp(24px, 2.4vw, 34px);
+  line-height: 1.04;
   font-weight: 700;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+}
+
+.admin-ui-metric-value-display {
+  font-size: clamp(24px, 2.4vw, 34px);
+}
+
+.admin-ui-metric-value-standard {
+  font-size: clamp(22px, 2vw, 30px);
+}
+
+.admin-ui-metric-value-compact {
+  font-size: clamp(16px, 1.3vw, 20px);
+  line-height: 1.35;
+  letter-spacing: -0.02em;
 }
 
 .admin-ui-metric-detail {
@@ -1129,6 +1145,112 @@ html, body {
   }
 
   .admin-client-detail-hero-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.blog-markdown {
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.82;
+}
+
+.blog-markdown > * + * {
+  margin-top: 1.15em;
+}
+
+.blog-markdown h1,
+.blog-markdown h2,
+.blog-markdown h3,
+.blog-markdown h4 {
+  color: var(--text-primary);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+}
+
+.blog-markdown h1 {
+  font-size: clamp(32px, 3.6vw, 52px);
+}
+
+.blog-markdown h2 {
+  font-size: clamp(24px, 2.4vw, 34px);
+  margin-top: 1.6em;
+}
+
+.blog-markdown h3 {
+  font-size: clamp(20px, 1.7vw, 26px);
+  margin-top: 1.45em;
+}
+
+.blog-markdown p,
+.blog-markdown li,
+.blog-markdown blockquote {
+  color: var(--text-subtle);
+}
+
+.blog-markdown strong {
+  color: var(--text-primary);
+}
+
+.blog-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.blog-markdown ul,
+.blog-markdown ol {
+  padding-left: 1.35em;
+}
+
+.blog-markdown li + li {
+  margin-top: 0.5em;
+}
+
+.blog-markdown blockquote {
+  padding: 16px 18px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 44%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 10%, transparent);
+  border-radius: 0 16px 16px 0;
+}
+
+.blog-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  padding: 0.18em 0.42em;
+  border-radius: 8px;
+}
+
+.blog-markdown pre {
+  overflow-x: auto;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 95%, transparent);
+}
+
+.blog-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.blog-markdown hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent);
+  margin: 2em 0;
+}
+
+@media (max-width: 1180px) {
+  .admin-blog-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .admin-blog-meta-grid,
+  .admin-blog-editor-grid {
     grid-template-columns: 1fr !important;
   }
 }

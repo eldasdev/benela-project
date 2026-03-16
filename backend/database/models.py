@@ -891,6 +891,46 @@ class PlatformAboutPage(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
+class PlatformBlogPost(Base):
+    __tablename__ = "platform_blog_posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False, unique=True, index=True)
+    excerpt = Column(Text, nullable=False, default="")
+    cover_image_url = Column(String(700), nullable=True)
+    category = Column(String(120), nullable=False, default="Insights", index=True)
+    author_name = Column(String(160), nullable=False, default="Benela Team")
+    tags = Column(JSON, nullable=False, default=list)
+    content_markdown = Column(Text, nullable=False, default="")
+    seo_title = Column(String(255), nullable=True)
+    seo_description = Column(String(320), nullable=True)
+    is_published = Column(Boolean, nullable=False, default=False, index=True)
+    is_featured = Column(Boolean, nullable=False, default=False, index=True)
+    read_time_minutes = Column(Integer, nullable=False, default=1)
+    published_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
+
+
+class PlatformBlogComment(Base):
+    __tablename__ = "platform_blog_comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(
+        Integer,
+        ForeignKey("platform_blog_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_name = Column(String(160), nullable=False)
+    author_email = Column(String(255), nullable=False, index=True)
+    body = Column(Text, nullable=False)
+    status = Column(String(40), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    reviewed_at = Column(DateTime, nullable=True)
+
+
 # ── Client Onboarding / Workspace Account ────────────
 class ClientWorkspaceAccount(Base):
     __tablename__ = "client_workspace_accounts"
