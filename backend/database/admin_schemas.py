@@ -691,16 +691,16 @@ class PlatformAboutPageUpdate(BaseModel):
     hero_subtitle: Optional[str] = None
     story_title: Optional[str] = None
     story_body: Optional[str] = None
-    platform_highlights: Optional[List[PlatformAboutHighlight]] = None
+    platform_highlights: Optional[list[PlatformAboutHighlight]] = None
     mission_title: Optional[str] = None
     mission_body: Optional[str] = None
-    mission_points: Optional[List[PlatformAboutMissionPoint]] = None
+    mission_points: Optional[list[PlatformAboutMissionPoint]] = None
     team_title: Optional[str] = None
     team_body: Optional[str] = None
-    team_members: Optional[List[PlatformAboutTeamMember]] = None
+    team_members: Optional[list[PlatformAboutTeamMember]] = None
     faq_title: Optional[str] = None
     faq_body: Optional[str] = None
-    faqs: Optional[List[PlatformAboutFaqItem]] = None
+    faqs: Optional[list[PlatformAboutFaqItem]] = None
 
 
 class PlatformAboutPageOut(BaseModel):
@@ -710,16 +710,16 @@ class PlatformAboutPageOut(BaseModel):
     hero_subtitle: str
     story_title: str
     story_body: str
-    platform_highlights: List[PlatformAboutHighlight] = Field(default_factory=list)
+    platform_highlights: list[PlatformAboutHighlight] = Field(default_factory=list)
     mission_title: str
     mission_body: str
-    mission_points: List[PlatformAboutMissionPoint] = Field(default_factory=list)
+    mission_points: list[PlatformAboutMissionPoint] = Field(default_factory=list)
     team_title: str
     team_body: str
-    team_members: List[PlatformAboutTeamMember] = Field(default_factory=list)
+    team_members: list[PlatformAboutTeamMember] = Field(default_factory=list)
     faq_title: str
     faq_body: str
-    faqs: List[PlatformAboutFaqItem] = Field(default_factory=list)
+    faqs: list[PlatformAboutFaqItem] = Field(default_factory=list)
     updated_at: datetime
 
     class Config:
