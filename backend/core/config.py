@@ -4,6 +4,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+def _env_first(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is None:
+            continue
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    return default
+
+
 def _load_env_chain() -> None:
     backend_dir = Path(__file__).resolve().parents[1]
     project_root = backend_dir.parent
@@ -25,9 +36,27 @@ class Settings:
     APP_NAME: str = os.getenv("APP_NAME", "Benela AI")
     APP_ENV: str = os.getenv("APP_ENV", "development")
     DEBUG: bool = os.getenv("DEBUG", "True") == "True"
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", os.getenv("NEXT_PUBLIC_SUPABASE_URL", ""))
-    SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
-    SUPABASE_JWKS_URL: str = os.getenv("SUPABASE_JWKS_URL", "")
+    SUPABASE_URL: str = _env_first(
+        "SUPABASE_URL",
+        "SUPABASE_PROJECT_URL",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_PROJECT_URL",
+    )
+    SUPABASE_JWT_SECRET: str = _env_first(
+        "SUPABASE_JWT_SECRET",
+        "SUPABASE_LEGACY_JWT_SECRET",
+    )
+    SUPABASE_JWKS_URL: str = _env_first(
+        "SUPABASE_JWKS_URL",
+        "SUPABASE_AUTH_JWKS_URL",
+    )
+    SUPABASE_ANON_KEY: str = _env_first(
+        "SUPABASE_ANON_KEY",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    )
+    SUPABASE_ALLOWED_ISSUER_HOSTS: str = os.getenv("SUPABASE_ALLOWED_ISSUER_HOSTS", "")
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")

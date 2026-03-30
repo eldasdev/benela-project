@@ -27,17 +27,24 @@ export function persistPendingAccessToken(token: string | null | undefined) {
 
 async function resolveBrowserAccessToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  const {
-    data: { session },
-  } = await getSupabase().auth.getSession();
+  const pendingToken = readPendingAccessToken();
+  if (pendingToken) {
+    return pendingToken;
+  }
+  let session = null;
+  try {
+    const result = await getSupabase().auth.getSession();
+    session = result.data.session;
+  } catch {
+    session = null;
+  }
 
   const accessToken = session?.access_token?.trim() || null;
   if (accessToken) {
     clearPendingAccessToken();
     return accessToken;
   }
-
-  return readPendingAccessToken();
+  return null;
 }
 
 export async function waitForBrowserSession(timeoutMs = 2500): Promise<string | null> {

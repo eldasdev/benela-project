@@ -179,6 +179,49 @@ def _serialize_admin_workspace_detail(
         open_reports_count=sum(1 for item in reports if item.status not in {"resolved", "dismissed"}),
     )
     setup = _compute_setup_meta(db, account)
+    linked_client_payload = (
+        admin_schemas.AdminClientWorkspaceLegacyClientOut(
+            id=linked_client.id,
+            name=linked_client.name or account.business_name or "Unnamed client",
+            slug=linked_client.slug or account.business_slug or f"client-{account.id}",
+            is_active=bool(linked_client.is_active),
+            is_suspended=bool(linked_client.is_suspended),
+        )
+        if linked_client
+        else None
+    )
+    linked_subscription_payload = None
+    if linked_subscription:
+        try:
+            subscription_plan_tier = (
+                linked_subscription.plan_tier
+                if isinstance(linked_subscription.plan_tier, models.PlanTier)
+                else models.PlanTier(
+                    str(linked_subscription.plan_tier or row.plan_tier or "starter").strip().lower()
+                )
+            )
+        except ValueError:
+            subscription_plan_tier = models.PlanTier.starter
+        try:
+            subscription_status = (
+                linked_subscription.status
+                if isinstance(linked_subscription.status, models.PlanStatus)
+                else models.PlanStatus(
+                    str(linked_subscription.status or "trial").strip().lower()
+                )
+            )
+        except ValueError:
+            subscription_status = models.PlanStatus.trial
+        linked_subscription_payload = admin_schemas.AdminClientWorkspaceSubscriptionOut(
+            id=linked_subscription.id,
+            plan_tier=subscription_plan_tier,
+            status=subscription_status,
+            price_monthly=float(linked_subscription.price_monthly or 0),
+            billing_cycle=str(linked_subscription.billing_cycle or "monthly"),
+            seats=int(linked_subscription.seats or 0),
+            current_period_end=linked_subscription.current_period_end,
+            created_at=linked_subscription.created_at or account.created_at,
+        )
     return admin_schemas.AdminClientWorkspaceDetailOut(
         **row.model_dump(),
         address=account.address,
@@ -209,12 +252,8 @@ def _serialize_admin_workspace_detail(
             )
             for item in reports
         ],
-        linked_client=admin_schemas.AdminClientWorkspaceLegacyClientOut.model_validate(linked_client)
-        if linked_client
-        else None,
-        linked_subscription=admin_schemas.AdminClientWorkspaceSubscriptionOut.model_validate(linked_subscription)
-        if linked_subscription
-        else None,
+        linked_client=linked_client_payload,
+        linked_subscription=linked_subscription_payload,
     )
 
 

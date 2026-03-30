@@ -122,6 +122,16 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _warn_auth_configuration() -> None:
+    if settings.SUPABASE_JWT_SECRET or settings.SUPABASE_JWKS_URL or settings.SUPABASE_URL:
+        return
+    logger.warning(
+        "Supabase auth verification config is incomplete. "
+        "Set SUPABASE_URL or SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET in deployment envs. "
+        "Protected routes will fall back to dynamic issuer JWKS only for trusted Supabase issuers."
+    )
+
+
 def _cors_origins() -> list[str]:
     defaults = [
         "http://localhost:3000",
@@ -860,6 +870,7 @@ def bootstrap_database():
     Do not crash API startup on transient DB outages.
     """
     global _db_bootstrap_ok, _attendance_schema_ready
+    _warn_auth_configuration()
     _db_bootstrap_ok = False
     _attendance_schema_ready = _is_attendance_schema_ready()
 

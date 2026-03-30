@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 import jwt
 from fastapi import HTTPException, Request, status
@@ -37,22 +38,89 @@ def _supabase_issuer() -> str | None:
     return f"{base}/auth/v1"
 
 
-def _supabase_jwks_url() -> str | None:
+def _supabase_jwks_url(issuer: str | None = None) -> str | None:
     configured = (settings.SUPABASE_JWKS_URL or "").strip()
     if configured:
         return configured
-    issuer = _supabase_issuer()
+    resolved_issuer = (issuer or _supabase_issuer() or "").strip().rstrip("/")
+    if not resolved_issuer:
+        return None
+    return f"{resolved_issuer}/.well-known/jwks.json"
+
+
+@lru_cache(maxsize=8)
+def _jwks_client(jwks_url: str) -> PyJWKClient | None:
+    normalized = (jwks_url or "").strip()
+    if not normalized:
+        return None
+    return PyJWKClient(normalized)
+
+
+def _unverified_claims(token: str) -> dict[str, Any]:
+    claims = jwt.decode(
+        token,
+        options={
+            "verify_signature": False,
+            "verify_exp": False,
+            "verify_nbf": False,
+            "verify_iat": False,
+            "verify_aud": False,
+            "verify_iss": False,
+        },
+        algorithms=["HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+    )
+    if not isinstance(claims, dict):
+        raise InvalidTokenError("Token claims are malformed.")
+    return claims
+
+
+def _configured_supabase_host() -> str:
+    parsed = urlparse((settings.SUPABASE_URL or "").strip())
+    return parsed.netloc.strip().lower()
+
+
+def _explicit_allowed_issuer_hosts() -> set[str]:
+    raw = (settings.SUPABASE_ALLOWED_ISSUER_HOSTS or "").strip()
+    if not raw:
+        return set()
+    return {
+        item.strip().lower()
+        for item in raw.replace(";", ",").split(",")
+        if item.strip()
+    }
+
+
+def _is_allowed_dynamic_issuer(issuer: str) -> bool:
+    parsed = urlparse((issuer or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return False
+
+    host = parsed.netloc.strip().lower()
+    path = parsed.path.rstrip("/")
+    if path != "/auth/v1":
+        return False
+
+    configured_host = _configured_supabase_host()
+    if configured_host:
+        return host == configured_host and parsed.scheme in {"http", "https"}
+
+    explicit_hosts = _explicit_allowed_issuer_hosts()
+    if explicit_hosts:
+        return host in explicit_hosts and parsed.scheme in {"http", "https"}
+
+    if parsed.scheme != "https":
+        return settings.APP_ENV != "production" and host in {"127.0.0.1", "localhost"}
+
+    return host.endswith(".supabase.co") or host.endswith(".supabase.in")
+
+
+def _dynamic_supabase_issuer_from_token(token: str) -> str | None:
+    issuer = (_unverified_claims(token).get("iss") or "").strip().rstrip("/")
     if not issuer:
         return None
-    return f"{issuer}/.well-known/jwks.json"
-
-
-@lru_cache(maxsize=1)
-def _jwks_client() -> PyJWKClient | None:
-    jwks_url = _supabase_jwks_url()
-    if not jwks_url:
+    if not _is_allowed_dynamic_issuer(issuer):
         return None
-    return PyJWKClient(jwks_url)
+    return issuer
 
 
 def _decode_with_secret(token: str) -> dict[str, Any]:
@@ -69,7 +137,11 @@ def _decode_with_secret(token: str) -> dict[str, Any]:
 
 
 def _decode_with_jwks(token: str) -> dict[str, Any]:
-    client = _jwks_client()
+    issuer = _supabase_issuer() or _dynamic_supabase_issuer_from_token(token)
+    jwks_url = _supabase_jwks_url(issuer)
+    if not jwks_url:
+        raise InvalidTokenError("Supabase JWKS endpoint is not configured.")
+    client = _jwks_client(jwks_url)
     if not client:
         raise InvalidTokenError("Supabase JWKS endpoint is not configured.")
     signing_key = client.get_signing_key_from_jwt(token)
@@ -79,7 +151,7 @@ def _decode_with_jwks(token: str) -> dict[str, Any]:
         algorithms=["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
         audience=None,
         options={"verify_aud": False},
-        issuer=_supabase_issuer(),
+        issuer=issuer,
     )
 
 
