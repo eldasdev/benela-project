@@ -31,12 +31,18 @@ class Settings:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", os.getenv("BENELA_TELEGRAM_BOT_TOKEN", ""))
     TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
     TELEGRAM_CHAT_IDS: str = os.getenv("TELEGRAM_CHAT_IDS", "")
     TELEGRAM_WORKSPACE_CHAT_IDS: str = os.getenv("TELEGRAM_WORKSPACE_CHAT_IDS", "")
     TELEGRAM_AUTO_DISCOVER_CHAT_IDS: bool = os.getenv("TELEGRAM_AUTO_DISCOVER_CHAT_IDS", "True") == "True"
     INTERNAL_CHAT_TELEGRAM_ENABLED: bool = os.getenv("INTERNAL_CHAT_TELEGRAM_ENABLED", "True") == "True"
     INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED: bool = os.getenv("INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED", "True") == "True"
+    ATTENDANCE_TELEGRAM_ENABLED: bool = os.getenv("ATTENDANCE_TELEGRAM_ENABLED", "True") == "True"
+    ONEC_ENCRYPTION_KEY: str = os.getenv("ONEC_ENCRYPTION_KEY", "")
+    ONEC_MAX_UPLOAD_MB: int = int(os.getenv("ONEC_MAX_UPLOAD_MB", "50"))
+    ONEC_MAX_ROWS_PER_IMPORT: int = int(os.getenv("ONEC_MAX_ROWS_PER_IMPORT", "500000"))
+    ONEC_SYNC_TIMEOUT_SECONDS: int = int(os.getenv("ONEC_SYNC_TIMEOUT_SECONDS", "120"))
+    DB_CONNECT_TIMEOUT: int = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
 
 settings = Settings()

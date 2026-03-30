@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, TrendingUp, TrendingDown } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { authFetch } from "@/lib/auth-fetch";
+import OneCPanel from "@/components/OneCPanel";
 
 const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -40,7 +42,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function FinancePage() {
   const isMobile = useIsMobile(900);
-  const [tab, setTab]               = useState<"transactions" | "invoices">("transactions");
+  const [tab, setTab]               = useState<"onec" | "transactions" | "invoices">("onec");
   const [transactions, setTx]       = useState<Transaction[]>([]);
   const [invoices, setInv]          = useState<Invoice[]>([]);
   const [summary, setSummary]       = useState<Summary | null>(null);
@@ -54,9 +56,9 @@ export default function FinancePage() {
   const load = async () => {
     try {
       const [sRes, tRes, iRes] = await Promise.all([
-        fetch(`${API}/finance/summary`),
-        fetch(`${API}/finance/transactions`),
-        fetch(`${API}/finance/invoices`),
+        authFetch(`${API}/finance/summary`),
+        authFetch(`${API}/finance/transactions`),
+        authFetch(`${API}/finance/invoices`),
       ]);
       const s = sRes.ok ? await sRes.json() : null;
       const t = tRes.ok ? await tRes.json() : [];
@@ -86,20 +88,20 @@ export default function FinancePage() {
     setLoading(true);
     const body = { ...txForm, amount: parseFloat(txForm.amount) };
     if (modal === "add_tx") {
-      await fetch(`${API}/finance/transactions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await authFetch(`${API}/finance/transactions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     } else {
       if (!selected) {
         setLoading(false);
         return;
       }
-      await fetch(`${API}/finance/transactions/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await authFetch(`${API}/finance/transactions/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     }
     await load(); setModal(null); setLoading(false);
   };
 
   const deleteTx = async (id: number) => {
     if (!confirm("Delete this transaction?")) return;
-    await fetch(`${API}/finance/transactions/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/finance/transactions/${id}`, { method: "DELETE" });
     await load();
   };
 
@@ -107,27 +109,33 @@ export default function FinancePage() {
     setLoading(true);
     const body = { ...invForm, amount: parseFloat(invForm.amount), tax: parseFloat(invForm.tax) };
     if (modal === "add_inv") {
-      await fetch(`${API}/finance/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await authFetch(`${API}/finance/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     } else {
       if (!selected) {
         setLoading(false);
         return;
       }
-      await fetch(`${API}/finance/invoices/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await authFetch(`${API}/finance/invoices/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     }
     await load(); setModal(null); setLoading(false);
   };
 
   const deleteInv = async (id: number) => {
     if (!confirm("Delete this invoice?")) return;
-    await fetch(`${API}/finance/invoices/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/finance/invoices/${id}`, { method: "DELETE" });
     await load();
   };
 
   const fmt = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0 });
 
+  const financeTabs = [
+    { id: "onec" as const, label: "1C Bridge" },
+    { id: "transactions" as const, label: "Transactions" },
+    { id: "invoices" as const, label: "Invoices" },
+  ];
+
   return (
-    <div style={{ padding: isMobile ? "12px" : "24px", maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ padding: isMobile ? "12px" : "24px", maxWidth: "1200px", margin: "0 auto" }}>
 
       {/* KPI Cards */}
       {summary && (
@@ -151,187 +159,190 @@ export default function FinancePage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "4px", marginBottom: "16px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px", padding: "4px", width: isMobile ? "100%" : "fit-content", maxWidth: "100%" }}>
-        {(["transactions", "invoices"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            style={{ padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === t ? "var(--bg-elevated)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-subtle)", transition: "all 0.15s", minWidth: 0 }}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: "4px", marginBottom: "16px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "10px", padding: "4px", width: isMobile ? "100%" : "fit-content", maxWidth: "100%" }}>
+        {financeTabs.map(({ id, label }) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 500, cursor: "pointer", border: "none", background: tab === id ? "var(--bg-elevated)" : "transparent", color: tab === id ? "var(--text-primary)" : "var(--text-subtle)", transition: "all 0.15s", minWidth: 0 }}>
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Table card */}
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", padding: isMobile ? "14px 12px" : "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "var(--accent)" }} />
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
-              {tab === "transactions" ? "Transactions" : "Invoices"}
-            </span>
+      {tab === "onec" ? (
+        <OneCPanel />
+      ) : (
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "14px", overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", padding: isMobile ? "14px 12px" : "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: "var(--accent)" }} />
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
+                {tab === "transactions" ? "Transactions" : "Invoices"}
+              </span>
+            </div>
+            <button
+              onClick={() => { setModal(tab === "transactions" ? "add_tx" : "add_inv"); setTxForm({ description: "", category: "", amount: "", type: "income", status: "pending", notes: "" }); setInvForm({ invoice_number: "", client_name: "", client_email: "", amount: "", tax: "0", status: "draft", notes: "" }); }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px 14px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", width: isMobile ? "100%" : "auto" }}>
+              <Plus size={14} /> Add {tab === "transactions" ? "Transaction" : "Invoice"}
+            </button>
           </div>
-          <button
-            onClick={() => { setModal(tab === "transactions" ? "add_tx" : "add_inv"); setTxForm({ description: "", category: "", amount: "", type: "income", status: "pending", notes: "" }); setInvForm({ invoice_number: "", client_name: "", client_email: "", amount: "", tax: "0", status: "draft", notes: "" }); }}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px 14px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", width: isMobile ? "100%" : "auto" }}>
-            <Plus size={14} /> Add {tab === "transactions" ? "Transaction" : "Invoice"}
-          </button>
-        </div>
 
-        {/* Transactions table */}
-        {tab === "transactions" && (
-          <>
-            {isMobile ? (
-              <div style={{ display: "grid", gap: "10px", padding: "12px" }}>
-                {transactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    style={{
-                      border: "1px solid var(--border-default)",
-                      borderRadius: "12px",
-                      background: "color-mix(in srgb, var(--bg-panel) 90%, var(--bg-surface) 10%)",
-                      padding: "10px",
-                      display: "grid",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
-                      <span style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500, minWidth: 0 }}>
-                        {tx.description}
-                      </span>
-                      <span style={{ fontSize: "15px", color: tx.type === "income" ? "#34d399" : "#f87171", fontWeight: 600, whiteSpace: "nowrap" }}>
-                        {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString()}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{tx.category}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", justifyContent: "space-between" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[tx.type] || "var(--accent)"}12`, color: STATUS_COLOR[tx.type] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.type], flexShrink: 0 }} />{tx.type}
+          {/* Transactions table */}
+          {tab === "transactions" && (
+            <>
+              {isMobile ? (
+                <div style={{ display: "grid", gap: "10px", padding: "12px" }}>
+                  {transactions.map((tx) => (
+                    <div
+                      key={tx.id}
+                      style={{
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "12px",
+                        background: "color-mix(in srgb, var(--bg-panel) 90%, var(--bg-surface) 10%)",
+                        padding: "10px",
+                        display: "grid",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500, minWidth: 0 }}>
+                          {tx.description}
                         </span>
-                        <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[tx.status] || "var(--accent)"}12`, color: STATUS_COLOR[tx.status] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.status], flexShrink: 0 }} />{tx.status}
+                        <span style={{ fontSize: "15px", color: tx.type === "income" ? "#34d399" : "#f87171", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString()}
                         </span>
                       </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{tx.category}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[tx.type] || "var(--accent)"}12`, color: STATUS_COLOR[tx.type] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.type], flexShrink: 0 }} />{tx.type}
+                          </span>
+                          <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[tx.status] || "var(--accent)"}12`, color: STATUS_COLOR[tx.status] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.status], flexShrink: 0 }} />{tx.status}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <button onClick={() => openEditTx(tx)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Pencil size={12} color="var(--text-muted)" />
+                          </button>
+                          <button onClick={() => deleteTx(tx.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Trash2 size={12} color="var(--danger)" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
+                    {["Description", "Category", "Amount", "Type", "Status", ""].map(h => (
+                      <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                    ))}
+                  </div>
+                  {transactions.map((tx, i) => (
+                    <div key={tx.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < transactions.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
+                      <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{tx.description}</span>
+                      <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{tx.category}</span>
+                      <span style={{ fontSize: "13px", color: tx.type === "income" ? "#34d399" : "#f87171", fontWeight: 500 }}>
+                        {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString()}
+                      </span>
+                      <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.type] || "var(--accent)"}12`, color: STATUS_COLOR[tx.type] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.type], flexShrink: 0 }} />{tx.type}
+                      </span>
+                      <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.status] || "var(--accent)"}12`, color: STATUS_COLOR[tx.status] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.status], flexShrink: 0 }} />{tx.status}
+                      </span>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button onClick={() => openEditTx(tx)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <button onClick={() => openEditTx(tx)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Pencil size={11} color="var(--text-muted)" />
+                        </button>
+                        <button onClick={() => deleteTx(tx.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Trash2 size={11} color="var(--danger)" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
+          {/* Invoices table */}
+          {tab === "invoices" && (
+            <>
+              {isMobile ? (
+                <div style={{ display: "grid", gap: "10px", padding: "12px" }}>
+                  {invoices.map((inv) => (
+                    <div
+                      key={inv.id}
+                      style={{
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "12px",
+                        background: "color-mix(in srgb, var(--bg-panel) 90%, var(--bg-surface) 10%)",
+                        padding: "10px",
+                        display: "grid",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
+                        <span style={{ fontSize: "15px", color: "#34d399", fontWeight: 600 }}>${inv.amount.toLocaleString()}</span>
+                      </div>
+                      <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{inv.client_name}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Tax: ${inv.tax}</span>
+                        <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[inv.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[inv.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[inv.status] || "var(--text-muted)", flexShrink: 0 }} />{inv.status}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                        <button onClick={() => openEditInv(inv)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <Pencil size={12} color="var(--text-muted)" />
                         </button>
-                        <button onClick={() => deleteTx(tx.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <button onClick={() => deleteInv(inv.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <Trash2 size={12} color="var(--danger)" />
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
-                  {["Description", "Category", "Amount", "Type", "Status", ""].map(h => (
-                    <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
                   ))}
                 </div>
-                {transactions.map((tx, i) => (
-                  <div key={tx.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < transactions.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                    <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{tx.description}</span>
-                    <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{tx.category}</span>
-                    <span style={{ fontSize: "13px", color: tx.type === "income" ? "#34d399" : "#f87171", fontWeight: 500 }}>
-                      {tx.type === "income" ? "+" : "-"}${tx.amount.toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.type] || "var(--accent)"}12`, color: STATUS_COLOR[tx.type] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
-                      <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.type], flexShrink: 0 }} />{tx.type}
-                    </span>
-                    <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[tx.status] || "var(--accent)"}12`, color: STATUS_COLOR[tx.status] || "var(--accent)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
-                      <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[tx.status], flexShrink: 0 }} />{tx.status}
-                    </span>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <button onClick={() => openEditTx(tx)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Pencil size={11} color="var(--text-muted)" />
-                      </button>
-                      <button onClick={() => deleteTx(tx.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Trash2 size={11} color="var(--danger)" />
-                      </button>
-                    </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
+                    {["Invoice #", "Client", "Amount", "Tax", "Status", ""].map(h => (
+                      <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
+                    ))}
                   </div>
-                ))}
-              </>
-            )}
-          </>
-        )}
-
-        {/* Invoices table */}
-        {tab === "invoices" && (
-          <>
-            {isMobile ? (
-              <div style={{ display: "grid", gap: "10px", padding: "12px" }}>
-                {invoices.map((inv) => (
-                  <div
-                    key={inv.id}
-                    style={{
-                      border: "1px solid var(--border-default)",
-                      borderRadius: "12px",
-                      background: "color-mix(in srgb, var(--bg-panel) 90%, var(--bg-surface) 10%)",
-                      padding: "10px",
-                      display: "grid",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
-                      <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
-                      <span style={{ fontSize: "15px", color: "#34d399", fontWeight: 600 }}>${inv.amount.toLocaleString()}</span>
-                    </div>
-                    <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{inv.client_name}</div>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-                      <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Tax: ${inv.tax}</span>
-                      <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: `${STATUS_COLOR[inv.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[inv.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  {invoices.map((inv, i) => (
+                    <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < invoices.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
+                      <span style={{ fontSize: "13px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
+                      <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{inv.client_name}</span>
+                      <span style={{ fontSize: "13px", color: "#34d399", fontWeight: 500 }}>${inv.amount.toLocaleString()}</span>
+                      <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>${inv.tax}</span>
+                      <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[inv.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[inv.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                         <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[inv.status] || "var(--text-muted)", flexShrink: 0 }} />{inv.status}
                       </span>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button onClick={() => openEditInv(inv)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Pencil size={11} color="var(--text-muted)" />
+                        </button>
+                        <button onClick={() => deleteInv(inv.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Trash2 size={11} color="var(--danger)" />
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-                      <button onClick={() => openEditInv(inv)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Pencil size={12} color="var(--text-muted)" />
-                      </button>
-                      <button onClick={() => deleteInv(inv.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Trash2 size={12} color="var(--danger)" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
-                  {["Invoice #", "Client", "Amount", "Tax", "Status", ""].map(h => (
-                    <span key={h} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{h}</span>
                   ))}
-                </div>
-                {invoices.map((inv, i) => (
-                  <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr 0.8fr 0.8fr 80px", padding: "13px 20px", borderBottom: i < invoices.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", cursor: "pointer" }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                    <span style={{ fontSize: "13px", color: "var(--accent)", fontFamily: "monospace" }}>{inv.invoice_number}</span>
-                    <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>{inv.client_name}</span>
-                    <span style={{ fontSize: "13px", color: "#34d399", fontWeight: 500 }}>${inv.amount.toLocaleString()}</span>
-                    <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>${inv.tax}</span>
-                    <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[inv.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[inv.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
-                      <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[inv.status] || "var(--text-muted)", flexShrink: 0 }} />{inv.status}
-                    </span>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <button onClick={() => openEditInv(inv)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Pencil size={11} color="var(--text-muted)" />
-                      </button>
-                      <button onClick={() => deleteInv(inv.id)} style={{ width: "26px", height: "26px", borderRadius: "7px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Trash2 size={11} color="var(--danger)" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-          </>
-        )}
-      </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Modals */}
       {modal && (

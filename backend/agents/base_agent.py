@@ -66,10 +66,12 @@ class BaseAgent:
         temperature: float | None = None,
         extra_system_instructions: str | None = None,
         user_blocks: list[dict] | None = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         """Send a message to Claude with optional real data context."""
 
         provider_name = self._resolve_provider(provider)
+        request_timeout = float(timeout_seconds or self.provider_timeout_seconds)
         base_system = self.system_prompt
         if extra_system_instructions and extra_system_instructions.strip():
             base_system = f"{base_system}\n\nADDITIONAL SECTION-SPECIFIC INSTRUCTIONS:\n{extra_system_instructions.strip()}"
@@ -98,7 +100,7 @@ class BaseAgent:
                 raise Exception("OpenAI API key is not configured.")
             client = OpenAI(
                 api_key=self.openai_api_key,
-                timeout=self.provider_timeout_seconds,
+                timeout=request_timeout,
                 max_retries=1,
             )
             user_text = user_message.strip()
@@ -144,7 +146,7 @@ class BaseAgent:
             with urllib.request.urlopen(
                 req,
                 context=ssl.create_default_context(cafile=certifi.where()),
-                timeout=self.provider_timeout_seconds,
+                timeout=request_timeout,
             ) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 return result["content"][0]["text"]

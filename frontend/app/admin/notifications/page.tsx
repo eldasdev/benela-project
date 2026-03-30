@@ -288,13 +288,13 @@ export default function AdminNotificationsPage() {
         <AdminMetricCard label="Recipients reached" value={stats.recipients} detail="Computed from real workspace targeting" tone="accent" />
       </AdminMetricGrid>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-split admin-responsive-split-2" style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr", gap: "18px", alignItems: "start" }}>
         <div style={{ display: "grid", gap: "18px" }}>
           <AdminSectionCard title="Compose" description="Create a new message and preview the real audience before sending it.">
             <div style={{ display: "grid", gap: "12px" }}>
               <input value={form.title} onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))} placeholder="Notification title" style={adminInputStyle()} />
               <textarea value={form.message} onChange={(event) => setForm((prev) => ({ ...prev, message: event.target.value }))} placeholder="Message body" style={adminInputStyle({ minHeight: "120px", padding: "12px 14px", resize: "vertical" })} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <select value={form.type} onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value as NotificationType }))} style={adminInputStyle()}>
                   <option value="info">Info</option>
                   <option value="success">Success</option>

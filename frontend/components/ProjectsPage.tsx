@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X, ChevronLeft, Calendar, User } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { authFetch } from "@/lib/auth-fetch";
 
 const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -202,6 +203,7 @@ export default function ProjectsPage() {
   const [modal, setModal] = useState<ModalType>(null);
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [dragTask, setDragTask] = useState<KanbanTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<number | null>(null);
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
@@ -211,14 +213,42 @@ export default function ProjectsPage() {
   const [columnForm, setColumnForm] = useState(emptyColumnForm);
   const [taskForm, setTaskForm] = useState(emptyTaskForm);
 
+  const extractErrorMessage = async (response: Response, fallback: string) => {
+    try {
+      const payload = await response.clone().json();
+      if (typeof payload?.detail === "string" && payload.detail.trim()) {
+        return payload.detail.trim();
+      }
+    } catch {}
+
+    const text = await response.text().catch(() => "");
+    if (text.trim()) return text.trim();
+    return fallback;
+  };
+
+  const requestJson = async <T,>(url: string, init: RequestInit | undefined, fallback: string): Promise<T> => {
+    const response = await authFetch(url, init);
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, fallback));
+    }
+    return response.json() as Promise<T>;
+  };
+
+  const requestOk = async (url: string, init: RequestInit | undefined, fallback: string) => {
+    const response = await authFetch(url, init);
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, fallback));
+    }
+    return response;
+  };
+
   const loadProjects = async () => {
     try {
-      const [sRes, pRes] = await Promise.all([
-        fetch(`${API}/projects/summary`),
-        fetch(`${API}/projects/`),
+      setError(null);
+      const [s, p] = await Promise.all([
+        requestJson<Summary>(`${API}/projects/summary`, undefined, "Failed to load project summary."),
+        requestJson<Project[]>(`${API}/projects`, undefined, "Failed to load projects."),
       ]);
-      const s = sRes.ok ? await sRes.json() : null;
-      const p: Project[] = pRes.ok ? await pRes.json() : [];
       setSummary(s);
       setProjects(p);
 
@@ -226,12 +256,18 @@ export default function ProjectsPage() {
       const metrics: Record<number, ProjectMetrics> = {};
       await Promise.all(
         p.map(async (proj) => {
-          const [columnsRes, tasksRes] = await Promise.all([
-            fetch(`${API}/projects/${proj.id}/columns`),
-            fetch(`${API}/projects/${proj.id}/tasks`),
+          const [cols, tsks] = await Promise.all([
+            requestJson<KanbanColumn[]>(
+              `${API}/projects/${proj.id}/columns`,
+              undefined,
+              `Failed to load columns for ${proj.name}.`,
+            ),
+            requestJson<KanbanTask[]>(
+              `${API}/projects/${proj.id}/tasks`,
+              undefined,
+              `Failed to load tasks for ${proj.name}.`,
+            ),
           ]);
-          const cols: KanbanColumn[] = columnsRes.ok ? await columnsRes.json() : [];
-          const tsks: KanbanTask[] = tasksRes.ok ? await tasksRes.json() : [];
 
           counts[proj.id] = tsks.length;
           metrics[proj.id] = buildProjectMetrics(proj, cols, tsks);
@@ -241,6 +277,7 @@ export default function ProjectsPage() {
       setProjectMetrics(metrics);
     } catch (err) {
       console.error("Failed to load projects", err);
+      setError(err instanceof Error ? err.message : "Failed to load projects.");
       setSummary(null);
       setProjects([]);
       setTaskCounts({});
@@ -250,16 +287,24 @@ export default function ProjectsPage() {
 
   const loadBoard = async (projectId: number) => {
     try {
-      const [cRes, tRes] = await Promise.all([
-        fetch(`${API}/projects/${projectId}/columns`),
-        fetch(`${API}/projects/${projectId}/tasks`),
+      setError(null);
+      const [cols, tsks] = await Promise.all([
+        requestJson<KanbanColumn[]>(
+          `${API}/projects/${projectId}/columns`,
+          undefined,
+          "Failed to load project columns.",
+        ),
+        requestJson<KanbanTask[]>(
+          `${API}/projects/${projectId}/tasks`,
+          undefined,
+          "Failed to load project tasks.",
+        ),
       ]);
-      const cols: KanbanColumn[] = cRes.ok ? await cRes.json() : [];
-      const tsks: KanbanTask[] = tRes.ok ? await tRes.json() : [];
       setColumns(cols);
       setTasks(tsks);
     } catch (err) {
       console.error("Failed to load board", err);
+      setError(err instanceof Error ? err.message : "Failed to load project board.");
       setColumns([]);
       setTasks([]);
     }
@@ -296,41 +341,54 @@ export default function ProjectsPage() {
 
   const saveProject = async () => {
     setLoading(true);
-    const body = {
-      name: projectForm.name,
-      description: projectForm.description || null,
-      owner: projectForm.owner || null,
-      status: projectForm.status,
-      color: projectForm.color || "var(--accent)",
-    };
-    if (modal === "add_project") {
-      await fetch(`${API}/projects/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } else if (modal === "edit_project" && selected) {
-      await fetch(`${API}/projects/${selected.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    setError(null);
+    try {
+      const body = {
+        name: projectForm.name,
+        description: projectForm.description || null,
+        owner: projectForm.owner || null,
+        status: projectForm.status,
+        color: projectForm.color || "var(--accent)",
+      };
+      if (modal === "add_project") {
+        await requestOk(`${API}/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to create project.");
+      } else if (modal === "edit_project" && selected) {
+        await requestOk(`${API}/projects/${selected.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to update project.");
+      }
+      await loadProjects();
+      setModal(null);
+    } catch (err) {
+      console.error("Failed to save project", err);
+      setError(err instanceof Error ? err.message : "Failed to save project.");
+    } finally {
+      setLoading(false);
     }
-    await loadProjects();
-    setModal(null);
-    setLoading(false);
   };
 
   const deleteProject = async (id: number) => {
     if (!confirm("Delete this project and all its board data?")) return;
-    await fetch(`${API}/projects/${id}`, { method: "DELETE" });
-    if (selectedProject && selectedProject.id === id) {
-      setSelectedProject(null);
-      setView("projects_list");
-      setColumns([]);
-      setTasks([]);
+    setError(null);
+    try {
+      await requestOk(`${API}/projects/${id}`, { method: "DELETE" }, "Failed to delete project.");
+      if (selectedProject && selectedProject.id === id) {
+        setSelectedProject(null);
+        setView("projects_list");
+        setColumns([]);
+        setTasks([]);
+      }
+      await loadProjects();
+    } catch (err) {
+      console.error("Failed to delete project", err);
+      setError(err instanceof Error ? err.message : "Failed to delete project.");
     }
-    await loadProjects();
   };
 
   // ── Column CRUD ──────────────────────────────────────
@@ -350,39 +408,52 @@ export default function ProjectsPage() {
   const saveColumn = async () => {
     if (!selectedProject) return;
     setLoading(true);
-    if (modal === "add_column") {
-      const body = {
-        project_id: selectedProject.id,
-        name: columnForm.name,
-        color: columnForm.color || "var(--text-subtle)",
-        position: columns.length,
-      };
-      await fetch(`${API}/projects/${selectedProject.id}/columns`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } else if (modal === "edit_column" && selected) {
-      const body = {
-        name: columnForm.name,
-        color: columnForm.color || "var(--text-subtle)",
-      };
-      await fetch(`${API}/projects/columns/${selected.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    setError(null);
+    try {
+      if (modal === "add_column") {
+        const body = {
+          project_id: selectedProject.id,
+          name: columnForm.name,
+          color: columnForm.color || "var(--text-subtle)",
+          position: columns.length,
+        };
+        await requestOk(`${API}/projects/${selectedProject.id}/columns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to create column.");
+      } else if (modal === "edit_column" && selected) {
+        const body = {
+          name: columnForm.name,
+          color: columnForm.color || "var(--text-subtle)",
+        };
+        await requestOk(`${API}/projects/columns/${selected.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to update column.");
+      }
+      await loadBoard(selectedProject.id);
+      setModal(null);
+    } catch (err) {
+      console.error("Failed to save column", err);
+      setError(err instanceof Error ? err.message : "Failed to save column.");
+    } finally {
+      setLoading(false);
     }
-    await loadBoard(selectedProject.id);
-    setModal(null);
-    setLoading(false);
   };
 
   const deleteColumn = async (id: number) => {
     if (!selectedProject) return;
     if (!confirm("Delete this column and all tasks inside it?")) return;
-    await fetch(`${API}/projects/columns/${id}`, { method: "DELETE" });
-    await loadBoard(selectedProject.id);
+    setError(null);
+    try {
+      await requestOk(`${API}/projects/columns/${id}`, { method: "DELETE" }, "Failed to delete column.");
+      await loadBoard(selectedProject.id);
+    } catch (err) {
+      console.error("Failed to delete column", err);
+      setError(err instanceof Error ? err.message : "Failed to delete column.");
+    }
   };
 
   // ── Task CRUD ────────────────────────────────────────
@@ -407,51 +478,64 @@ export default function ProjectsPage() {
   const saveTask = async () => {
     if (!selectedProject) return;
     setLoading(true);
-    if (modal === "add_task" && selected) {
-      const column = selected as KanbanColumn;
-      const tasksInColumn = tasks.filter((t) => t.column_id === column.id);
-      const body = {
-        project_id: selectedProject.id,
-        column_id: column.id,
-        title: taskForm.title,
-        description: taskForm.description || null,
-        priority: taskForm.priority,
-        assignee: taskForm.assignee || null,
-        tags: taskForm.tags || null,
-        position: tasksInColumn.length,
-      };
-      await fetch(`${API}/projects/${selectedProject.id}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } else if (modal === "edit_task" && selected) {
-      const task = selected as KanbanTask;
-      const body = {
-        title: taskForm.title,
-        description: taskForm.description || null,
-        priority: taskForm.priority,
-        assignee: taskForm.assignee || null,
-        tags: taskForm.tags || null,
-      };
-      await fetch(`${API}/projects/tasks/${task.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    setError(null);
+    try {
+      if (modal === "add_task" && selected) {
+        const column = selected as KanbanColumn;
+        const tasksInColumn = tasks.filter((t) => t.column_id === column.id);
+        const body = {
+          project_id: selectedProject.id,
+          column_id: column.id,
+          title: taskForm.title,
+          description: taskForm.description || null,
+          priority: taskForm.priority,
+          assignee: taskForm.assignee || null,
+          tags: taskForm.tags || null,
+          position: tasksInColumn.length,
+        };
+        await requestOk(`${API}/projects/${selectedProject.id}/tasks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to create task.");
+      } else if (modal === "edit_task" && selected) {
+        const task = selected as KanbanTask;
+        const body = {
+          title: taskForm.title,
+          description: taskForm.description || null,
+          priority: taskForm.priority,
+          assignee: taskForm.assignee || null,
+          tags: taskForm.tags || null,
+        };
+        await requestOk(`${API}/projects/tasks/${task.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, "Failed to update task.");
+      }
+      await loadBoard(selectedProject.id);
+      await loadProjects();
+      setModal(null);
+    } catch (err) {
+      console.error("Failed to save task", err);
+      setError(err instanceof Error ? err.message : "Failed to save task.");
+    } finally {
+      setLoading(false);
     }
-    await loadBoard(selectedProject.id);
-    await loadProjects();
-    setModal(null);
-    setLoading(false);
   };
 
   const deleteTask = async (id: number) => {
     if (!selectedProject) return;
     if (!confirm("Delete this task?")) return;
-    await fetch(`${API}/projects/tasks/${id}`, { method: "DELETE" });
-    await loadBoard(selectedProject.id);
-    await loadProjects();
+    setError(null);
+    try {
+      await requestOk(`${API}/projects/tasks/${id}`, { method: "DELETE" }, "Failed to delete task.");
+      await loadBoard(selectedProject.id);
+      await loadProjects();
+    } catch (err) {
+      console.error("Failed to delete task", err);
+      setError(err instanceof Error ? err.message : "Failed to delete task.");
+    }
   };
 
   // ── Drag & Drop ──────────────────────────────────────
@@ -459,15 +543,21 @@ export default function ProjectsPage() {
     if (!dragTask || !selectedProject) return;
     const tasksInColumn = tasks.filter((t) => t.column_id === columnId);
     const newPosition = tasksInColumn.length;
-    await fetch(`${API}/projects/tasks/${dragTask.id}/move`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ column_id: columnId, position: newPosition }),
-    });
-    await loadBoard(selectedProject.id);
-    await loadProjects();
-    setDragTask(null);
-    setDragOverColumn(null);
+    setError(null);
+    try {
+      await requestOk(`${API}/projects/tasks/${dragTask.id}/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ column_id: columnId, position: newPosition }),
+      }, "Failed to move task.");
+      await loadBoard(selectedProject.id);
+      await loadProjects();
+      setDragTask(null);
+      setDragOverColumn(null);
+    } catch (err) {
+      console.error("Failed to move task", err);
+      setError(err instanceof Error ? err.message : "Failed to move task.");
+    }
   };
 
   const renderStatusBadge = (status: ProjectStatus) => {
@@ -575,6 +665,23 @@ export default function ProjectsPage() {
         overflowX: "hidden",
       }}
     >
+      {error ? (
+        <div
+          style={{
+            marginBottom: "16px",
+            padding: "12px 14px",
+            borderRadius: "12px",
+            border: "1px solid rgba(248, 113, 113, 0.25)",
+            background: "rgba(248, 113, 113, 0.08)",
+            color: "#ef4444",
+            fontSize: "13px",
+            lineHeight: 1.5,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
       {/* KPI Cards (list view only) */}
       {view === "projects_list" && summary && (
         <div

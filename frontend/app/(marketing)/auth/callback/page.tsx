@@ -7,6 +7,7 @@ import type { EmailOtpType, Session } from "@supabase/supabase-js";
 import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
+import { persistPendingAccessToken } from "@/lib/auth-fetch";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 const OTP_TYPES: EmailOtpType[] = ["signup", "invite", "magiclink", "recovery", "email_change", "email"];
@@ -104,6 +105,7 @@ export default function AuthCallbackPage() {
         if (!user) {
           throw new Error(t("auth.callback.sessionMissing"));
         }
+        persistPendingAccessToken(session?.access_token);
 
         const role = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "";
         if (!active) return;
@@ -114,14 +116,10 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        try {
-          const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id);
-          if (bootstrapped || summary?.exists === false) {
-            router.replace("/settings?setup=business");
-            return;
-          }
-        } catch {
-          // Fall back to the requested route if workspace hydration is temporarily unavailable.
+        const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id, session?.access_token);
+        if (bootstrapped || summary?.exists === false) {
+          router.replace("/settings?setup=business");
+          return;
         }
 
         router.replace(nextPath);

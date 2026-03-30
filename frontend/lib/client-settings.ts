@@ -33,7 +33,7 @@ export const CLIENT_SECTIONS: ClientSection[] = [
 ];
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = {
-  workspaceId: "default-workspace",
+  workspaceId: "",
   defaultSection: "dashboard",
   notifications: {
     product_updates: true,
@@ -55,9 +55,11 @@ export function readClientSettings(): ClientSettings {
     const parsed = JSON.parse(raw) as Partial<ClientSettings> | null;
     if (!parsed || typeof parsed !== "object") return DEFAULT_CLIENT_SETTINGS;
 
+    const normalizedWorkspaceId =
+      typeof parsed.workspaceId === "string" ? parsed.workspaceId.trim() : "";
     const workspaceId =
-      typeof parsed.workspaceId === "string" && parsed.workspaceId.trim()
-        ? parsed.workspaceId.trim()
+      normalizedWorkspaceId && normalizedWorkspaceId !== "default-workspace"
+        ? normalizedWorkspaceId
         : DEFAULT_CLIENT_SETTINGS.workspaceId;
 
     const rawDefaultSection =
@@ -103,4 +105,8 @@ export function saveClientSettings(settings: ClientSettings): void {
 
 export function getClientWorkspaceId(): string {
   return readClientSettings().workspaceId;
+}
+
+export function hasClientWorkspaceId(): boolean {
+  return Boolean(getClientWorkspaceId().trim());
 }

@@ -381,7 +381,7 @@ export default function AdminMarketplacePage() {
         )}
       </AdminSectionCard>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-triple admin-responsive-triple-marketplace" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Recent purchases" description="Latest commercial activity across the plugin catalog.">
           {purchases.length ? (
             <div style={{ display: "grid", gap: "10px" }}>
@@ -451,7 +451,7 @@ export default function AdminMarketplacePage() {
         width={820}
       >
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Slug</span>
               <input value={form.slug} onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))} style={adminInputStyle()} />
@@ -465,7 +465,7 @@ export default function AdminMarketplacePage() {
             <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Description</span>
             <textarea value={form.description} onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))} style={adminInputStyle({ minHeight: "96px", padding: "12px 14px", resize: "vertical" })} />
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Vendor</span>
               <input value={form.vendor} onChange={(event) => setForm((prev) => ({ ...prev, vendor: event.target.value }))} style={adminInputStyle()} />
@@ -481,7 +481,7 @@ export default function AdminMarketplacePage() {
               <input value={form.icon} onChange={(event) => setForm((prev) => ({ ...prev, icon: event.target.value }))} style={adminInputStyle()} />
             </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Monthly price</span>
               <input type="number" min="0" step="0.01" value={form.price_monthly} onChange={(event) => setForm((prev) => ({ ...prev, price_monthly: event.target.value }))} style={adminInputStyle()} />

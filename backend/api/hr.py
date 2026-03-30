@@ -1,33 +1,45 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from database.connection import get_db
 from database import crud, schemas
 from typing import List
+from integrations.onec.service import resolve_company_account
 
 router = APIRouter(prefix="/hr", tags=["HR"])
 
 @router.get("/summary")
-def hr_summary(db: Session = Depends(get_db)):
-    return crud.get_hr_summary(db)
+def hr_summary(request: Request, company_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    account = resolve_company_account(request, db, company_id=company_id)
+    return crud.get_hr_summary(db, company_id=account.client_org_id)
 
 # ── Employees ─────────────────────────────────────────
 @router.get("/employees", response_model=List[schemas.EmployeeOut])
-def list_employees(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return crud.get_employees(db, skip, limit)
+def list_employees(
+    request: Request,
+    skip: int = 0,
+    limit: int = 100,
+    company_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    account = resolve_company_account(request, db, company_id=company_id)
+    return crud.get_employees(db, skip, limit, company_id=account.client_org_id)
 
 @router.post("/employees", response_model=schemas.EmployeeOut)
-def add_employee(data: schemas.EmployeeCreate, db: Session = Depends(get_db)):
-    return crud.create_employee(db, data)
+def add_employee(request: Request, data: schemas.EmployeeCreate, company_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    account = resolve_company_account(request, db, company_id=company_id)
+    return crud.create_employee(db, data, company_id=account.client_org_id)
 
 @router.put("/employees/{id}", response_model=schemas.EmployeeOut)
-def edit_employee(id: int, data: schemas.EmployeeUpdate, db: Session = Depends(get_db)):
-    emp = crud.update_employee(db, id, data)
+def edit_employee(id: int, request: Request, data: schemas.EmployeeUpdate, company_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    account = resolve_company_account(request, db, company_id=company_id)
+    emp = crud.update_employee(db, id, data, company_id=account.client_org_id)
     if not emp: raise HTTPException(status_code=404, detail="Employee not found")
     return emp
 
 @router.delete("/employees/{id}")
-def remove_employee(id: int, db: Session = Depends(get_db)):
-    if not crud.delete_employee(db, id):
+def remove_employee(id: int, request: Request, company_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    account = resolve_company_account(request, db, company_id=company_id)
+    if not crud.delete_employee(db, id, company_id=account.client_org_id):
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"ok": True}
 

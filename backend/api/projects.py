@@ -16,12 +16,12 @@ def projects_summary(db: Session = Depends(get_db)):
     return crud.get_project_summary(db)
 
 
-@router.get("/", response_model=List[schemas.ProjectOut])
+@router.get("", response_model=List[schemas.ProjectOut])
 def list_projects(db: Session = Depends(get_db)):
     return crud.get_projects(db)
 
 
-@router.post("/", response_model=schemas.ProjectOut)
+@router.post("", response_model=schemas.ProjectOut)
 def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
     return crud.create_project(db, data)
 
@@ -109,4 +109,3 @@ def move_task(id: int, body: MoveTaskBody, db: Session = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
-

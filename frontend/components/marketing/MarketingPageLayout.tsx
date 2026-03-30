@@ -22,10 +22,11 @@ export default function MarketingPageLayout({
       <MarketingTopNav currentPath={currentPath} />
 
       <section
+        className="marketing-page-hero"
         style={{
           position: "relative",
           overflow: "hidden",
-          padding: "132px 40px 54px",
+          padding: "132px clamp(18px, 4vw, 40px) 54px",
           borderBottom: "1px solid var(--marketing-hero-divider)",
           background:
             "radial-gradient(920px 460px at 82% 6%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%), var(--marketing-hero-bg)",
@@ -89,7 +90,7 @@ export default function MarketingPageLayout({
         </div>
       </section>
 
-      <main style={{ maxWidth: "1220px", margin: "0 auto", padding: "56px 40px 84px" }}>{children}</main>
+      <main className="marketing-page-main" style={{ maxWidth: "1220px", margin: "0 auto", padding: "56px clamp(18px, 4vw, 40px) 84px" }}>{children}</main>
 
       <MarketingFooter />
 

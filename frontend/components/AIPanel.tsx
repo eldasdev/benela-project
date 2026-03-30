@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Section } from "@/types";
+import { authFetch } from "@/lib/auth-fetch";
+import { fetchOneCOverview, type OneCOverview } from "@/lib/onec";
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -88,7 +90,7 @@ const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: s
   dashboard:    { label: "Dashboard",    icon: "⊞", prompts: ["Give me a business health summary", "Which module needs attention?", "What are the top risks this week?"] },
   projects:     { label: "Projects",     icon: "📋", prompts: ["Summarize tasks by status", "Which tasks are overdue?", "Who is assigned the most work?"] },
   finance:      { label: "Finance",      icon: "💰", prompts: ["Analyze our cash flow this month", "Flag any unusual transactions", "What's our profit margin?"] },
-  hr:           { label: "HR",           icon: "👥", prompts: ["Who is on leave this week?", "Summarize open positions", "Suggest hiring priorities"] },
+  hr:           { label: "HR",           icon: "👥", prompts: ["Who is late today?", "Summarize attendance this month", "Estimate payroll for this month"] },
   sales:        { label: "Sales",        icon: "📈", prompts: ["Which deals are at risk?", "What's our pipeline coverage?", "Draft a follow-up for Acme Corp"] },
   support:      { label: "Support",      icon: "🎧", prompts: ["What are the most common issues?", "Summarize open tickets", "Draft a response for an angry customer"] },
   legal:        { label: "Legal",        icon: "⚖️", prompts: ["Any compliance risks this week?", "Summarize pending contracts", "Flag overdue reviews"] },
@@ -99,6 +101,15 @@ const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: s
   settings:     { label: "Settings",     icon: "⚙️", prompts: ["How do I change my password?", "Where are notification preferences?", "Export my data"] },
   marketplace:  { label: "Marketplace",  icon: "📦", prompts: ["What integrations are available?", "How do I install an add-on?", "List popular integrations"] },
 };
+
+const ONEC_QUICK_QUERIES = [
+  "What's our current bank balance?",
+  "Who are our top 5 debtors?",
+  "Show low stock alerts",
+  "Compare this month vs last month revenue",
+  "What's our payroll cost this month?",
+  "Cash flow forecast for next 30 days",
+];
 
 const stripAssistantMarkdown = (content: string): string =>
   content
@@ -1100,7 +1111,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const { t, getValue } = useI18n();
   const isMobile = useIsMobile(980);
   const [authUserId, setAuthUserId] = useState("");
-  const [workspaceId, setWorkspaceId] = useState("default-workspace");
+  const [workspaceId, setWorkspaceId] = useState("");
   const [identityReady, setIdentityReady] = useState(false);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [threadsReady, setThreadsReady] = useState(false);
@@ -1120,6 +1131,9 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
   const [hasSpeechFallback, setHasSpeechFallback] = useState(false);
   const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
+  const [onecOverview, setOnecOverview] = useState<OneCOverview | null>(null);
+  const [onecOverviewLoading, setOnecOverviewLoading] = useState(false);
+  const [financeDataSource, setFinanceDataSource] = useState<"combined" | "benela">("combined");
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1146,6 +1160,31 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         ? ctxLocale.prompts
         : ctxBase.prompts,
   };
+  const hasOneCData = section === "finance" && Boolean(onecOverview?.has_data);
+  const financePromptSet = useMemo(() => {
+    if (!hasOneCData) return ctx.prompts;
+    return [...ONEC_QUICK_QUERIES, ...ctx.prompts].filter(
+      (value, index, collection) => collection.indexOf(value) === index,
+    );
+  }, [ctx.prompts, hasOneCData]);
+  const activePrompts = hasOneCData ? financePromptSet : ctx.prompts;
+  const formatThreadTimeLabel = (isoValue: string): string => {
+    const timestamp = new Date(isoValue).getTime();
+    if (!Number.isFinite(timestamp)) return "";
+    const deltaMs = Date.now() - timestamp;
+    if (deltaMs < 60_000) return t("ai.shell.now", {}, "now");
+    if (deltaMs < 3_600_000) return t("ai.shell.minutesAgo", { count: Math.floor(deltaMs / 60_000) }, "{{count}}m");
+    if (deltaMs < 86_400_000) return t("ai.shell.hoursAgo", { count: Math.floor(deltaMs / 3_600_000) }, "{{count}}h");
+    if (deltaMs < 7 * 86_400_000) return t("ai.shell.daysAgo", { count: Math.floor(deltaMs / 86_400_000) }, "{{count}}d");
+    return new Date(isoValue).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  const lastOneCSyncText = onecOverview?.last_sync_at
+    ? formatThreadTimeLabel(onecOverview.last_sync_at)
+    : "";
+  const financePlaceholder =
+    hasOneCData && financeDataSource === "combined"
+      ? `Ask anything about your 1C data${lastOneCSyncText ? ` (last synced ${lastOneCSyncText})` : ""}...`
+      : t("ai.shell.askAnything", { section: ctx.label });
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
   const selectedModel = findModelOption(model);
   const storageIdentity = storageIdentityKey(authUserId, workspaceId);
@@ -1160,16 +1199,6 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       }),
     [translatedSectionContext],
   );
-  const formatThreadTimeLabel = (isoValue: string): string => {
-    const timestamp = new Date(isoValue).getTime();
-    if (!Number.isFinite(timestamp)) return "";
-    const deltaMs = Date.now() - timestamp;
-    if (deltaMs < 60_000) return t("ai.shell.now", {}, "now");
-    if (deltaMs < 3_600_000) return t("ai.shell.minutesAgo", { count: Math.floor(deltaMs / 60_000) }, "{{count}}m");
-    if (deltaMs < 86_400_000) return t("ai.shell.hoursAgo", { count: Math.floor(deltaMs / 3_600_000) }, "{{count}}h");
-    if (deltaMs < 7 * 86_400_000) return t("ai.shell.daysAgo", { count: Math.floor(deltaMs / 86_400_000) }, "{{count}}d");
-    return new Date(isoValue).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  };
 
   const filteredThreads = useMemo(() => {
     const query = threadSearch.trim().toLowerCase();
@@ -1260,7 +1289,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     });
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`${apiUrl}/agents/transcribe`, {
+    const response = await authFetch(`${apiUrl}/agents/transcribe`, {
       method: "POST",
       body: formData,
     });
@@ -1314,7 +1343,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       workspace_id: workspace,
       limit: "120",
     });
-    const res = await fetch(`${apiUrl}/chat/${sectionName}/sessions?${query.toString()}`);
+    const res = await authFetch(`${apiUrl}/chat/${sectionName}/sessions?${query.toString()}`);
     if (!res.ok) {
       throw new Error(t("ai.shell.cloudSessionsError", {}, "Could not load cloud chat sessions."));
     }
@@ -1356,7 +1385,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setMessages([]);
     try {
       const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-      const res = await fetch(
+      const res = await authFetch(
         `${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}&limit=100`,
       );
       if (!res.ok) return;
@@ -1414,7 +1443,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     attachments: MessageAttachment[] = [],
   ) => {
     const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-    await fetch(`${apiUrl}/chat/${section}/message`, {
+    await authFetch(`${apiUrl}/chat/${section}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1430,7 +1459,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         })),
       }),
     });
-    await fetch(`${apiUrl}/chat/${section}/message`, {
+    await authFetch(`${apiUrl}/chat/${section}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1447,7 +1476,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     if (!thread) return;
     try {
       const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-      await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}`, {
+      await authFetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(thread.sessionId)}`, {
         method: "DELETE",
       });
     } catch {
@@ -1686,7 +1715,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
     try {
       const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-      await fetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(target.sessionId)}`, {
+      await authFetch(`${apiUrl}/chat/${section}?session_id=${encodeURIComponent(target.sessionId)}`, {
         method: "DELETE",
       });
     } catch {
@@ -1761,7 +1790,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
       const readAgentDiagnostics = async () => {
         try {
-          const healthRes = await fetch(`${apiUrl}/agents/health`);
+          const healthRes = await authFetch(`${apiUrl}/agents/health`);
           if (!healthRes.ok) return "";
           const health = (await healthRes.json().catch(() => null)) as
             | {
@@ -1788,13 +1817,19 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         }
       };
 
-      const res = await fetch(`${apiUrl}/agents/${section}`, {
+      const res = await authFetch(`${apiUrl}/agents/${section}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: effectiveMessage,
           model: selectedModelId,
           provider: selectedModel?.provider,
+          data_source:
+            section === "finance" && hasOneCData
+              ? financeDataSource === "combined"
+                ? "onec_combined"
+                : "benela"
+              : undefined,
           attachments: attachmentsForSend.map((attachment) => ({
             file_name: attachment.file_name,
             mime_type: attachment.mime_type || null,
@@ -2009,7 +2044,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
         setAuthUserId("");
       } finally {
         if (!mounted) return;
-        setWorkspaceId(getClientWorkspaceId() || "default-workspace");
+        setWorkspaceId(getClientWorkspaceId());
         setIdentityReady(true);
       }
     })();
@@ -2124,6 +2159,39 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
       setMobileThreadsOpen(false);
     }
   }, [isMobile, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || section !== "finance") {
+      setOnecOverview(null);
+      setOnecOverviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOnecOverviewLoading(true);
+    void (async () => {
+      try {
+        const overview = await fetchOneCOverview();
+        if (cancelled) return;
+        setOnecOverview(overview);
+      } catch {
+        if (cancelled) return;
+        setOnecOverview(null);
+      } finally {
+        if (!cancelled) {
+          setOnecOverviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, section]);
+
+  useEffect(() => {
+    setFinanceDataSource(hasOneCData ? "combined" : "benela");
+  }, [hasOneCData]);
 
   return (
     <>
@@ -2734,6 +2802,47 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   <p style={{ fontSize: "12px", color: "var(--text-subtle)", lineHeight: 1.6 }}>
                     {t("ai.shell.workspaceDescription")}
                   </p>
+                  {section === "finance" ? (
+                    <div style={{ marginTop: "10px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "5px 9px",
+                          borderRadius: "999px",
+                          border: "1px solid var(--ai-border-default)",
+                          background: hasOneCData
+                            ? "color-mix(in srgb, var(--accent) 14%, var(--ai-bg-elevated))"
+                            : "var(--ai-bg-elevated)",
+                          color: hasOneCData ? "var(--accent)" : "var(--text-subtle)",
+                          fontSize: "10px",
+                          fontFamily: "monospace",
+                          letterSpacing: "0.08em",
+                        }}
+                      >
+                        {hasOneCData ? "1C + BENELA DATA" : "BENELA DATA"}
+                      </span>
+                      {hasOneCData && lastOneCSyncText ? (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "5px 9px",
+                            borderRadius: "999px",
+                            border: "1px solid var(--ai-border-default)",
+                            background: "var(--ai-bg-elevated)",
+                            color: "var(--text-subtle)",
+                            fontSize: "10px",
+                            fontFamily: "monospace",
+                            letterSpacing: "0.08em",
+                          }}
+                        >
+                          last sync {lastOneCSyncText}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 <p
@@ -2748,7 +2857,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   {t("ai.shell.suggestedPrompts")}
                 </p>
 
-                {ctx.prompts.map((prompt) => (
+                {activePrompts.map((prompt) => (
                   <button
                     key={prompt}
                     onClick={() => void send(prompt)}
@@ -3033,6 +3142,70 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                 </div>
               )}
 
+              {section === "finance" ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginBottom: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setFinanceDataSource("benela")}
+                    style={{
+                      height: "26px",
+                      borderRadius: "999px",
+                      border: "1px solid var(--ai-border-default)",
+                      background:
+                        financeDataSource === "benela"
+                          ? "var(--ai-bg-elevated)"
+                          : "transparent",
+                      color:
+                        financeDataSource === "benela"
+                          ? "var(--text-primary)"
+                          : "var(--text-subtle)",
+                      padding: "0 10px",
+                      fontSize: "10px",
+                      fontFamily: "monospace",
+                      letterSpacing: "0.08em",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Benela Data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => hasOneCData && setFinanceDataSource("combined")}
+                    disabled={!hasOneCData}
+                    style={{
+                      height: "26px",
+                      borderRadius: "999px",
+                      border: "1px solid var(--ai-border-default)",
+                      background:
+                        financeDataSource === "combined" && hasOneCData
+                          ? "color-mix(in srgb, var(--accent) 16%, var(--ai-bg-elevated))"
+                          : "transparent",
+                      color:
+                        financeDataSource === "combined" && hasOneCData
+                          ? "var(--accent)"
+                          : "var(--text-subtle)",
+                      padding: "0 10px",
+                      fontSize: "10px",
+                      fontFamily: "monospace",
+                      letterSpacing: "0.08em",
+                      cursor: hasOneCData ? "pointer" : "not-allowed",
+                      opacity: hasOneCData ? 1 : 0.55,
+                    }}
+                    title={
+                      hasOneCData
+                        ? onecOverviewLoading
+                          ? "Loading 1C source state..."
+                          : lastOneCSyncText
+                            ? `1C + Benela data • last synced ${lastOneCSyncText}`
+                            : "1C + Benela data"
+                        : "No 1C data has been imported yet."
+                    }
+                  >
+                    1C + Benela
+                  </button>
+                </div>
+              ) : null}
+
               <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
@@ -3043,7 +3216,7 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
                   }
                 }}
                 rows={2}
-                placeholder={t("ai.shell.askAnything", { section: ctx.label })}
+                placeholder={section === "finance" ? financePlaceholder : t("ai.shell.askAnything", { section: ctx.label })}
                 style={{
                   width: "100%",
                   minHeight: "46px",
@@ -3061,6 +3234,22 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
 
               <div className="ai-panel-composer-meta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px" }}>
                 <div className="ai-panel-composer-hints" style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--text-quiet)", fontSize: "10px" }}>
+                  {section === "finance" ? (
+                    <span
+                      className="ai-panel-hint-text"
+                      style={{
+                        fontFamily: "monospace",
+                        color:
+                          hasOneCData && financeDataSource === "combined"
+                            ? "var(--accent)"
+                            : "var(--text-quiet)",
+                      }}
+                    >
+                      {hasOneCData && financeDataSource === "combined"
+                        ? `1C source ${lastOneCSyncText ? `· ${lastOneCSyncText}` : "active"}`
+                        : "Benela source active"}
+                    </span>
+                  ) : null}
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={

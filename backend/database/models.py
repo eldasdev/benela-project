@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Boolean, ForeignKey, UniqueConstraint, JSON, Time
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base
@@ -221,6 +221,7 @@ class TaskPriority(str, enum.Enum):
 class Transaction(Base):
     __tablename__ = "transactions"
     id          = Column(Integer, primary_key=True, index=True)
+    company_id  = Column(Integer, ForeignKey("client_orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     date        = Column(DateTime, default=func.now())
     description = Column(String(255), nullable=False)
     category    = Column(String(100), nullable=False)
@@ -234,6 +235,7 @@ class Transaction(Base):
 class Invoice(Base):
     __tablename__ = "invoices"
     id             = Column(Integer, primary_key=True, index=True)
+    company_id      = Column(Integer, ForeignKey("client_orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     invoice_number = Column(String(50), unique=True, nullable=False)
     client_name    = Column(String(255), nullable=False)
     client_email   = Column(String(255), nullable=True)
@@ -256,12 +258,25 @@ class Department(Base):
 class Employee(Base):
     __tablename__ = "employees"
     id           = Column(Integer, primary_key=True, index=True)
+    company_id   = Column(Integer, ForeignKey("client_orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     full_name    = Column(String(255), nullable=False)
     email        = Column(String(255), unique=True, nullable=False)
     phone        = Column(String(50), nullable=True)
     department   = Column(String(100), nullable=False)
     role         = Column(String(100), nullable=False)
     salary       = Column(Float, nullable=True)
+    employee_pin = Column(String(255), nullable=True)
+    shift_start  = Column(Time, nullable=True)
+    shift_end    = Column(Time, nullable=True)
+    late_grace_minutes = Column(Integer, nullable=False, default=15)
+    hourly_rate  = Column(Float, nullable=True)
+    contract_type = Column(String(40), nullable=False, default="monthly")
+    work_days    = Column(JSON, nullable=False, default=list)
+    device_fingerprint = Column(String(255), nullable=True)
+    telegram_chat_id = Column(String(80), nullable=True, index=True)
+    telegram_username = Column(String(120), nullable=True)
+    telegram_first_name = Column(String(120), nullable=True)
+    telegram_linked_at = Column(DateTime, nullable=True)
     status       = Column(Enum(EmployeeStatus), default=EmployeeStatus.active)
     start_date   = Column(DateTime, default=func.now())
     notes        = Column(Text, nullable=True)

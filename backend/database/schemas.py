@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, time
 from database.models import (
     TransactionType,
     TransactionStatus,
@@ -113,6 +113,14 @@ class EmployeeCreate(BaseModel):
     department: str
     role: str
     salary: Optional[float] = None
+    employee_pin: Optional[str] = None
+    shift_start: Optional[time] = None
+    shift_end: Optional[time] = None
+    late_grace_minutes: int = 15
+    hourly_rate: Optional[float] = None
+    contract_type: str = "monthly"
+    work_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
+    device_fingerprint: Optional[str] = None
     status: EmployeeStatus = EmployeeStatus.active
     notes: Optional[str] = None
 
@@ -124,6 +132,14 @@ class EmployeeUpdate(BaseModel):
     department: Optional[str] = None
     role: Optional[str] = None
     salary: Optional[float] = None
+    employee_pin: Optional[str] = None
+    shift_start: Optional[time] = None
+    shift_end: Optional[time] = None
+    late_grace_minutes: Optional[int] = None
+    hourly_rate: Optional[float] = None
+    contract_type: Optional[str] = None
+    work_days: Optional[list[int]] = None
+    device_fingerprint: Optional[str] = None
     status: Optional[EmployeeStatus] = None
     notes: Optional[str] = None
 
@@ -136,6 +152,17 @@ class EmployeeOut(BaseModel):
     department: str
     role: str
     salary: Optional[float]
+    shift_start: Optional[time]
+    shift_end: Optional[time]
+    late_grace_minutes: int
+    hourly_rate: Optional[float]
+    contract_type: str
+    work_days: list[int]
+    device_fingerprint: Optional[str]
+    telegram_chat_id: Optional[str] = None
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
+    telegram_linked_at: Optional[datetime] = None
     status: EmployeeStatus
     start_date: datetime
     created_at: datetime

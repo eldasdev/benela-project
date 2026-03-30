@@ -112,6 +112,15 @@ async function parseError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+function withOptionalBearer(accessToken?: string | null, headers?: HeadersInit): HeadersInit {
+  const merged = new Headers(headers || {});
+  const normalized = (accessToken || "").trim();
+  if (normalized) {
+    merged.set("authorization", `Bearer ${normalized}`);
+  }
+  return merged;
+}
+
 export function planLabel(plan?: string | null): string {
   if (!plan) return "Starter";
   const normalized = plan.toLowerCase();
@@ -174,9 +183,14 @@ export async function patchClientAccountProfile(
   return (await res.json()) as ClientAccountProfile;
 }
 
-export async function fetchClientSidebarSummary(userId: string): Promise<ClientSidebarSummary> {
+export async function fetchClientSidebarSummary(
+  userId: string,
+  accessToken?: string | null,
+): Promise<ClientSidebarSummary> {
   const query = new URLSearchParams({ user_id: userId });
-  const res = await authFetch(`${API}/client-account/sidebar?${query.toString()}`);
+  const res = await authFetch(`${API}/client-account/sidebar?${query.toString()}`, {
+    headers: withOptionalBearer(accessToken),
+  });
   if (!res.ok) {
     throw new Error(await parseError(res, "Could not load account summary."));
   }
@@ -237,8 +251,11 @@ export async function uploadClientBusinessDocument(
   return (await res.json()) as ClientBusinessDocument;
 }
 
-export async function syncWorkspaceFromClientAccount(userId: string): Promise<ClientSidebarSummary | null> {
-  const summary = await fetchClientSidebarSummary(userId).catch(() => null);
+export async function syncWorkspaceFromClientAccount(
+  userId: string,
+  accessToken?: string | null,
+): Promise<ClientSidebarSummary | null> {
+  const summary = await fetchClientSidebarSummary(userId, accessToken);
   if (!summary?.exists || !summary.workspace_id) return summary;
 
   const current = readClientSettings();
@@ -261,15 +278,29 @@ export async function bootstrapClientWorkspaceAccount(): Promise<ClientAccountPr
   return (await res.json()) as ClientAccountProfile;
 }
 
+export async function bootstrapClientWorkspaceAccountWithToken(
+  accessToken?: string | null,
+): Promise<ClientAccountProfile> {
+  const res = await authFetch(`${API}/client-account/bootstrap`, {
+    method: "POST",
+    headers: withOptionalBearer(accessToken),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res, "Could not initialize client workspace."));
+  }
+  return (await res.json()) as ClientAccountProfile;
+}
+
 export async function ensureClientWorkspaceAccount(
-  userId: string
+  userId: string,
+  accessToken?: string | null,
 ): Promise<EnsureClientWorkspaceResult> {
-  let summary = await syncWorkspaceFromClientAccount(userId).catch(() => null);
+  let summary = await syncWorkspaceFromClientAccount(userId, accessToken);
   if (summary?.exists) {
     return { summary, bootstrapped: false };
   }
 
-  const draft = await bootstrapClientWorkspaceAccount();
+  const draft = await bootstrapClientWorkspaceAccountWithToken(accessToken);
   if (draft.workspace_id) {
     const current = readClientSettings();
     saveClientSettings({
@@ -278,6 +309,6 @@ export async function ensureClientWorkspaceAccount(
     });
   }
 
-  summary = await syncWorkspaceFromClientAccount(userId).catch(() => null);
+  summary = await syncWorkspaceFromClientAccount(userId, accessToken);
   return { summary, bootstrapped: true };
 }

@@ -2089,7 +2089,12 @@ def get_ai_trainer_training_context(
     query_phrase = " ".join(query_tokens).strip()
 
     rows = (
-        db.query(AITrainerChunk, AITrainerSource)
+        db.query(
+            AITrainerChunk.content,
+            AITrainerChunk.created_at,
+            AITrainerSource.title,
+            AITrainerSource.source_url,
+        )
         .join(AITrainerSource, AITrainerSource.id == AITrainerChunk.source_id)
         .filter(
             AITrainerChunk.section == normalized_section,
@@ -2098,16 +2103,21 @@ def get_ai_trainer_training_context(
         .all()
     )
 
-    ranked: list[tuple[int, AITrainerChunk, AITrainerSource]] = []
-    for chunk, source in rows:
-        score = _score_chunk_relevance(chunk.content, query_tokens, query_phrase)
+    ranked: list[tuple[int, str, str, str | None, datetime | None]] = []
+    for content, created_at, title, source_url in rows:
+        score = _score_chunk_relevance(content, query_tokens, query_phrase)
         if score > 0:
-            ranked.append((score, chunk, source))
+            ranked.append((score, content, title, source_url, created_at))
 
     if not ranked:
         # Fallback: most recent chunks when no lexical match.
         fallback_rows = (
-            db.query(AITrainerChunk, AITrainerSource)
+            db.query(
+                AITrainerChunk.content,
+                AITrainerChunk.created_at,
+                AITrainerSource.title,
+                AITrainerSource.source_url,
+            )
             .join(AITrainerSource, AITrainerSource.id == AITrainerChunk.source_id)
             .filter(
                 AITrainerChunk.section == normalized_section,
@@ -2117,7 +2127,7 @@ def get_ai_trainer_training_context(
             .limit(max_chunks)
             .all()
         )
-        ranked = [(1, chunk, source) for chunk, source in fallback_rows]
+        ranked = [(1, content, title, source_url, created_at) for content, created_at, title, source_url in fallback_rows]
     else:
         ranked.sort(key=lambda item: item[0], reverse=True)
 
@@ -2129,11 +2139,11 @@ def get_ai_trainer_training_context(
         "SECTION TRAINING KNOWLEDGE (curated by super admin; prioritize this when relevant):"
     ]
     current_len = len(lines[0])
-    for _, chunk, source in selected:
-        citation = source.title
-        if source.source_url:
-            citation = f"{citation} ({source.source_url})"
-        block = f"\n[Source: {citation}]\n{chunk.content}\n"
+    for _, content, title, source_url, _created_at in selected:
+        citation = title
+        if source_url:
+            citation = f"{citation} ({source_url})"
+        block = f"\n[Source: {citation}]\n{content}\n"
         if current_len + len(block) > max_context_chars:
             break
         lines.append(block)

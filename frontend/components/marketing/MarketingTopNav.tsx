@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Menu, X } from "lucide-react";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 type NavItem = {
@@ -17,6 +19,19 @@ const NAV_LINKS: NavItem[] = [
 
 export default function MarketingTopNav({ currentPath = "/" }: { currentPath?: string }) {
   const { t } = useI18n();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [currentPath]);
+
+  const isActive = (href: string) =>
+    href === "/about"
+      ? currentPath === "/about"
+      : href === "/blog"
+        ? currentPath === "/blog" || currentPath.startsWith("/blog/")
+        : currentPath === "/";
+
   const navLinkStyle = (active: boolean) => ({
     fontSize: "14px",
     textDecoration: "none",
@@ -27,14 +42,14 @@ export default function MarketingTopNav({ currentPath = "/" }: { currentPath?: s
 
   return (
     <nav
-      className="marketing-nav"
+      className="marketing-nav marketing-nav-shell"
       style={{
         position: "fixed",
         top: 0,
         left: 0,
         right: 0,
         zIndex: 100,
-        padding: "16px 40px",
+        padding: "16px clamp(18px, 4vw, 40px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -71,12 +86,7 @@ export default function MarketingTopNav({ currentPath = "/" }: { currentPath?: s
 
       <div className="marketing-nav-links" style={{ display: "flex", alignItems: "center", gap: "32px" }}>
         {NAV_LINKS.map((link) => {
-          const active =
-            link.href === "/about"
-              ? currentPath === "/about"
-              : link.href === "/blog"
-                ? currentPath === "/blog" || currentPath.startsWith("/blog/")
-                : currentPath === "/";
+          const active = isActive(link.href);
           return (
             <Link
               key={link.key}
@@ -132,6 +142,109 @@ export default function MarketingTopNav({ currentPath = "/" }: { currentPath?: s
         >
           {t("marketingNav.getStarted")}
         </Link>
+      </div>
+
+      <button
+        type="button"
+        className="marketing-nav-mobile-toggle"
+        aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((prev) => !prev)}
+        style={{
+          display: "none",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "44px",
+          height: "44px",
+          borderRadius: "14px",
+          border: "1px solid var(--marketing-hero-nav-secondary-border)",
+          background: "var(--marketing-hero-nav-secondary-bg)",
+          color: "var(--marketing-hero-nav-secondary-text)",
+          cursor: "pointer",
+        }}
+      >
+        {menuOpen ? <X size={18} /> : <Menu size={18} />}
+      </button>
+
+      <div
+        className="marketing-nav-mobile-panel"
+        data-open={menuOpen ? "true" : "false"}
+        style={{
+          position: "absolute",
+          top: "calc(100% + 10px)",
+          left: "clamp(18px, 4vw, 40px)",
+          right: "clamp(18px, 4vw, 40px)",
+          display: menuOpen ? "grid" : "none",
+          gap: "12px",
+          padding: "14px",
+          borderRadius: "20px",
+          border: "1px solid color-mix(in srgb, var(--border-default) 82%, transparent)",
+          background: "color-mix(in srgb, var(--bg-surface) 96%, var(--accent-soft) 4%)",
+          boxShadow: "0 22px 48px rgba(5, 10, 24, 0.18)",
+        }}
+      >
+        <div style={{ display: "grid", gap: "4px" }}>
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={`mobile-${link.key}`}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              style={{
+                ...navLinkStyle(isActive(link.href)),
+                padding: "12px 14px",
+                borderRadius: "14px",
+                background: isActive(link.href) ? "color-mix(in srgb, var(--accent-soft) 24%, transparent)" : "transparent",
+              }}
+            >
+              {t(`marketingNav.${link.key}`)}
+            </Link>
+          ))}
+        </div>
+        <div className="marketing-nav-mobile-actions" style={{ display: "grid", gap: "10px" }}>
+          <Link
+            href="/login"
+            onClick={() => setMenuOpen(false)}
+            className="marketing-nav-btn marketing-nav-btn-secondary"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "44px",
+              padding: "0 18px",
+              borderRadius: "14px",
+              background: "var(--marketing-hero-nav-secondary-bg)",
+              border: "1px solid var(--marketing-hero-nav-secondary-border)",
+              color: "var(--marketing-hero-nav-secondary-text)",
+              fontSize: "14px",
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            {t("marketingNav.signIn")}
+          </Link>
+          <Link
+            href="/signup"
+            onClick={() => setMenuOpen(false)}
+            className="marketing-nav-btn marketing-nav-btn-primary"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "44px",
+              padding: "0 18px",
+              borderRadius: "14px",
+              background: "var(--marketing-hero-nav-primary-bg)",
+              border: "1px solid var(--marketing-hero-nav-primary-border)",
+              color: "var(--marketing-hero-nav-primary-text)",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
+              boxShadow: "var(--marketing-hero-nav-primary-shadow)",
+            }}
+          >
+            {t("marketingNav.getStarted")}
+          </Link>
+        </div>
       </div>
     </nav>
   );

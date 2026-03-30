@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="55749f71-d1e7-4577-a012-11e46ab382cd" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/backend/agents/base_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/agents/base_agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/agents/data_fetcher.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/agents/data_fetcher.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/agents/finance_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/agents/finance_agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/api/agents.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/api/agents.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/api/finance.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/api/finance.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/api/hr.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/api/hr.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/api/internal_chat.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/api/internal_chat.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/api/projects.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/api/projects.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/database/admin_crud.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/database/admin_crud.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/database/crud.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/database/crud.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/database/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/database/schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/database/schemas.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/backend/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/(marketing)/login/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/(marketing)/login/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/(marketing)/signup/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/(marketing)/signup/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/analytics/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/analytics/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/dashboard/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/dashboard/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/login/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/login/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/marketplace/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/marketplace/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/notifications/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/notifications/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/payments/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/payments/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/site-compliances/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/site-compliances/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/admin/subscriptions/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/admin/subscriptions/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/api/[...path]/route.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/api/[...path]/route.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app/globals.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app/globals.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/AIPanel.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/AIPanel.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/FinancePage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/FinancePage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/HRPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/HRPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/ProjectsPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/ProjectsPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/marketing/MarketingFooter.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/marketing/MarketingFooter.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/marketing/MarketingPageLayout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/marketing/MarketingPageLayout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/components/marketing/MarketingTopNav.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/components/marketing/MarketingTopNav.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/auth-fetch.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/auth-fetch.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "customColor": "",
+  "associatedIndex": 3
+}]]></component>
+  <component name="ProjectId" id="3BTYRJ4PkCSHrDPgvUyUHzJSmEz" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.lookFeel",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-WS-253.31033.133" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="55749f71-d1e7-4577-a012-11e46ab382cd" name="Changes" comment="" />
+      <created>1774514518627</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1774514518627</updated>
+      <workItem from="1774514519599" duration="6000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

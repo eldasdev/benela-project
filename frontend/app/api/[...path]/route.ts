@@ -155,12 +155,14 @@ async function forward(request: NextRequest, path: string[], method: ForwardMeth
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
   }
+  const isAgentRoute = path[0] === "agents";
+  const upstreamTimeoutMs = isAgentRoute ? 75_000 : 45_000;
   const init: RequestInit = {
     method,
     headers,
     redirect: "manual",
     cache: "no-store",
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(upstreamTimeoutMs),
   };
 
   if (!["GET", "HEAD"].includes(method)) {

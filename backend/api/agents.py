@@ -2,11 +2,13 @@ import base64
 import logging
 import os
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from io import BytesIO
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -22,7 +24,8 @@ from agents.data_fetcher import get_context_for_section
 from agents.finance_agent import FinanceAgent
 from core.config import settings
 from database import admin_crud
-from database.connection import get_db
+from database.connection import SessionLocal, get_db
+from integrations.onec.service import audit_onec_ai_query, resolve_company_account
 from sqlalchemy.orm import Session
 
 router = APIRouter()
@@ -37,6 +40,10 @@ MAX_AUDIO_FILE_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe").strip() or "gpt-4o-mini-transcribe"
 AGENT_PROVIDER_FAILOVER_ENABLED = os.getenv("AGENT_PROVIDER_FAILOVER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AGENT_CONTEXT_TIMEOUT_SECONDS = max(1.0, float(os.getenv("AGENT_CONTEXT_TIMEOUT_SECONDS", "6")))
+AI_TRAINER_CONTEXT_TIMEOUT_SECONDS = max(1.0, float(os.getenv("AI_TRAINER_CONTEXT_TIMEOUT_SECONDS", "4")))
+AI_TRAINER_RUNTIME_CONTEXT_MAX_CHARS = max(2000, int(os.getenv("AI_TRAINER_RUNTIME_CONTEXT_MAX_CHARS", "12000")))
+AI_PROVIDER_TIMEOUT_SECONDS = max(3.0, float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "15")))
+AI_ROUTE_TIMEOUT_SECONDS = max(8.0, float(os.getenv("AI_ROUTE_TIMEOUT_SECONDS", "35")))
 
 
 class AgentAttachment(BaseModel):
@@ -52,6 +59,7 @@ class TaskRequest(BaseModel):
     message: str
     model: str | None = None
     provider: str | None = None
+    data_source: Literal["benela", "onec_combined"] | None = None
     attachments: list[AgentAttachment] = Field(default_factory=list)
 
 
@@ -76,6 +84,19 @@ def _probe_https_host(host: str, timeout_seconds: float = 2.5) -> tuple[bool, st
 def get_agent(section: str) -> BaseAgent:
     if section == "finance":
         return FinanceAgent()
+    if section == "hr":
+        return BaseAgent(
+            name="HR Agent",
+            system_prompt=(
+                "You are an expert AI assistant for the HR module of Benela AI. "
+                "You have access to real employee, attendance, leave, and payroll data. "
+                "Answer using employee names, not IDs. "
+                "Format times as HH:MM and dates as DD.MM.YYYY. "
+                "Format currency as UZS with spaces as thousand separators. "
+                "Explain payroll calculations clearly and flag late, absent, leave, overtime, and payroll approval issues when relevant. "
+                "Never use markdown. Plain text only."
+            ),
+        )
 
     section_label = section.replace("_", " ").title()
     return BaseAgent(
@@ -123,21 +144,24 @@ def _infer_provider_from_model(model: str | None) -> str | None:
     return None
 
 
-def _safe_get_section_context(section: str) -> str:
+def _safe_get_section_context(section: str, company_id: int | None = None, include_onec: bool = True) -> str:
     """Protect agent requests from slow/stuck DB context fetches."""
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(get_context_for_section, section)
-        try:
-            return future.result(timeout=AGENT_CONTEXT_TIMEOUT_SECONDS)
-        except FutureTimeoutError:
-            logger.warning("Context fetch timed out for section=%s after %.1fs", section, AGENT_CONTEXT_TIMEOUT_SECONDS)
-            return (
-                "Note: Live context fetch timed out. "
-                "Provide a concise answer based on available message and attachments."
-            )
-        except Exception as exc:
-            logger.warning("Context fetch failed for section=%s: %s", section, str(exc))
-            return f"Note: Live context fetch failed ({str(exc)}). Provide a concise fallback answer."
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-context")
+    future = executor.submit(get_context_for_section, section, company_id, include_onec)
+    try:
+        return future.result(timeout=AGENT_CONTEXT_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        logger.warning("Context fetch timed out for section=%s after %.1fs", section, AGENT_CONTEXT_TIMEOUT_SECONDS)
+        future.cancel()
+        return (
+            "Note: Live context fetch timed out. "
+            "Provide a concise answer based on available message and attachments."
+        )
+    except Exception as exc:
+        logger.warning("Context fetch failed for section=%s: %s", section, str(exc))
+        return f"Note: Live context fetch failed ({str(exc)}). Provide a concise fallback answer."
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _alternate_provider(provider: str) -> str | None:
@@ -145,6 +169,69 @@ def _alternate_provider(provider: str) -> str | None:
     if _provider_is_configured(alt):
         return alt
     return None
+
+
+def _load_training_context(
+    section: str,
+    query: str,
+    max_context_chars: int,
+    max_chunks: int = 8,
+) -> str:
+    db = SessionLocal()
+    try:
+        return admin_crud.get_ai_trainer_training_context(
+            db=db,
+            section=section,
+            query=query,
+            max_context_chars=max_context_chars,
+            max_chunks=max_chunks,
+        )
+    finally:
+        db.close()
+
+
+def _safe_get_training_context(
+    section: str,
+    query: str,
+    max_context_chars: int,
+    max_chunks: int = 8,
+) -> str:
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-trainer")
+    future = executor.submit(_load_training_context, section, query, max_context_chars, max_chunks)
+    try:
+        return future.result(timeout=AI_TRAINER_CONTEXT_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        logger.warning(
+            "Trainer context fetch timed out for section=%s after %.1fs",
+            section,
+            AI_TRAINER_CONTEXT_TIMEOUT_SECONDS,
+        )
+        future.cancel()
+        return ""
+    except Exception as exc:
+        logger.warning("Trainer context fetch failed for section=%s: %s", section, str(exc))
+        return ""
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _same_provider_fast_fallback_model(provider: str, model: str | None) -> str | None:
+    normalized = (model or "").strip().lower()
+    if provider == "openai":
+        if normalized == "gpt-4.1":
+            return "gpt-4.1-mini"
+        if normalized == "gpt-4o":
+            return "gpt-4o-mini"
+        return None
+    if provider == "anthropic":
+        if normalized in {"claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805"}:
+            return "claude-haiku-4-5-20251001"
+    return None
+
+
+def _remaining_agent_budget(started_at: float) -> float:
+    elapsed = time.monotonic() - started_at
+    return max(0.0, AI_ROUTE_TIMEOUT_SECONDS - elapsed)
 
 
 def _get_openai_client() -> OpenAI:
@@ -316,8 +403,9 @@ def agents_health():
             },
         },
         "timeouts": {
-            "provider_timeout_seconds": float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "20")),
+            "provider_timeout_seconds": AI_PROVIDER_TIMEOUT_SECONDS,
             "context_timeout_seconds": AGENT_CONTEXT_TIMEOUT_SECONDS,
+            "route_timeout_seconds": AI_ROUTE_TIMEOUT_SECONDS,
         },
         "advice": (
             "At least one provider must be configured and reachable. "
@@ -385,24 +473,39 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 @router.post("/{section}", response_model=TaskResponse)
-def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db)):
+def run_agent(section: str, payload: TaskRequest, http_request: Request, db: Session = Depends(get_db)):
     """Send a message to the AI agent with real data context."""
 
-    if not request.message.strip():
+    if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    request_started_at = time.monotonic()
 
     try:
         # 1) Pick the right agent
         agent = get_agent(section)
 
+        company_id: int | None = None
+        onec_audit_user_id: str | None = None
+        if section in {"finance", "dashboard"}:
+            try:
+                account = resolve_company_account(http_request, db)
+                company_id = account.client_org_id
+                onec_audit_user_id = account.user_id
+            except Exception:
+                company_id = None
+
+        include_onec = payload.data_source != "benela"
+
         # 2) Pull live context for this section
-        context = _safe_get_section_context(section)
-        requested_provider = (request.provider or "").strip().lower()
+        context = _safe_get_section_context(section, company_id=company_id, include_onec=include_onec)
+        requested_provider = (payload.provider or "").strip().lower()
+        explicit_user_selection = bool((payload.provider or "").strip()) or bool((payload.model or "").strip())
         if requested_provider in {"anthropic", "openai"}:
             runtime_provider = requested_provider
         else:
-            runtime_provider = _infer_provider_from_model(request.model) or _pick_first_available_provider("anthropic")
-        runtime_model = request.model
+            runtime_provider = _infer_provider_from_model(payload.model) or _pick_first_available_provider("anthropic")
+        runtime_model = payload.model
         runtime_temperature: float | None = None
         runtime_instructions = ""
 
@@ -420,17 +523,19 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
                 model_hint = (runtime_model or "").strip().lower()
                 runtime_provider = "openai" if model_hint.startswith("gpt-") else "anthropic"
 
-            trained_context = admin_crud.get_ai_trainer_training_context(
-                db=db,
+            trained_context = _safe_get_training_context(
                 section=section,
-                query=request.message,
-                max_context_chars=int(trainer_profile.max_context_chars or 12000),
+                query=payload.message,
+                max_context_chars=min(
+                    int(trainer_profile.max_context_chars or 12000),
+                    AI_TRAINER_RUNTIME_CONTEXT_MAX_CHARS,
+                ),
                 max_chunks=8,
             )
             if trained_context:
                 context = f"{context}\n\n{trained_context}".strip()
 
-        attachment_context, multimodal_blocks = _build_attachment_context(request.attachments)
+        attachment_context, multimodal_blocks = _build_attachment_context(payload.attachments)
         if attachment_context:
             context = f"{context}\n\n{attachment_context}"
 
@@ -438,7 +543,11 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
         providers_to_try: list[str] = []
         if _provider_is_configured(runtime_provider):
             providers_to_try.append(runtime_provider)
-        fallback_provider = _alternate_provider(runtime_provider) if AGENT_PROVIDER_FAILOVER_ENABLED else None
+        fallback_provider = (
+            _alternate_provider(runtime_provider)
+            if AGENT_PROVIDER_FAILOVER_ENABLED and not explicit_user_selection
+            else None
+        )
         if fallback_provider and fallback_provider not in providers_to_try:
             providers_to_try.append(fallback_provider)
         if not providers_to_try:
@@ -457,15 +566,21 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
         response: str | None = None
         last_error: Exception | None = None
         for provider_name in providers_to_try:
+            remaining_budget = _remaining_agent_budget(request_started_at)
+            if remaining_budget <= 2.0:
+                last_error = TimeoutError("AI request timed out before provider execution could complete.")
+                break
+            provider_timeout = min(AI_PROVIDER_TIMEOUT_SECONDS, max(3.0, remaining_budget - 1.0))
             try:
                 response = agent.run(
-                    request.message,
+                    payload.message,
                     context=context,
                     model=runtime_model,
                     provider=provider_name,
                     temperature=runtime_temperature,
                     extra_system_instructions=runtime_instructions,
                     user_blocks=multimodal_blocks,
+                    timeout_seconds=provider_timeout,
                 )
                 if provider_name != runtime_provider:
                     logger.warning(
@@ -477,11 +592,41 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
                 break
             except Exception as exc:
                 last_error = exc
+                fallback_model = None
+                error_text = str(exc).lower()
+                if "timeout" in error_text or "timed out" in error_text:
+                    fallback_model = _same_provider_fast_fallback_model(provider_name, runtime_model)
+                if fallback_model:
+                    fallback_remaining = _remaining_agent_budget(request_started_at)
+                    if fallback_remaining > 3.0:
+                        fallback_timeout = min(max(3.0, fallback_remaining - 1.0), max(4.0, provider_timeout - 2.0))
+                        try:
+                            response = agent.run(
+                                payload.message,
+                                context=context,
+                                model=fallback_model,
+                                provider=provider_name,
+                                temperature=runtime_temperature,
+                                extra_system_instructions=runtime_instructions,
+                                user_blocks=multimodal_blocks,
+                                timeout_seconds=fallback_timeout,
+                            )
+                            logger.warning(
+                                "AI same-provider model fallback used for section=%s provider=%s primary_model=%s fallback_model=%s",
+                                section,
+                                provider_name,
+                                runtime_model,
+                                fallback_model,
+                            )
+                            break
+                        except Exception as fallback_exc:
+                            last_error = fallback_exc
                 logger.warning(
-                    "AI provider call failed for section=%s provider=%s error=%s",
+                    "AI provider call failed for section=%s provider=%s timeout=%.1fs error=%s",
                     section,
                     provider_name,
-                    str(exc),
+                    provider_timeout,
+                    str(last_error),
                 )
                 continue
 
@@ -490,15 +635,41 @@ def run_agent(section: str, request: TaskRequest, db: Session = Depends(get_db))
                 raise last_error
             raise RuntimeError("No AI response produced.")
 
+        if include_onec and company_id is not None:
+            audit_onec_ai_query(
+                company_id=company_id,
+                user_id=onec_audit_user_id,
+                section=section,
+                prompt=payload.message,
+                success=True,
+            )
+
         return TaskResponse(
             agent=agent.name,
-            message=request.message,
+            message=payload.message,
             response=response,
         )
 
     except HTTPException:
+        if "include_onec" in locals() and include_onec and "company_id" in locals() and company_id is not None:
+            audit_onec_ai_query(
+                company_id=company_id,
+                user_id=locals().get("onec_audit_user_id"),
+                section=section,
+                prompt=payload.message,
+                success=False,
+            )
         raise
     except Exception as e:
+        if "include_onec" in locals() and include_onec and "company_id" in locals() and company_id is not None:
+            audit_onec_ai_query(
+                company_id=company_id,
+                user_id=locals().get("onec_audit_user_id"),
+                section=section,
+                prompt=payload.message,
+                success=False,
+                error_message=str(e),
+            )
         error_msg = str(e)
         lower_error = error_msg.lower()
 

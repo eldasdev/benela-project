@@ -351,7 +351,7 @@ export default function AdminSiteCompliancesPage() {
 
             <div className="admin-ui-surface" style={{ padding: "14px", display: "grid", gap: "10px" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Workspace context</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px", fontSize: "13px", color: "var(--text-primary)" }}>
+              <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px", fontSize: "13px", color: "var(--text-primary)" }}>
                 <div><strong>Company:</strong> {selectedRow.business_name}</div>
                 <div><strong>Workspace:</strong> {selectedRow.workspace_id || "No linked workspace"}</div>
                 <div><strong>Owner:</strong> {selectedRow.owner_name || "Unassigned"}</div>
@@ -383,7 +383,7 @@ export default function AdminSiteCompliancesPage() {
               </div>
               <input value={reply.title} onChange={(event) => setReply((prev) => ({ ...prev, title: event.target.value }))} placeholder="Reply title" style={adminInputStyle()} />
               <textarea value={reply.message} onChange={(event) => setReply((prev) => ({ ...prev, message: event.target.value }))} placeholder="Write the response that the client will receive in their notifications center." style={adminInputStyle({ minHeight: "120px", padding: "12px 14px", resize: "vertical" })} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <select value={reply.type} onChange={(event) => setReply((prev) => ({ ...prev, type: event.target.value as NotificationType }))} style={adminInputStyle()}>
                   <option value="info">Info</option>
                   <option value="success">Success</option>

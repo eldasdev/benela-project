@@ -157,25 +157,40 @@ export default function AdminAnalyticsPage() {
         <AdminMetricCard label="Active client rate" value={`${metrics.activeRate}%`} detail={`${summary?.active_clients || 0} of ${summary?.total_clients || 0} active`} tone="success" />
       </AdminMetricGrid>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-triple admin-responsive-triple-analytics-top" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Revenue trend" description="Shared-baseline monthly revenue trend for the selected analytics window.">
           <AdminChartSurface style={{ display: "grid", gap: "16px", minHeight: "320px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(revenueWindow.length, 1)}, minmax(0, 1fr))`, gap: "10px", alignItems: "end" }}>
-              {revenueWindow.map((point) => {
+            <div className="admin-mobile-slider-shell">
+              <div className="admin-revenue-slider-track" style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(revenueWindow.length, 1)}, minmax(0, 1fr))`, gap: "10px", alignItems: "end" }}>
+              {revenueWindow.map((point, index) => {
                 const label = splitMonthLabel(point.month);
+                const previousLabel = index > 0 ? splitMonthLabel(revenueWindow[index - 1].month) : null;
+                const showYear = index === revenueWindow.length - 1 || !previousLabel || previousLabel.year !== label.year;
                 return (
-                  <div key={point.month} style={{ display: "grid", gridTemplateRows: "auto 168px 40px", gap: "8px", alignItems: "end" }}>
-                    <span style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center" }}>{formatCompactMoney(point.revenue)}</span>
-                    <div style={{ height: "100%", display: "flex", alignItems: "end", justifyContent: "center", borderBottom: "1px solid color-mix(in srgb, var(--border-default) 68%, transparent)" }}>
-                      <div style={{ width: "min(32px, 80%)", height: `${Math.max(6, (point.revenue / revenueMax) * 156)}px`, borderRadius: "12px 12px 4px 4px", background: "linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #fff 18%), color-mix(in srgb, var(--accent-2) 76%, var(--accent) 24%))", boxShadow: "0 16px 26px color-mix(in srgb, var(--accent) 26%, transparent)" }} />
+                  <div
+                    key={point.month}
+                    className="admin-revenue-slider-item"
+                    data-highlight={index === revenueWindow.length - 1 ? "true" : "false"}
+                    style={{ display: "grid", gridTemplateRows: "auto 168px 40px", gap: "8px", alignItems: "end" }}
+                  >
+                    <span
+                      className="admin-revenue-slider-value"
+                      data-zero={point.revenue <= 0 ? "true" : "false"}
+                      style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center" }}
+                    >
+                      {formatCompactMoney(point.revenue)}
+                    </span>
+                    <div className="admin-revenue-slider-bar-area" style={{ height: "100%", display: "flex", alignItems: "end", justifyContent: "center", borderBottom: "1px solid color-mix(in srgb, var(--border-default) 68%, transparent)" }}>
+                      <div className="admin-revenue-slider-bar" style={{ width: "min(32px, 80%)", height: `${Math.max(6, (point.revenue / revenueMax) * 156)}px`, borderRadius: "12px 12px 4px 4px", background: "linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #fff 18%), color-mix(in srgb, var(--accent-2) 76%, var(--accent) 24%))", boxShadow: "0 16px 26px color-mix(in srgb, var(--accent) 26%, transparent)" }} />
                     </div>
-                    <div style={{ textAlign: "center", fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.35 }}>
-                      <div>{label.month}</div>
-                      <div>{label.year}</div>
+                    <div className="admin-revenue-slider-label" style={{ textAlign: "center", fontSize: "11px", color: "var(--text-subtle)", lineHeight: 1.35 }}>
+                      <div className="admin-revenue-slider-month">{label.month}</div>
+                      {showYear ? <div className="admin-revenue-slider-year">{label.year}</div> : null}
                     </div>
                   </div>
                 );
               })}
+              </div>
             </div>
           </AdminChartSurface>
         </AdminSectionCard>
@@ -209,7 +224,7 @@ export default function AdminAnalyticsPage() {
         </AdminSectionCard>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.9fr 0.9fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-triple admin-responsive-triple-analytics-bottom" style={{ display: "grid", gridTemplateColumns: "1.2fr 0.9fr 0.9fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Plan mix" description="Current workspace distribution across active plan tiers.">
           <div style={{ display: "grid", gap: "12px" }}>
             {planMix.map((item) => (

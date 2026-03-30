@@ -8,6 +8,7 @@ import Link from "next/link";
 import { getSupabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
+import { persistPendingAccessToken, waitForBrowserSession } from "@/lib/auth-fetch";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function LoginPage() {
@@ -29,6 +30,8 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
+    persistPendingAccessToken(data.session?.access_token);
+    const accessToken = data.session?.access_token || (await waitForBrowserSession(6000));
     const role = typeof data.user?.user_metadata?.role === "string" ? data.user.user_metadata.role : "";
     if (role === "admin" || role === "owner" || role === "super_admin") {
       router.push("/admin/dashboard");
@@ -38,15 +41,21 @@ export default function LoginPage() {
     try {
       const userId = data.user?.id;
       if (userId) {
-        const { summary, bootstrapped } = await ensureClientWorkspaceAccount(userId);
+        const { summary, bootstrapped } = await ensureClientWorkspaceAccount(userId, accessToken);
         if (bootstrapped || summary?.exists === false) {
           router.push("/settings?setup=business");
           setLoading(false);
           return;
         }
       }
-    } catch {
-      // non-blocking: dashboard can still load and retry profile sync
+    } catch (loginError: unknown) {
+      setError(
+        loginError instanceof Error && loginError.message.trim()
+          ? loginError.message
+          : "Could not initialize your client workspace. Please try again.",
+      );
+      setLoading(false);
+      return;
     }
     router.push("/dashboard");
     setLoading(false);

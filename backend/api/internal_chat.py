@@ -24,7 +24,10 @@ from agents.base_agent import BaseAgent
 from core.config import settings
 from core.auth import assert_request_user_matches
 from database import models, schemas
+from database.attendance_models import AttendanceRecord
 from database.connection import get_db
+from integrations.attendance.attendance_service import attendance_service
+from integrations.attendance.qr_engine import qr_token_engine
 
 router = APIRouter(prefix="/internal-chat", tags=["Internal Chat"])
 logger = logging.getLogger("uvicorn.error")
@@ -73,6 +76,8 @@ _telegram_pending_actions: dict[str, dict[str, Any]] = {}
 TELEGRAM_BTN_GET_UPDATES = "Get Updates"
 TELEGRAM_BTN_ADD_TASK = "Add New Task"
 TELEGRAM_BTN_UPCOMING_3H = "Upcoming Tasks (in the next 3 hours)"
+TELEGRAM_BTN_ATTENDANCE = "Attendance Link"
+TELEGRAM_BTN_ATTENDANCE_STATUS = "Attendance Status"
 _TELEGRAM_PENDING_TTL_MINUTES = int(os.getenv("TELEGRAM_PENDING_ACTION_TTL_MINUTES", "20"))
 
 ZOOM_ACCOUNT_ID = (os.getenv("ZOOM_ACCOUNT_ID", "") or "").strip()
@@ -410,15 +415,213 @@ def _telegram_answer_callback(token: str, callback_query_id: str, text: str):
 
 
 def _telegram_main_keyboard() -> dict:
+    keyboard = [
+        [{"text": TELEGRAM_BTN_GET_UPDATES}, {"text": TELEGRAM_BTN_UPCOMING_3H}],
+        [{"text": TELEGRAM_BTN_ADD_TASK}],
+    ]
+    if settings.ATTENDANCE_TELEGRAM_ENABLED:
+        keyboard.append([{"text": TELEGRAM_BTN_ATTENDANCE}, {"text": TELEGRAM_BTN_ATTENDANCE_STATUS}])
     return {
-        "keyboard": [
-            [{"text": TELEGRAM_BTN_GET_UPDATES}, {"text": TELEGRAM_BTN_UPCOMING_3H}],
-            [{"text": TELEGRAM_BTN_ADD_TASK}],
-        ],
+        "keyboard": keyboard,
         "resize_keyboard": True,
         "one_time_keyboard": False,
         "is_persistent": True,
     }
+
+
+def _attendance_help_text() -> str:
+    return (
+        "Benela attendance via Telegram\n"
+        "Link your employee account once:\n"
+        "/attendance_link your.work@email.com 1234\n\n"
+        "Then use:\n"
+        "/attendance - get today's secure attendance link\n"
+        "/attendance_status - see your attendance status for today\n"
+        "/attendance_unlink - remove this Telegram link"
+    )
+
+
+def _parse_attendance_link_command(text: str) -> tuple[str, str] | None:
+    match = re.match(r"^/(?:attendance_link|attendancelink)(?:@\w+)?\s+(\S+)\s+(\S+)\s*$", (text or "").strip(), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def _attendance_status_text(db: Session, employee: models.Employee) -> str:
+    today = attendance_service.local_now().date()
+    row = (
+        db.query(AttendanceRecord)
+        .filter(
+            AttendanceRecord.employee_id == employee.id,
+            AttendanceRecord.work_date == today,
+        )
+        .first()
+    )
+    if not row:
+        return (
+            f"Attendance status for {today.isoformat()}\n"
+            "No attendance has been recorded yet.\n"
+            "Use /attendance to open today's secure attendance link."
+        )
+
+    clock_in = attendance_service.format_local_hhmm(row.clock_in) or "—"
+    clock_out = attendance_service.format_local_hhmm(row.clock_out) or "—"
+    hours = f"{float(row.hours_worked or 0):.1f}h" if row.hours_worked is not None else "—"
+    return (
+        f"Attendance status for {today.isoformat()}\n"
+        f"Employee: {employee.full_name}\n"
+        f"Status: {str(row.status.value if hasattr(row.status, 'value') else row.status).replace('_', ' ')}\n"
+        f"Clock in: {clock_in}\n"
+        f"Clock out: {clock_out}\n"
+        f"Worked: {hours}"
+    )
+
+
+def _telegram_attendance_link_markup(url: str) -> dict:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Open Attendance", "url": url},
+            ]
+        ]
+    }
+
+
+def _current_attendance_link_for_employee(db: Session, employee: models.Employee) -> tuple[str, str, int]:
+    company_id = int(employee.company_id or 0)
+    if company_id <= 0:
+        raise HTTPException(status_code=400, detail="Employee is not attached to a company.")
+    location = attendance_service.default_location(db, company_id)
+    current_qr = qr_token_engine.get_or_generate_token(
+        db,
+        company_id=company_id,
+        location_id=location.id,
+        rotation_seconds=int(location.qr_rotation_seconds or 30),
+    )
+    attendance_access = qr_token_engine.generate_attendance_access_token(
+        employee_id=int(employee.id),
+        company_id=company_id,
+        location_id=location.id,
+        qr_token_hash=current_qr.token_hash,
+        expires_at=current_qr.expires_at,
+    )
+    joiner = "&" if "?" in current_qr.scan_url else "?"
+    return (
+        f"{current_qr.scan_url}{joiner}a={urllib_parse.quote(attendance_access.token, safe='')}",
+        location.name,
+        attendance_access.seconds_remaining,
+    )
+
+
+def _handle_telegram_attendance_message(
+    db: Session,
+    *,
+    token: str,
+    chat_id: str,
+    text: str,
+    username: str | None,
+    first_name: str | None,
+) -> bool:
+    if not settings.ATTENDANCE_TELEGRAM_ENABLED:
+        return False
+
+    normalized = (text or "").strip()
+    lowered = normalized.lower()
+
+    credentials = _parse_attendance_link_command(normalized)
+    if credentials:
+        email, pin = credentials
+        employee = attendance_service.find_employee_by_email_and_pin(db, email=email, pin=pin)
+        if not employee:
+            _telegram_send_message(
+                token=token,
+                chat_id=chat_id,
+                text="Could not link attendance access. Check your work email and employee PIN, then try again.",
+                reply_markup=_telegram_main_keyboard(),
+            )
+            return True
+        attendance_service.link_employee_telegram(
+            db,
+            employee=employee,
+            chat_id=chat_id,
+            username=username,
+            first_name=first_name,
+        )
+        _telegram_send_message(
+            token=token,
+            chat_id=chat_id,
+            text=(
+                f"Attendance linked for {employee.full_name}.\n"
+                "Use /attendance for today's secure attendance link."
+            ),
+            reply_markup=_telegram_main_keyboard(),
+        )
+        return True
+
+    if lowered in {"/attendance_help", "/attendancehelp"}:
+        _telegram_send_message(token=token, chat_id=chat_id, text=_attendance_help_text(), reply_markup=_telegram_main_keyboard())
+        return True
+
+    employee = attendance_service.find_employee_by_telegram_chat(db, chat_id)
+    if lowered in {"/attendance_unlink", "/unlinkattendance"}:
+        if not employee:
+            _telegram_send_message(
+                token=token,
+                chat_id=chat_id,
+                text="This Telegram chat is not currently linked to an employee attendance profile.",
+                reply_markup=_telegram_main_keyboard(),
+            )
+            return True
+        attendance_service.unlink_employee_telegram(db, employee)
+        _telegram_send_message(
+            token=token,
+            chat_id=chat_id,
+            text="Attendance link removed for this Telegram chat.",
+            reply_markup=_telegram_main_keyboard(),
+        )
+        return True
+
+    if lowered in {"/attendance", "attendance", TELEGRAM_BTN_ATTENDANCE.lower()}:
+        if not employee:
+            _telegram_send_message(token=token, chat_id=chat_id, text=_attendance_help_text(), reply_markup=_telegram_main_keyboard())
+            return True
+        try:
+            url, location_name, seconds_remaining = _current_attendance_link_for_employee(db, employee)
+        except Exception as exc:
+            logger.warning("Telegram attendance link generation failed for employee_id=%s: %s", employee.id, exc)
+            _telegram_send_message(
+                token=token,
+                chat_id=chat_id,
+                text="Could not generate the attendance link right now. Try again in a moment.",
+                reply_markup=_telegram_main_keyboard(),
+            )
+            return True
+        _telegram_send_message(
+            token=token,
+            chat_id=chat_id,
+            text=(
+                f"Today's attendance link for {employee.full_name}\n"
+                f"Location: {location_name}\n"
+                f"Expires in: {seconds_remaining}s"
+            ),
+            reply_markup=_telegram_attendance_link_markup(url),
+        )
+        return True
+
+    if lowered in {"/attendance_status", "/attendancestatus", "attendance status", TELEGRAM_BTN_ATTENDANCE_STATUS.lower()}:
+        if not employee:
+            _telegram_send_message(token=token, chat_id=chat_id, text=_attendance_help_text(), reply_markup=_telegram_main_keyboard())
+            return True
+        _telegram_send_message(
+            token=token,
+            chat_id=chat_id,
+            text=_attendance_status_text(db, employee),
+            reply_markup=_telegram_main_keyboard(),
+        )
+        return True
+
+    return False
 
 
 def _telegram_task_inline_keyboard(task_id: int) -> dict:
@@ -475,16 +678,26 @@ def _ensure_telegram_bot_commands(token: str):
     global _telegram_bot_commands_initialized
     if _telegram_bot_commands_initialized:
         return
+    commands = [
+        {"command": "start", "description": "Connect bot and show your chat ID"},
+        {"command": "updates", "description": "Get latest Judith updates"},
+        {"command": "addtask", "description": "Add a new Judith task"},
+        {"command": "upcoming", "description": "Tasks due in the next 3 hours"},
+    ]
+    if settings.ATTENDANCE_TELEGRAM_ENABLED:
+        commands.extend(
+            [
+                {"command": "attendance", "description": "Open today's attendance link"},
+                {"command": "attendance_status", "description": "Check today's attendance status"},
+                {"command": "attendance_link", "description": "Link employee email + PIN"},
+                {"command": "attendance_unlink", "description": "Remove attendance link"},
+            ]
+        )
     response = _telegram_api_post(
         token=token,
         method="setMyCommands",
         payload={
-            "commands": [
-                {"command": "start", "description": "Connect bot and show your chat ID"},
-                {"command": "updates", "description": "Get latest Judith updates"},
-                {"command": "addtask", "description": "Add a new Judith task"},
-                {"command": "upcoming", "description": "Tasks due in the next 3 hours"},
-            ]
+            "commands": commands
         },
     )
     if response.get("ok"):
@@ -1201,7 +1414,9 @@ def _handle_telegram_linked_text_message(
 
 def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) -> int | None:
     token = (settings.TELEGRAM_BOT_TOKEN or "").strip()
-    if not token or not settings.INTERNAL_CHAT_TELEGRAM_ENABLED or not settings.INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED:
+    telegram_updates_enabled = settings.INTERNAL_CHAT_TELEGRAM_UPDATES_ENABLED or settings.ATTENDANCE_TELEGRAM_ENABLED
+    telegram_features_enabled = settings.INTERNAL_CHAT_TELEGRAM_ENABLED or settings.ATTENDANCE_TELEGRAM_ENABLED
+    if not token or not telegram_features_enabled or not telegram_updates_enabled:
         return last_update_id
 
     deactivated = _deactivate_conflicting_telegram_links(db)
@@ -1295,7 +1510,11 @@ def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) ->
                     chat_id=chat_id,
                     text=(
                         "Judith is connected with your Benela workspace.\n"
-                        "Use buttons below to manage tasks quickly."
+                        + (
+                            "Use buttons below to manage tasks quickly.\n\n" + _attendance_help_text()
+                            if settings.ATTENDANCE_TELEGRAM_ENABLED
+                            else "Use buttons below to manage tasks quickly."
+                        )
                     ),
                     reply_markup=_telegram_main_keyboard(),
                 )
@@ -1309,9 +1528,23 @@ def process_telegram_bot_updates_job(db: Session, last_update_id: int | None) ->
                 _telegram_send_message(
                     token=token,
                     chat_id=chat_id,
-                    text=_build_telegram_start_instruction(chat_id),
+                    text=(
+                        f"{_build_telegram_start_instruction(chat_id)}\n\n{_attendance_help_text()}"
+                        if settings.ATTENDANCE_TELEGRAM_ENABLED
+                        else _build_telegram_start_instruction(chat_id)
+                    ),
                     reply_markup=_telegram_main_keyboard(),
                 )
+            continue
+
+        if _handle_telegram_attendance_message(
+            db=db,
+            token=token,
+            chat_id=chat_id,
+            text=text,
+            username=username,
+            first_name=first_name,
+        ):
             continue
 
         _handle_telegram_linked_text_message(

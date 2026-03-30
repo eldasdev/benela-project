@@ -167,7 +167,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+    <div className="marketing-signup-shell" style={{ minHeight: "100vh", background: "var(--bg-canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
       <div style={{ width: "100%", maxWidth: "560px", position: "relative" }}>
         <div style={{ textAlign: "center", marginBottom: "26px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
@@ -185,8 +185,8 @@ export default function SignupPage() {
           </p>
         </div>
 
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "24px" }}>
-          <form onSubmit={handleSignup} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+        <div className="marketing-signup-card" style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "20px", padding: "24px" }}>
+          <form className="marketing-signup-form" onSubmit={handleSignup} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "6px", display: "block" }}>{t("auth.signup.fullName")}</label>
               <input

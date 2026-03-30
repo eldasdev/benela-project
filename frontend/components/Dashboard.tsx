@@ -36,7 +36,7 @@ import MarketingPage from "./MarketingPage";
 import LegalPage from "./LegalPage";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { authFetch } from "@/lib/auth-fetch";
-import { getClientWorkspaceId } from "@/lib/client-settings";
+import { getClientWorkspaceId, hasClientWorkspaceId } from "@/lib/client-settings";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 
 const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
@@ -365,6 +365,13 @@ export default function Dashboard({
     activeSection === "dashboard" && !dashboardHasData && !dashboardError;
 
   const loadDashboard = useCallback(async () => {
+    if (!hasClientWorkspaceId()) {
+      setOverview(null);
+      setCommandCenter(null);
+      setDashboardError("Client workspace is not ready yet.");
+      setDashboardLoading(false);
+      return;
+    }
     setDashboardLoading(true);
     setDashboardError("");
     try {
@@ -407,6 +414,10 @@ export default function Dashboard({
   }, []);
 
   const loadUnreadNotifications = useCallback(async () => {
+    if (!hasClientWorkspaceId()) {
+      setUnreadCount(0);
+      return;
+    }
     try {
       const workspaceId = getClientWorkspaceId();
       const res = await authFetch(

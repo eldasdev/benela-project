@@ -698,7 +698,7 @@ export default function AdminSubscriptionsPage() {
         width={920}
       >
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-3" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Workspace account</span>
               <select value={form.account_id} onChange={(event) => setForm((prev) => ({ ...prev, account_id: event.target.value }))} style={adminInputStyle()}>
@@ -730,7 +730,7 @@ export default function AdminSubscriptionsPage() {
               </select>
             </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-4" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Monthly price</span>
               <input value={form.price_monthly} onChange={(event) => setForm((prev) => ({ ...prev, price_monthly: event.target.value }))} type="number" min="0" step="0.01" style={adminInputStyle()} />
@@ -751,7 +751,7 @@ export default function AdminSubscriptionsPage() {
               <input value={form.trial_ends_at} onChange={(event) => setForm((prev) => ({ ...prev, trial_ends_at: event.target.value }))} type="date" style={adminInputStyle()} />
             </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Current period start</span>
               <input value={form.current_period_start} onChange={(event) => setForm((prev) => ({ ...prev, current_period_start: event.target.value }))} type="date" style={adminInputStyle()} />
@@ -792,7 +792,7 @@ export default function AdminSubscriptionsPage() {
       >
         {planDraft ? (
           <div style={{ display: "grid", gap: "14px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Plan name</span>
                 <input value={planDraft.name} onChange={(event) => setPlanDraft((prev) => prev ? { ...prev, name: event.target.value } : prev)} style={adminInputStyle()} />
@@ -806,7 +806,7 @@ export default function AdminSubscriptionsPage() {
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Description</span>
               <textarea value={planDraft.description} onChange={(event) => setPlanDraft((prev) => prev ? { ...prev, description: event.target.value } : prev)} style={adminInputStyle({ minHeight: "86px", padding: "12px 14px", resize: "vertical" })} />
             </label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Monthly price</span>
                 <input type="number" min="0" step="0.01" value={planDraft.priceMonthly} onChange={(event) => setPlanDraft((prev) => prev ? { ...prev, priceMonthly: event.target.value } : prev)} style={adminInputStyle()} />

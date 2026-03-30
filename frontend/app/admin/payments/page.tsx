@@ -424,7 +424,7 @@ export default function AdminPaymentsPage() {
         <AdminMetricCard label="Collections focus" value={pendingRows.length + failedRows.length} detail="Pending + failed items needing action" tone="warning" />
       </AdminMetricGrid>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-split admin-responsive-split-wide" style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Payments ledger" description="Inspect live payment flow by workspace account, status, method, and billing context.">
           <AdminFilterBar>
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search company, workspace, owner, invoice, transaction..." style={adminInputStyle({ flex: 2, minWidth: "240px" })} />
@@ -601,7 +601,7 @@ export default function AdminPaymentsPage() {
         width={760}
       >
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-3" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Workspace account</span>
               <select value={paymentForm.account_id} onChange={(event) => setPaymentForm((prev) => ({ ...prev, account_id: event.target.value }))} style={adminInputStyle()}>
@@ -618,7 +618,7 @@ export default function AdminPaymentsPage() {
               <input value={paymentForm.currency} onChange={(event) => setPaymentForm((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))} style={adminInputStyle()} />
             </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Status</span>
               <select value={paymentForm.status} onChange={(event) => setPaymentForm((prev) => ({ ...prev, status: event.target.value as PaymentStatus }))} style={adminInputStyle()}>
@@ -640,7 +640,7 @@ export default function AdminPaymentsPage() {
             <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Description</span>
             <textarea value={paymentForm.description} onChange={(event) => setPaymentForm((prev) => ({ ...prev, description: event.target.value }))} style={adminInputStyle({ minHeight: "86px", padding: "12px 14px", resize: "vertical" })} />
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Invoice number</span>
               <input value={paymentForm.invoice_number} onChange={(event) => setPaymentForm((prev) => ({ ...prev, invoice_number: event.target.value }))} style={adminInputStyle()} />
@@ -671,7 +671,7 @@ export default function AdminPaymentsPage() {
         width={760}
       >
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Method name</span>
               <input value={methodForm.name} onChange={(event) => setMethodForm((prev) => ({ ...prev, name: event.target.value }))} style={adminInputStyle()} />
@@ -681,7 +681,7 @@ export default function AdminPaymentsPage() {
               <input value={methodForm.provider} onChange={(event) => setMethodForm((prev) => ({ ...prev, provider: event.target.value }))} style={adminInputStyle()} />
             </label>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+          <div className="admin-form-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
             <label style={{ display: "grid", gap: "6px" }}>
               <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Type</span>
               <select value={methodForm.method_type} onChange={(event) => setMethodForm((prev) => ({ ...prev, method_type: event.target.value as PaymentMethodType }))} style={adminInputStyle()}>
@@ -737,7 +737,7 @@ export default function AdminPaymentsPage() {
       >
         {selectedPayment ? (
           <div style={{ display: "grid", gap: "16px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="admin-form-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <div className="admin-ui-surface" style={{ padding: "14px" }}>
                 <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>Amount</div>
                 <div style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", marginTop: "6px" }}>{selectedPayment.currency} {Number(selectedPayment.amount).toLocaleString()}</div>

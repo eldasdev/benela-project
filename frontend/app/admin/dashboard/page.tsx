@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, ArrowUpRight, CreditCard, RefreshCcw, TrendingDown, TrendingUp } from "lucide-react";
 import { authFetch } from "@/lib/auth-fetch";
@@ -61,10 +62,12 @@ function accessTone(status: string): "accent" | "success" | "warning" | "danger"
 }
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [revenueChart, setRevenueChart] = useState<RevenuePoint[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [clients, setClients] = useState<AdminWorkspaceRow[]>([]);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const [summaryRes, revenueRes, activityRes, clientsRes] = await Promise.all([
@@ -74,11 +77,23 @@ export default function AdminDashboardPage() {
       authFetch(`${API}/admin/client-workspaces?limit=8`),
     ]);
 
+    if ([summaryRes, revenueRes, activityRes, clientsRes].some((response) => response.status === 401 || response.status === 403)) {
+      setError("Admin session is not available. Sign in again.");
+      router.replace("/admin/login");
+      return;
+    }
+
+    if (!summaryRes.ok || !revenueRes.ok || !activityRes.ok || !clientsRes.ok) {
+      setError("Could not load admin overview data.");
+    } else {
+      setError("");
+    }
+
     setSummary(summaryRes.ok ? ((await summaryRes.json()) as Summary) : null);
     setRevenueChart(revenueRes.ok ? ((await revenueRes.json()) as RevenuePoint[]) : []);
     setActivity(activityRes.ok ? ((await activityRes.json()) as ActivityItem[]) : []);
     setClients(clientsRes.ok ? ((await clientsRes.json()) as AdminWorkspaceRow[]) : []);
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -122,7 +137,13 @@ export default function AdminDashboardPage() {
         <AdminMetricCard label="Suspended" value={summary?.suspended || 0} detail={(summary?.suspended || 0) === 0 ? "All clear" : "Needs admin review"} tone={(summary?.suspended || 0) === 0 ? "success" : "danger"} />
       </AdminMetricGrid>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px", alignItems: "start" }}>
+      {error ? (
+        <div className="admin-ui-surface" style={{ padding: "14px 16px", borderColor: "color-mix(in srgb, var(--danger) 42%, transparent)", background: "color-mix(in srgb, var(--danger) 10%, var(--bg-surface) 90%)", color: "var(--danger)" }}>
+          {error}
+        </div>
+      ) : null}
+
+      <div className="admin-responsive-split admin-responsive-split-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Plan mix" description="Current workspace distribution by plan tier.">
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             {planMix.map(([plan, count]) => (
@@ -132,7 +153,7 @@ export default function AdminDashboardPage() {
         </AdminSectionCard>
 
         <AdminSectionCard title="Operational backlog" description="Signals that should get reviewed before they spill into retention or billing issues.">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "10px" }}>
+          <div className="admin-responsive-four-up" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "10px" }}>
             {[
               { label: "Setup pending", value: summary?.setup_pending_count || 0, tone: "accent" as const },
               { label: "Payment required", value: summary?.payment_required_count || 0, tone: "warning" as const },
@@ -149,25 +170,40 @@ export default function AdminDashboardPage() {
         </AdminSectionCard>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.45fr 1fr", gap: "18px", alignItems: "start" }}>
+      <div className="admin-responsive-split admin-responsive-split-wide" style={{ display: "grid", gridTemplateColumns: "1.45fr 1fr", gap: "18px", alignItems: "start" }}>
         <AdminSectionCard title="Monthly revenue" description="Recent revenue trend with shared-baseline columns so leadership can scan momentum quickly.">
           {revenueChart.length ? (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${revenueChart.length}, minmax(0, 1fr))`, gap: "10px", alignItems: "end" }}>
-              {revenueChart.map((point) => {
+            <div className="admin-mobile-slider-shell">
+              <div className="admin-revenue-slider-track" style={{ display: "grid", gridTemplateColumns: `repeat(${revenueChart.length}, minmax(0, 1fr))`, gap: "10px", alignItems: "end" }}>
+              {revenueChart.map((point, index) => {
                 const label = splitMonthLabel(point.month);
+                const previousLabel = index > 0 ? splitMonthLabel(revenueChart[index - 1].month) : null;
+                const showYear = index === revenueChart.length - 1 || !previousLabel || previousLabel.year !== label.year;
                 return (
-                  <div key={point.month} style={{ display: "grid", gridTemplateRows: "auto 168px 40px", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center" }}>{formatCompactMoney(point.revenue)}</span>
-                    <div style={{ display: "flex", alignItems: "end", justifyContent: "center", height: "168px", borderBottom: "1px solid color-mix(in srgb, var(--border-default) 72%, transparent)" }}>
-                      <div style={{ width: "min(32px, 80%)", height: `${Math.max(6, (point.revenue / maxRevenue) * 160)}px`, borderRadius: "12px 12px 4px 4px", background: "linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent-2) 72%, var(--accent) 28%))", boxShadow: "0 16px 28px color-mix(in srgb, var(--accent) 26%, transparent)" }} />
+                  <div
+                    key={point.month}
+                    className="admin-revenue-slider-item"
+                    data-highlight={index === revenueChart.length - 1 ? "true" : "false"}
+                    style={{ display: "grid", gridTemplateRows: "auto 168px 40px", gap: "8px" }}
+                  >
+                    <span
+                      className="admin-revenue-slider-value"
+                      data-zero={point.revenue <= 0 ? "true" : "false"}
+                      style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center" }}
+                    >
+                      {formatCompactMoney(point.revenue)}
+                    </span>
+                    <div className="admin-revenue-slider-bar-area" style={{ display: "flex", alignItems: "end", justifyContent: "center", height: "168px", borderBottom: "1px solid color-mix(in srgb, var(--border-default) 72%, transparent)" }}>
+                      <div className="admin-revenue-slider-bar" style={{ width: "min(32px, 80%)", height: `${Math.max(6, (point.revenue / maxRevenue) * 160)}px`, borderRadius: "12px 12px 4px 4px", background: "linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent-2) 72%, var(--accent) 28%))", boxShadow: "0 16px 28px color-mix(in srgb, var(--accent) 26%, transparent)" }} />
                     </div>
-                    <div style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center", lineHeight: 1.35 }}>
-                      <div>{label.month}</div>
-                      <div>{label.year}</div>
+                    <div className="admin-revenue-slider-label" style={{ fontSize: "11px", color: "var(--text-subtle)", textAlign: "center", lineHeight: 1.35 }}>
+                      <div className="admin-revenue-slider-month">{label.month}</div>
+                      {showYear ? <div className="admin-revenue-slider-year">{label.year}</div> : null}
                     </div>
                   </div>
                 );
               })}
+              </div>
             </div>
           ) : <AdminEmptyState title="No revenue data yet" description="Revenue points will appear here after the first paid billing cycle is recorded." />}
         </AdminSectionCard>

@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 import re
+from datetime import time as time_value
 
+import bcrypt
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_
 from database.models import (
@@ -1220,54 +1222,61 @@ def get_dashboard_command_center(db: Session, workspace_id: str = "default-works
 
 
 # ── Finance ───────────────────────────────────────────
-def get_transactions(db: Session, skip: int = 0, limit: int = 100):
-    return (
-        db.query(Transaction)
-        .order_by(Transaction.date.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+def get_transactions(db: Session, skip: int = 0, limit: int = 100, company_id: int | None = None):
+    query = db.query(Transaction)
+    if company_id is not None:
+        query = query.filter(Transaction.company_id == company_id)
+    return query.order_by(Transaction.date.desc()).offset(skip).limit(limit).all()
 
-def get_transaction(db: Session, id: int):
-    return db.query(Transaction).filter(Transaction.id == id).first()
+def get_transaction(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Transaction).filter(Transaction.id == id)
+    if company_id is not None:
+        query = query.filter(Transaction.company_id == company_id)
+    return query.first()
 
-def create_transaction(db: Session, data: schemas.TransactionCreate):
-    tx = Transaction(**data.model_dump())
+def create_transaction(db: Session, data: schemas.TransactionCreate, company_id: int | None = None):
+    tx = Transaction(**data.model_dump(), company_id=company_id)
     db.add(tx); db.commit(); db.refresh(tx)
     return tx
 
-def update_transaction(db: Session, id: int, data: schemas.TransactionUpdate):
-    tx = db.query(Transaction).filter(Transaction.id == id).first()
+def update_transaction(db: Session, id: int, data: schemas.TransactionUpdate, company_id: int | None = None):
+    query = db.query(Transaction).filter(Transaction.id == id)
+    if company_id is not None:
+        query = query.filter(Transaction.company_id == company_id)
+    tx = query.first()
     if not tx: return None
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(tx, k, v)
     db.commit(); db.refresh(tx)
     return tx
 
-def delete_transaction(db: Session, id: int):
-    tx = db.query(Transaction).filter(Transaction.id == id).first()
+def delete_transaction(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Transaction).filter(Transaction.id == id)
+    if company_id is not None:
+        query = query.filter(Transaction.company_id == company_id)
+    tx = query.first()
     if not tx: return False
     db.delete(tx); db.commit()
     return True
 
-def get_finance_summary(db: Session):
+def get_finance_summary(db: Session, company_id: int | None = None):
+    income_query = db.query(func.sum(Transaction.amount)).filter(Transaction.type == TransactionType.income)
+    expense_query = db.query(func.sum(Transaction.amount)).filter(Transaction.type == TransactionType.expense)
+    pending_query = db.query(func.count(Invoice.id)).filter(Invoice.status == "pending")
+    if company_id is not None:
+        income_query = income_query.filter(Transaction.company_id == company_id)
+        expense_query = expense_query.filter(Transaction.company_id == company_id)
+        pending_query = pending_query.filter(Invoice.company_id == company_id)
     income = (
-        db.query(func.sum(Transaction.amount))
-        .filter(Transaction.type == TransactionType.income)
-        .scalar()
+        income_query.scalar()
         or 0
     )
     expenses = (
-        db.query(func.sum(Transaction.amount))
-        .filter(Transaction.type == TransactionType.expense)
-        .scalar()
+        expense_query.scalar()
         or 0
     )
     pending = (
-        db.query(func.count(Invoice.id))
-        .filter(Invoice.status == "pending")
-        .scalar()
+        pending_query.scalar()
         or 0
     )
     return {
@@ -1277,74 +1286,130 @@ def get_finance_summary(db: Session):
         "pending_invoices": pending,
     }
 
-def get_invoices(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(Invoice).order_by(Invoice.issue_date.desc()).offset(skip).limit(limit).all()
+def get_invoices(db: Session, skip: int = 0, limit: int = 100, company_id: int | None = None):
+    query = db.query(Invoice)
+    if company_id is not None:
+        query = query.filter(Invoice.company_id == company_id)
+    return query.order_by(Invoice.issue_date.desc()).offset(skip).limit(limit).all()
 
-def get_invoice(db: Session, id: int):
-    return db.query(Invoice).filter(Invoice.id == id).first()
+def get_invoice(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Invoice).filter(Invoice.id == id)
+    if company_id is not None:
+        query = query.filter(Invoice.company_id == company_id)
+    return query.first()
 
-def create_invoice(db: Session, data: schemas.InvoiceCreate):
-    inv = Invoice(**data.model_dump())
+def create_invoice(db: Session, data: schemas.InvoiceCreate, company_id: int | None = None):
+    inv = Invoice(**data.model_dump(), company_id=company_id)
     db.add(inv); db.commit(); db.refresh(inv)
     return inv
 
-def update_invoice(db: Session, id: int, data: schemas.InvoiceUpdate):
-    inv = db.query(Invoice).filter(Invoice.id == id).first()
+def update_invoice(db: Session, id: int, data: schemas.InvoiceUpdate, company_id: int | None = None):
+    query = db.query(Invoice).filter(Invoice.id == id)
+    if company_id is not None:
+        query = query.filter(Invoice.company_id == company_id)
+    inv = query.first()
     if not inv: return None
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(inv, k, v)
     db.commit(); db.refresh(inv)
     return inv
 
-def delete_invoice(db: Session, id: int):
-    inv = db.query(Invoice).filter(Invoice.id == id).first()
+def delete_invoice(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Invoice).filter(Invoice.id == id)
+    if company_id is not None:
+        query = query.filter(Invoice.company_id == company_id)
+    inv = query.first()
     if not inv: return False
     db.delete(inv); db.commit()
     return True
 
 # ── HR ────────────────────────────────────────────────
-def get_employees(db: Session, skip: int = 0, limit: int = 100):
-    return (
-        db.query(Employee)
-        .order_by(Employee.full_name)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+def _hash_employee_pin(pin: str | None) -> str | None:
+    normalized = (pin or "").strip()
+    if not normalized:
+        return None
+    if normalized.startswith("$2"):
+        return normalized
+    return bcrypt.hashpw(normalized.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-def get_employee(db: Session, id: int):
-    return db.query(Employee).filter(Employee.id == id).first()
 
-def create_employee(db: Session, data: schemas.EmployeeCreate):
-    emp = Employee(**data.model_dump())
+def _normalize_work_days(days: list[int] | None) -> list[int]:
+    values = sorted({int(item) for item in (days or [1, 2, 3, 4, 5]) if 1 <= int(item) <= 7})
+    return values or [1, 2, 3, 4, 5]
+
+
+def get_employees(db: Session, skip: int = 0, limit: int = 100, company_id: int | None = None):
+    query = db.query(Employee)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    return query.order_by(Employee.full_name).offset(skip).limit(limit).all()
+
+
+def get_employee(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Employee).filter(Employee.id == id)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    return query.first()
+
+def create_employee(db: Session, data: schemas.EmployeeCreate, company_id: int | None = None):
+    payload = data.model_dump()
+    payload["company_id"] = company_id
+    payload["employee_pin"] = _hash_employee_pin(payload.get("employee_pin"))
+    payload["work_days"] = _normalize_work_days(payload.get("work_days"))
+    payload["shift_start"] = payload.get("shift_start") or time_value(9, 0)
+    payload["shift_end"] = payload.get("shift_end") or time_value(18, 0)
+    emp = Employee(**payload)
     db.add(emp); db.commit(); db.refresh(emp)
     return emp
 
-def update_employee(db: Session, id: int, data: schemas.EmployeeUpdate):
-    emp = db.query(Employee).filter(Employee.id == id).first()
+def update_employee(db: Session, id: int, data: schemas.EmployeeUpdate, company_id: int | None = None):
+    query = db.query(Employee).filter(Employee.id == id)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    emp = query.first()
     if not emp: return None
     for k, v in data.model_dump(exclude_unset=True).items():
+        if k == "employee_pin":
+            setattr(emp, k, _hash_employee_pin(v))
+            continue
+        if k == "work_days" and v is not None:
+            setattr(emp, k, _normalize_work_days(v))
+            continue
         setattr(emp, k, v)
+    if not emp.shift_start:
+        emp.shift_start = time_value(9, 0)
+    if not emp.shift_end:
+        emp.shift_end = time_value(18, 0)
+    if not emp.work_days:
+        emp.work_days = [1, 2, 3, 4, 5]
     db.commit(); db.refresh(emp)
     return emp
 
-def delete_employee(db: Session, id: int):
-    emp = db.query(Employee).filter(Employee.id == id).first()
+def delete_employee(db: Session, id: int, company_id: int | None = None):
+    query = db.query(Employee).filter(Employee.id == id)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    emp = query.first()
     if not emp: return False
     db.delete(emp); db.commit()
     return True
 
-def get_hr_summary(db: Session):
-    total = db.query(func.count(Employee.id)).scalar() or 0
+def get_hr_summary(db: Session, company_id: int | None = None):
+    employee_query = db.query(Employee)
+    if company_id is not None:
+        employee_query = employee_query.filter(Employee.company_id == company_id)
+    total = employee_query.with_entities(func.count(Employee.id)).scalar() or 0
     active = (
         db.query(func.count(Employee.id))
         .filter(Employee.status == "active")
+        .filter(Employee.company_id == company_id if company_id is not None else True)
         .scalar()
         or 0
     )
     on_leave = (
         db.query(func.count(Employee.id))
         .filter(Employee.status == "on_leave")
+        .filter(Employee.company_id == company_id if company_id is not None else True)
         .scalar()
         or 0
     )

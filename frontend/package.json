@@ -17,6 +17,8 @@
     "jspdf": "^4.2.0",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
+    "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-aria-components": "^1.15.1",

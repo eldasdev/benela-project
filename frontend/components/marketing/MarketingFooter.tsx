@@ -14,8 +14,9 @@ export default function MarketingFooter() {
   const { t } = useI18n();
 
   return (
-    <footer className="marketing-footer" style={{ padding: "0 40px 40px" }}>
+    <footer className="marketing-footer" style={{ padding: "0 clamp(18px, 4vw, 40px) 32px" }}>
       <div
+        className="marketing-footer-inner"
         style={{
           maxWidth: "1240px",
           margin: "0 auto",
@@ -51,7 +52,7 @@ export default function MarketingFooter() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+        <div className="marketing-footer-links" style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
           {FOOTER_LINKS.map((link) => (
             <Link
               key={link.key}
@@ -63,7 +64,7 @@ export default function MarketingFooter() {
           ))}
         </div>
 
-        <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>{t("landing.footerCopyright")}</span>
+        <span className="marketing-footer-meta" style={{ fontSize: "12px", color: "var(--text-quiet)" }}>{t("landing.footerCopyright")}</span>
       </div>
     </footer>
   );

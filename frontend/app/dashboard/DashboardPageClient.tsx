@@ -10,6 +10,7 @@ import AIPanel from "@/components/AIPanel";
 import { Section } from "@/types";
 import { isClientSection } from "@/lib/client-settings";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
+import { waitForBrowserSession } from "@/lib/auth-fetch";
 import { pathForSection } from "@/lib/section-routes";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
@@ -23,6 +24,7 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
   const [activeSection, setActiveSection] = useState<Section>(initialSection);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -55,13 +57,21 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
           return;
         }
         try {
-          const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id);
+          const accessToken = await waitForBrowserSession(6000);
+          const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id, accessToken);
           if (bootstrapped || summary?.exists === false) {
             router.replace("/settings?setup=business");
             return;
           }
-        } catch {
-          // Keep dashboard accessible even if account sync fails.
+          setBootstrapError("");
+        } catch (error: unknown) {
+          setBootstrapError(
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : "Could not verify your client workspace.",
+          );
+          setLoading(false);
+          return;
         }
         setLoading(false);
       });
@@ -103,6 +113,70 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
+
+  if (bootstrapError) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+          background: "var(--bg-canvas)",
+        }}
+      >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: "520px",
+            padding: "28px",
+            borderRadius: "24px",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            boxShadow: "0 24px 64px color-mix(in srgb, var(--brand-glow) 10%, transparent)",
+          }}
+        >
+          <h1 style={{ margin: "0 0 10px", fontSize: "28px", lineHeight: 1.05, color: "var(--text-primary)" }}>
+            Client Workspace Unavailable
+          </h1>
+          <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.7, color: "var(--text-subtle)" }}>{bootstrapError}</p>
+          <div style={{ display: "flex", gap: "12px", marginTop: "24px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                padding: "12px 16px",
+                borderRadius: "12px",
+                border: "1px solid var(--border-strong)",
+                background: "var(--bg-elevated)",
+                color: "var(--text-primary)",
+                font: "inherit",
+                cursor: "pointer",
+              }}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              style={{
+                padding: "12px 16px",
+                borderRadius: "12px",
+                border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)",
+                background: "color-mix(in srgb, var(--accent) 10%, var(--bg-panel))",
+                color: "var(--accent)",
+                font: "inherit",
+                cursor: "pointer",
+              }}
+            >
+              Return To Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

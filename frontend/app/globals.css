@@ -494,6 +494,15 @@ html[data-theme="emerald"] {
 .admin-route-shell .admin-page-shell {
   padding: clamp(14px, 2.4vw, 28px);
   animation: fadeUp 0.28s ease both;
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-page-shell > *,
+.admin-responsive-split > *,
+.admin-responsive-triple > *,
+.admin-responsive-four-up > * {
+  min-width: 0;
 }
 
 .admin-overview-kpis,
@@ -552,8 +561,6 @@ html[data-theme="emerald"] {
 .admin-ui-section-header,
 .admin-ui-toolbar,
 .admin-ui-filter-bar,
-.admin-ui-table-head,
-.admin-ui-table-row,
 .admin-ui-stat-strip,
 .admin-ui-modal-head,
 .admin-ui-confirm-row {
@@ -674,6 +681,7 @@ html[data-theme="emerald"] {
 
 .admin-ui-section {
   overflow: hidden;
+  min-width: 0;
 }
 
 .admin-ui-section-header {
@@ -698,6 +706,7 @@ html[data-theme="emerald"] {
 .admin-ui-section-content,
 .admin-ui-modal-body {
   padding: 18px 22px 22px;
+  min-width: 0;
 }
 
 .admin-ui-toolbar,
@@ -714,16 +723,26 @@ html[data-theme="emerald"] {
 .admin-ui-table {
   display: grid;
   gap: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent);
 }
 
 .admin-ui-table-head,
 .admin-ui-table-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: center;
   padding: 14px 16px;
   gap: 16px;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
 }
 
 .admin-ui-table-head {
@@ -960,6 +979,68 @@ html[data-theme="emerald"] {
   align-items: center;
 }
 
+.marketing-nav-mobile-toggle,
+.marketing-nav-mobile-panel {
+  display: none;
+}
+
+.marketing-signup-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.admin-responsive-split,
+.admin-responsive-triple,
+.admin-responsive-four-up,
+.admin-form-grid-2,
+.admin-form-grid-3,
+.admin-form-grid-4 {
+  width: 100%;
+}
+
+.admin-mobile-slider-shell {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-revenue-mobile-summary {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-revenue-mobile-summary-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.admin-revenue-mobile-summary-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+}
+
+.admin-revenue-mobile-summary-meta {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.admin-revenue-slider-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-revenue-slider-month,
+.admin-revenue-slider-year {
+  white-space: nowrap;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
@@ -1108,6 +1189,139 @@ html, body {
   .admin-client-detail-hero-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
+
+  .marketing-nav-links,
+  .marketing-nav-actions {
+    display: none !important;
+  }
+
+  .marketing-nav-mobile-toggle {
+    display: inline-flex !important;
+  }
+
+  .marketing-nav-mobile-panel[data-open="true"] {
+    display: grid !important;
+  }
+
+  .marketing-page-hero {
+    padding: 112px clamp(18px, 4vw, 28px) 48px !important;
+  }
+
+  .marketing-page-main {
+    padding: 42px clamp(18px, 4vw, 28px) 68px !important;
+  }
+
+  .marketing-signup-shell {
+    align-items: flex-start !important;
+    padding-top: 72px !important;
+    padding-bottom: 32px !important;
+  }
+
+  .marketing-signup-form,
+  .admin-form-grid-2,
+  .admin-form-grid-3,
+  .admin-form-grid-4,
+  .admin-responsive-split-2,
+  .admin-responsive-split-wide,
+  .admin-responsive-triple-analytics-top,
+  .admin-responsive-triple-analytics-bottom,
+  .admin-responsive-triple-marketplace {
+    grid-template-columns: 1fr !important;
+  }
+
+  .admin-responsive-four-up {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .admin-revenue-mobile-summary {
+    display: flex;
+  }
+
+  .admin-revenue-slider-track {
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(64px, 64px);
+    grid-template-columns: none !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 2px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 0;
+    scrollbar-width: none;
+    mask-image: linear-gradient(90deg, transparent 0, black 6px, black calc(100% - 10px), transparent 100%);
+  }
+
+  .admin-revenue-slider-track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-revenue-slider-item {
+    scroll-snap-align: start;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    gap: 6px !important;
+    grid-template-rows: auto 104px auto !important;
+  }
+
+  .admin-revenue-slider-item[data-highlight="true"] .admin-revenue-slider-bar {
+    box-shadow: 0 16px 30px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+
+  .admin-revenue-slider-value {
+    justify-self: center;
+    min-height: 0;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+    background: color-mix(in srgb, var(--accent-soft) 14%, transparent);
+    color: var(--text-primary) !important;
+    font-size: 10px !important;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .admin-revenue-slider-value[data-zero="true"] {
+    display: none;
+  }
+
+  .admin-revenue-slider-label {
+    text-align: center !important;
+    padding-bottom: 0;
+  }
+
+  .admin-revenue-slider-month {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .admin-revenue-slider-year {
+    font-size: 10px;
+    color: var(--text-subtle);
+  }
+
+  .admin-revenue-slider-bar-area {
+    height: 104px !important;
+  }
+
+  .admin-revenue-slider-bar {
+    width: min(24px, 72%) !important;
+    max-height: 88px !important;
+    border-radius: 10px 10px 4px 4px !important;
+  }
+
+  .marketing-footer-inner {
+    align-items: flex-start !important;
+    flex-direction: column !important;
+  }
+
+  .marketing-footer-links {
+    gap: 14px !important;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1146,6 +1360,92 @@ html, body {
 
   .admin-client-detail-hero-grid {
     grid-template-columns: 1fr !important;
+  }
+
+  .marketing-nav-shell {
+    padding: 12px 16px !important;
+  }
+
+  .marketing-nav-mobile-panel {
+    left: 12px !important;
+    right: 12px !important;
+    top: calc(100% + 8px) !important;
+  }
+
+  .marketing-nav-brand {
+    font-size: 15px !important;
+  }
+
+  .marketing-page-hero {
+    padding: 104px 16px 40px !important;
+  }
+
+  .marketing-page-main,
+  .marketing-footer {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .marketing-page-main {
+    padding-top: 34px !important;
+    padding-bottom: 56px !important;
+  }
+
+  .marketing-signup-card {
+    padding: 18px !important;
+    border-radius: 18px !important;
+  }
+
+  .admin-responsive-four-up {
+    grid-template-columns: 1fr !important;
+  }
+
+  .admin-mobile-slider-shell {
+    gap: 0 !important;
+  }
+
+  .admin-revenue-mobile-summary {
+    display: none !important;
+  }
+
+  .admin-revenue-slider-track {
+    grid-auto-columns: minmax(56px, 56px);
+    gap: 6px !important;
+    mask-image: none;
+  }
+
+  .admin-revenue-slider-item {
+    grid-template-rows: auto 84px auto !important;
+    gap: 5px !important;
+  }
+
+  .admin-revenue-slider-bar-area {
+    height: 84px !important;
+  }
+
+  .admin-revenue-slider-bar {
+    width: min(20px, 68%) !important;
+    max-height: 72px !important;
+    border-radius: 8px 8px 4px 4px !important;
+    box-shadow: 0 10px 18px color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  }
+
+  .admin-revenue-slider-value {
+    padding: 0 6px;
+    font-size: 10px !important;
+  }
+
+  .admin-revenue-slider-month {
+    font-size: 10px;
+  }
+
+  .admin-revenue-slider-year {
+    font-size: 9px;
+  }
+
+  .marketing-footer-links {
+    display: grid !important;
+    gap: 10px !important;
   }
 }
 

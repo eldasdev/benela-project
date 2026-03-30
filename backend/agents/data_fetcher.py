@@ -1,11 +1,21 @@
+from datetime import date
+
 from database.connection import SessionLocal
 from database import crud
+from database.onec_models import OneCImportJob, OneCRecord
+from integrations.attendance.attendance_service import attendance_service
 
 
 def _fmt_money(value) -> str:
     if value is None:
         return "N/A"
     return f"${float(value):,.2f}"
+
+
+def _fmt_uzs(value) -> str:
+    if value is None:
+        return "N/A"
+    return f"{float(value):,.0f} UZS"
 
 
 def _fmt_amount_range(min_value, max_value) -> str:
@@ -27,13 +37,13 @@ def _fmt_date(value) -> str:
         return str(value)
 
 
-def get_finance_context() -> str:
+def get_finance_context(company_id: int | None = None) -> str:
     """Fetch real finance data and format as text context for Claude."""
     db = SessionLocal()
     try:
-        summary = crud.get_finance_summary(db)
-        transactions = crud.get_transactions(db)
-        invoices = crud.get_invoices(db)
+        summary = crud.get_finance_summary(db, company_id=company_id)
+        transactions = crud.get_transactions(db, company_id=company_id)
+        invoices = crud.get_invoices(db, company_id=company_id)
 
         tx_lines = []
         for tx in transactions[:20]:
@@ -68,12 +78,139 @@ Recent Invoices (last 10):
         db.close()
 
 
-def get_hr_context() -> str:
+def get_onec_context(company_id: int) -> str:
+    db = SessionLocal()
+    try:
+        latest_job = (
+            db.query(OneCImportJob)
+            .filter(
+                OneCImportJob.company_id == company_id,
+                OneCImportJob.status == "completed",
+                OneCImportJob.source_hint != "ai_query",
+            )
+            .order_by(OneCImportJob.completed_at.desc().nullslast(), OneCImportJob.id.desc())
+            .first()
+        )
+        if not latest_job:
+            return ""
+
+        records = (
+            db.query(OneCRecord)
+            .filter(OneCRecord.company_id == company_id, OneCRecord.row_status.in_(["ready", "imported"]))
+            .order_by(OneCRecord.created_at.desc())
+            .limit(500)
+            .all()
+        )
+        if not records:
+            return ""
+
+        trial_balance = [record.normalized_data for record in records if record.record_type == "trial_balance"]
+        transactions = [record.normalized_data for record in records if record.record_type == "transaction"]
+        invoices = [record.normalized_data for record in records if record.record_type == "invoice"]
+        inventory = [record.normalized_data for record in records if record.record_type == "inventory_item"]
+        payroll = [record.normalized_data for record in records if record.record_type == "employee"]
+
+        cash_total = sum(float(item.get("closing_balance") or 0) for item in trial_balance if str(item.get("account") or "").startswith(("50", "51")))
+        receivables_total = sum(float(item.get("closing_balance") or 0) for item in trial_balance if str(item.get("account") or "").startswith("40"))
+        payables_total = sum(float(item.get("closing_balance") or 0) for item in trial_balance if str(item.get("account") or "").startswith("60"))
+        revenue_total = sum(float(item.get("amount") or 0) for item in invoices)
+        payroll_total = sum(float(item.get("net_pay") or item.get("salary") or 0) for item in payroll)
+        low_stock = sum(1 for item in inventory if float(item.get("closing_stock") or 0) <= 0)
+        counterparties = {}
+        for item in invoices:
+            name = item.get("client_name") or "Unknown"
+            counterparties[name] = counterparties.get(name, 0.0) + float(item.get("amount") or 0)
+        top_customer = max(counterparties.items(), key=lambda value: value[1]) if counterparties else None
+        top_customer_line = (
+            f"- Top customer: {top_customer[0]} — {_fmt_uzs(top_customer[1])}"
+            if top_customer
+            else "- Top customer: N/A"
+        )
+
+        return f"""
+1C INTEGRATION DATA (last synced: {_fmt_date(latest_job.completed_at)}):
+
+ACCOUNT BALANCES:
+- Cash and bank accounts: {_fmt_uzs(cash_total)}
+- Accounts receivable: {_fmt_uzs(receivables_total)}
+- Accounts payable: {_fmt_uzs(payables_total)}
+
+RECENT ACTIVITY:
+- Revenue from imported sales docs: {_fmt_uzs(revenue_total)} ({len(invoices)} invoices)
+{top_customer_line}
+- Imported transaction rows: {len(transactions)}
+
+INVENTORY:
+- Imported inventory rows: {len(inventory)}
+- Low stock alerts: {low_stock}
+
+PAYROLL:
+- Imported payroll rows: {len(payroll)}
+- Payroll disbursed: {_fmt_uzs(payroll_total)}
+""".strip()
+    finally:
+        db.close()
+
+
+def get_onec_anomalies(company_id: int) -> str:
+    db = SessionLocal()
+    try:
+        records = (
+            db.query(OneCRecord)
+            .filter(OneCRecord.company_id == company_id, OneCRecord.row_status.in_(["ready", "imported"]))
+            .order_by(OneCRecord.created_at.desc())
+            .limit(500)
+            .all()
+        )
+        findings: list[str] = []
+        for record in records:
+            data = record.normalized_data or {}
+            if record.record_type == "transaction":
+                amount = float(data.get("amount") or 0)
+                if amount and abs(amount) % 1000 == 0:
+                    findings.append("Round-number transactions were found in imported 1C movements.")
+                if not data.get("source_counterparty") and not data.get("counterparty"):
+                    findings.append("Some imported 1C transactions do not include counterparties.")
+            if record.record_type == "inventory_item" and float(data.get("closing_stock") or 0) < 0:
+                findings.append("Negative inventory balances exist in imported 1C stock snapshots.")
+        return "\n".join(dict.fromkeys(findings))
+    finally:
+        db.close()
+
+
+def get_onec_cashflow_forecast(company_id: int) -> str:
+    db = SessionLocal()
+    try:
+        records = (
+            db.query(OneCRecord)
+            .filter(OneCRecord.company_id == company_id, OneCRecord.record_type == "transaction", OneCRecord.row_status.in_(["ready", "imported"]))
+            .order_by(OneCRecord.created_at.desc())
+            .limit(180)
+            .all()
+        )
+        if not records:
+            return ""
+        inflow = [float(item.normalized_data.get("amount") or 0) for item in records if item.normalized_data.get("type") == "income"]
+        outflow = [float(item.normalized_data.get("amount") or 0) for item in records if item.normalized_data.get("type") == "expense"]
+        avg_inflow = sum(inflow) / max(len(inflow), 1)
+        avg_outflow = sum(outflow) / max(len(outflow), 1)
+        net = avg_inflow - avg_outflow
+        return (
+            f"1C CASH FLOW FORECAST:\n"
+            f"- Average inflow from imported 1C transactions: {_fmt_uzs(avg_inflow)}\n"
+            f"- Average outflow from imported 1C transactions: {_fmt_uzs(avg_outflow)}\n"
+            f"- Projected 30-day cash position change: {_fmt_uzs(net)}"
+        )
+    finally:
+        db.close()
+
+
+def get_hr_context(company_id: int | None = None) -> str:
     """Fetch real HR data and format as text context for Claude."""
     db = SessionLocal()
     try:
-        summary = crud.get_hr_summary(db)
-        employees = crud.get_employees(db)
+        summary = crud.get_hr_summary(db, company_id=company_id)
+        employees = crud.get_employees(db, company_id=company_id)
         positions = crud.get_positions(db)
 
         emp_lines = []
@@ -105,6 +242,48 @@ Employees:
 
 Open Positions:
 {chr(10).join(pos_lines) if pos_lines else "  No open positions."}
+""".strip()
+    finally:
+        db.close()
+
+
+def get_attendance_context(company_id: int | None = None) -> str:
+    if company_id is None:
+        return ""
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        today_stats = attendance_service.get_todays_presence(db, company_id)
+        monthly_stats = attendance_service.get_monthly_stats(db, company_id, today.month, today.year)
+
+        late_lines = [
+            f"  • {item.name}: +{item.late_minutes} min"
+            for item in today_stats.late_arrivals[:5]
+        ]
+        absent_count = len(today_stats.not_arrived)
+        leave_count = len(today_stats.on_leave)
+        return f"""
+ATTENDANCE DATA (as of {today.strftime('%d.%m.%Y')}):
+
+TODAY:
+- Employees in office: {today_stats.present_count}/{today_stats.expected_total}
+- Late arrivals: {len(today_stats.late_arrivals)} employees
+{chr(10).join(late_lines) if late_lines else "  • No late arrivals recorded"}
+- Absent (unexcused): {absent_count}
+- On approved leave: {leave_count}
+
+THIS MONTH:
+- Average attendance rate: {monthly_stats.avg_rate:.1f}%
+- Total overtime hours logged: {monthly_stats.total_overtime:.1f}h
+- Most late employee: {monthly_stats.most_late_employee} ({monthly_stats.most_late_count} times)
+- Perfect attendance so far: {monthly_stats.perfect_attendance_count} employees
+
+PAYROLL STATUS:
+- Working days this month: {monthly_stats.working_days_total}
+- Days remaining: {monthly_stats.working_days_remaining}
+- Estimated total payroll: {_fmt_uzs(monthly_stats.estimated_payroll_uzs)}
+- Last approved payroll: {monthly_stats.last_approved_month}
 """.strip()
     finally:
         db.close()
@@ -336,20 +515,58 @@ Clients:
         db.close()
 
 
-def get_dashboard_context() -> str:
+def get_dashboard_context(company_id: int | None = None, include_onec: bool = True) -> str:
     """Combine finance + HR + projects for a full dashboard overview."""
-    finance = get_finance_context()
-    hr = get_hr_context()
+    finance = get_finance_context(company_id=company_id)
+    if include_onec and company_id is not None:
+        extras = "\n\n".join(
+            part
+            for part in [
+                get_onec_context(company_id),
+                get_onec_anomalies(company_id),
+                get_onec_cashflow_forecast(company_id),
+            ]
+            if part
+        )
+        if extras:
+            finance = f"{finance}\n\n{extras}".strip()
+    hr = get_hr_context(company_id=company_id)
+    attendance = get_attendance_context(company_id=company_id)
     projects = get_projects_context()
-    return f"{finance}\n\n{hr}\n\n{projects}"
+    return "\n\n".join(part for part in [finance, hr, attendance, projects] if part).strip()
 
 
-def get_context_for_section(section: str) -> str:
+def get_context_for_section(section: str, company_id: int | None = None, include_onec: bool = True) -> str:
     """Main entry point - returns the right context for any section."""
+    if section == "dashboard":
+        try:
+            return get_dashboard_context(company_id=company_id, include_onec=include_onec)
+        except Exception as exc:
+            return f"Note: Could not fetch live data ({str(exc)}). Answering based on general knowledge."
+
+    if section == "finance":
+        try:
+            context = get_finance_context(company_id=company_id)
+            if include_onec and company_id is not None:
+                extras = "\n\n".join(
+                    part
+                    for part in [
+                        get_onec_context(company_id),
+                        get_onec_anomalies(company_id),
+                        get_onec_cashflow_forecast(company_id),
+                    ]
+                    if part
+                )
+                if extras:
+                    context = f"{context}\n\n{extras}".strip()
+            return context
+        except Exception as exc:
+            return f"Note: Could not fetch live data ({str(exc)}). Answering based on general knowledge."
+
     fetchers = {
-        "dashboard": get_dashboard_context,
-        "finance": get_finance_context,
-        "hr": get_hr_context,
+        "hr": lambda: "\n\n".join(
+            part for part in [get_hr_context(company_id=company_id), get_attendance_context(company_id=company_id)] if part
+        ).strip(),
         "projects": get_projects_context,
         "marketing": get_marketing_context,
         "legal": get_legal_context,

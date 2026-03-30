@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
+import { persistPendingAccessToken, waitForBrowserSession } from "@/lib/auth-fetch";
 import { Loader2, Lock, ShieldCheck, Sparkles } from "lucide-react";
 
 function isAdminRole(role: unknown): boolean {
@@ -44,9 +45,12 @@ export default function AdminLoginPage() {
       setLoading(false);
       return;
     }
+    persistPendingAccessToken(data.session?.access_token);
+    await waitForBrowserSession();
     const role = data.user?.user_metadata?.role;
     if (!isAdminRole(role)) {
       await getSupabase().auth.signOut();
+      persistPendingAccessToken(null);
       router.push("/login");
       setLoading(false);
       return;
