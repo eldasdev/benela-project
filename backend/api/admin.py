@@ -34,6 +34,7 @@ from api.client_account import (
     _recompute_onboarding_completion,
     _sync_client_org_and_subscription,
 )
+from integrations.posthog.service import get_admin_posthog_analytics
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -1546,6 +1547,11 @@ def analytics_growth(months: int = 12, db: Session = Depends(get_db)):
 @router.get("/analytics/churn")
 def analytics_churn(months: int = 12, db: Session = Depends(get_db)):
     return crud.get_analytics_churn(db, months)
+
+
+@router.get("/analytics/product", response_model=admin_schemas.AdminPosthogAnalyticsOut)
+def analytics_product(days: int = Query(default=30, ge=7, le=180)):
+    return get_admin_posthog_analytics(days)
 
 
 # ── Platform Settings ─────────────────────────────────

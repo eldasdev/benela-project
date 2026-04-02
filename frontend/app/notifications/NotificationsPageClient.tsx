@@ -17,6 +17,7 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { authFetch } from "@/lib/auth-fetch";
 import { getSupabase } from "@/lib/supabase";
+import { signOutAndRedirect } from "@/lib/auth-fetch";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
 import { pathForSection } from "@/lib/section-routes";
@@ -179,9 +180,8 @@ export default function NotificationsPage() {
   };
 
   const handleLogout = async () => {
-    await getSupabase().auth.signOut();
     setMobileSidebarOpen(false);
-    router.push("/login");
+    await signOutAndRedirect("/login");
   };
 
   if (!authed || loading) {

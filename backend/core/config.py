@@ -72,6 +72,19 @@ class Settings:
     ONEC_MAX_UPLOAD_MB: int = int(os.getenv("ONEC_MAX_UPLOAD_MB", "50"))
     ONEC_MAX_ROWS_PER_IMPORT: int = int(os.getenv("ONEC_MAX_ROWS_PER_IMPORT", "500000"))
     ONEC_SYNC_TIMEOUT_SECONDS: int = int(os.getenv("ONEC_SYNC_TIMEOUT_SECONDS", "120"))
+    POSTHOG_API_HOST: str = _env_first(
+        "POSTHOG_API_HOST",
+        "POSTHOG_HOST",
+        "NEXT_PUBLIC_POSTHOG_HOST",
+    )
+    POSTHOG_PROJECT_ID: str = _env_first(
+        "POSTHOG_PROJECT_ID",
+        "NEXT_PUBLIC_POSTHOG_PROJECT_ID",
+    )
+    POSTHOG_PERSONAL_API_KEY: str = _env_first(
+        "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_API_KEY",
+    )
     DB_CONNECT_TIMEOUT: int = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
 
 settings = Settings()

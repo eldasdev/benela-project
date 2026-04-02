@@ -8,6 +8,7 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { readClientSettings, saveClientSettings } from "@/lib/client-settings";
 import { upsertClientOnboarding, type PaidPlanTier } from "@/lib/client-account";
+import { captureProductEvent, identifyProductUser } from "@/lib/posthog";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function SignupPage() {
@@ -76,6 +77,18 @@ export default function SignupPage() {
 
       const userId = data.user?.id;
       if (userId) {
+        identifyProductUser({
+          userId,
+          role: "client",
+          userType: "client",
+        });
+        captureProductEvent("benela_auth_signup_success", {
+          auth_method: "password",
+          user_role: "client",
+          user_type: "client",
+          plan_tier: planTier,
+          has_session: Boolean(data.session?.access_token),
+        });
         const onboardingPayload = {
           user_id: userId,
           user_email: email.trim(),
@@ -89,6 +102,11 @@ export default function SignupPage() {
 
         if (data.session?.access_token) {
           const account = await upsertClientOnboarding(onboardingPayload, data.session.access_token);
+          captureProductEvent("benela_client_workspace_bootstrapped", {
+            source: "signup",
+            user_role: "client",
+            plan_tier: planTier,
+          });
 
           if (account.workspace_id) {
             const current = readClientSettings();

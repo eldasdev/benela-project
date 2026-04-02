@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Section } from "@/types";
 import { authFetch } from "@/lib/auth-fetch";
 import { fetchOneCOverview, type OneCOverview } from "@/lib/onec";
+import { captureProductEvent } from "@/lib/posthog";
 import { getSupabase } from "@/lib/supabase";
 import { getClientWorkspaceId } from "@/lib/client-settings";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -1785,6 +1786,23 @@ export default function AIPanel({ isOpen, section, onClose, onSectionChange }: P
     setAttachmentNotice("");
     setLoading(true);
     setPdfNotice("");
+    captureProductEvent("benela_ai_prompt_sent", {
+      section,
+      provider: selectedModel?.provider || "unknown",
+      model: selectedModelId,
+      data_source:
+        section === "finance" && hasOneCData
+          ? financeDataSource === "combined"
+            ? "1c_plus_benela"
+            : "benela_only"
+          : "benela_only",
+      has_attachments: attachmentsForSend.length > 0,
+      attachment_count: attachmentsForSend.length,
+      prompt_length_bucket:
+        effectiveMessage.length > 1200 ? "xl" : effectiveMessage.length > 500 ? "lg" : effectiveMessage.length > 160 ? "md" : "sm",
+      user_role: section === "dashboard" ? "client" : "client",
+      user_type: "client",
+    });
 
     try {
       const apiUrl = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");

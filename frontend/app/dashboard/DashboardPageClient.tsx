@@ -10,7 +10,8 @@ import AIPanel from "@/components/AIPanel";
 import { Section } from "@/types";
 import { isClientSection } from "@/lib/client-settings";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
-import { waitForBrowserSession } from "@/lib/auth-fetch";
+import { signOutAndRedirect, waitForBrowserSession } from "@/lib/auth-fetch";
+import { captureProductEvent } from "@/lib/posthog";
 import { pathForSection } from "@/lib/section-routes";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
@@ -43,6 +44,15 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
   }, [pathname, router]);
 
   useEffect(() => {
+    captureProductEvent("benela_module_view", {
+      section: activeSection,
+      user_role: "client",
+      user_type: "client",
+      page_area: "client",
+    });
+  }, [activeSection]);
+
+  useEffect(() => {
     getSupabase()
       .auth.getUser()
       .then(async ({ data }) => {
@@ -59,6 +69,12 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
         try {
           const accessToken = await waitForBrowserSession(6000);
           const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id, accessToken);
+          if (bootstrapped) {
+            captureProductEvent("benela_client_workspace_bootstrapped", {
+              source: "dashboard_bootstrap",
+              user_role: "client",
+            });
+          }
           if (bootstrapped || summary?.exists === false) {
             router.replace("/settings?setup=business");
             return;
@@ -84,9 +100,8 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
   };
 
   const handleLogout = async () => {
-    await getSupabase().auth.signOut();
     setMobileSidebarOpen(false);
-    router.push("/login");
+    await signOutAndRedirect("/login");
   };
 
   if (loading)
@@ -159,7 +174,7 @@ export default function DashboardPage({ initialSection = "dashboard" }: Dashboar
             </button>
             <button
               type="button"
-              onClick={() => router.push("/login")}
+              onClick={() => void signOutAndRedirect("/login")}
               style={{
                 padding: "12px 16px",
                 borderRadius: "12px",

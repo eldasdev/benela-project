@@ -5,7 +5,8 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
-import { persistPendingAccessToken, waitForBrowserSession } from "@/lib/auth-fetch";
+import { persistPendingAccessToken, signOutAndRedirect, waitForBrowserSession } from "@/lib/auth-fetch";
+import { captureProductEvent, identifyProductUser } from "@/lib/posthog";
 import { Loader2, Lock, ShieldCheck, Sparkles } from "lucide-react";
 
 function isAdminRole(role: unknown): boolean {
@@ -49,12 +50,23 @@ export default function AdminLoginPage() {
     await waitForBrowserSession();
     const role = data.user?.user_metadata?.role;
     if (!isAdminRole(role)) {
-      await getSupabase().auth.signOut();
       persistPendingAccessToken(null);
-      router.push("/login");
+      await signOutAndRedirect("/login");
       setLoading(false);
       return;
     }
+    if (data.user?.id) {
+      identifyProductUser({
+        userId: data.user.id,
+        role: typeof role === "string" ? role : "admin",
+        userType: "admin",
+      });
+    }
+    captureProductEvent("benela_auth_login_success", {
+      auth_method: "password",
+      user_role: typeof role === "string" ? role : "admin",
+      user_type: "admin",
+    });
     router.push("/admin/dashboard");
     setLoading(false);
   };

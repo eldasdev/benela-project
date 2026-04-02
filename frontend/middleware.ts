@@ -19,6 +19,10 @@ function isAdminPublicPath(pathname: string): boolean {
   return ADMIN_PUBLIC_PATHS.some((publicPath) => pathname === publicPath);
 }
 
+function isForcedReauth(url: URL): boolean {
+  return url.searchParams.get("reauth") === "1";
+}
+
 function isAdminRole(role: unknown): boolean {
   if (typeof role !== "string") return false;
   return ["admin", "owner", "super_admin"].includes(role);
@@ -68,6 +72,7 @@ async function getMaintenanceMode(): Promise<boolean> {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const forcedReauth = isForcedReauth(request.nextUrl);
   if (pathname === "/" && hasAuthCallbackParams(request.nextUrl)) {
     const nextUrl = new URL(AUTH_CALLBACK_PATH, request.url);
     nextUrl.search = request.nextUrl.search;
@@ -101,7 +106,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redirect logged-in users away from login/signup
-  if (user && (pathname === "/login" || pathname === "/signup")) {
+  if (!forcedReauth && user && (pathname === "/login" || pathname === "/signup")) {
     return applyNoStoreHeaders(
       NextResponse.redirect(new URL(adminUser ? "/admin/dashboard" : "/dashboard", request.url))
     );
@@ -111,7 +116,7 @@ export async function middleware(request: NextRequest) {
     return applyNoStoreHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
-  if (user && adminUser && isAdminPublicPath(pathname)) {
+  if (!forcedReauth && user && adminUser && isAdminPublicPath(pathname)) {
     return applyNoStoreHeaders(NextResponse.redirect(new URL("/admin/dashboard", request.url)));
   }
 

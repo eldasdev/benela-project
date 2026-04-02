@@ -1,6 +1,7 @@
 "use client";
 
 import { getSupabase } from "@/lib/supabase";
+import { clearClientSettings } from "@/lib/client-settings";
 
 const PENDING_ACCESS_TOKEN_KEY = "benela_pending_access_token";
 
@@ -10,7 +11,7 @@ function readPendingAccessToken(): string | null {
   return token && token.trim() ? token.trim() : null;
 }
 
-function clearPendingAccessToken() {
+export function clearPendingAccessToken() {
   if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(PENDING_ACCESS_TOKEN_KEY);
 }
@@ -92,4 +93,20 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit): P
   }
 
   return response;
+}
+
+export async function signOutAndRedirect(target = "/login"): Promise<void> {
+  try {
+    await getSupabase().auth.signOut();
+  } catch {
+    // Best-effort cleanup still needs to continue so the user can recover.
+  }
+
+  clearPendingAccessToken();
+  clearClientSettings();
+
+  if (typeof window === "undefined") return;
+  const redirectUrl = new URL(target, window.location.origin);
+  redirectUrl.searchParams.set("reauth", "1");
+  window.location.replace(redirectUrl.toString());
 }

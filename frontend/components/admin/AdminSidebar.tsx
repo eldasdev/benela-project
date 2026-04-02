@@ -19,9 +19,8 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-import { getSupabase } from "@/lib/supabase";
 import { useI18n } from "@/components/i18n/LanguageProvider";
-import { authFetch } from "@/lib/auth-fetch";
+import { authFetch, signOutAndRedirect } from "@/lib/auth-fetch";
 
 const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -65,8 +64,7 @@ export default function AdminSidebar({
   }, []);
 
   const handleLogout = async () => {
-    await getSupabase().auth.signOut();
-    window.location.href = "/admin/login";
+    await signOutAndRedirect("/admin/login");
   };
 
   const closeDrawer = () => {

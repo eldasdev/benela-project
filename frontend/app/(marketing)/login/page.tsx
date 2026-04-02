@@ -9,6 +9,7 @@ import { getSupabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
 import { persistPendingAccessToken, waitForBrowserSession } from "@/lib/auth-fetch";
+import { captureProductEvent, identifyProductUser } from "@/lib/posthog";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function LoginPage() {
@@ -33,6 +34,18 @@ export default function LoginPage() {
     persistPendingAccessToken(data.session?.access_token);
     const accessToken = data.session?.access_token || (await waitForBrowserSession(6000));
     const role = typeof data.user?.user_metadata?.role === "string" ? data.user.user_metadata.role : "";
+    if (data.user?.id) {
+      identifyProductUser({
+        userId: data.user.id,
+        role: role || "client",
+        userType: role === "admin" || role === "owner" || role === "super_admin" ? "admin" : "client",
+      });
+    }
+    captureProductEvent("benela_auth_login_success", {
+      auth_method: "password",
+      user_role: role || "client",
+      user_type: role === "admin" || role === "owner" || role === "super_admin" ? "admin" : "client",
+    });
     if (role === "admin" || role === "owner" || role === "super_admin") {
       router.push("/admin/dashboard");
       setLoading(false);
@@ -42,6 +55,12 @@ export default function LoginPage() {
       const userId = data.user?.id;
       if (userId) {
         const { summary, bootstrapped } = await ensureClientWorkspaceAccount(userId, accessToken);
+        if (bootstrapped) {
+          captureProductEvent("benela_client_workspace_bootstrapped", {
+            source: "password_login",
+            user_role: "client",
+          });
+        }
         if (bootstrapped || summary?.exists === false) {
           router.push("/settings?setup=business");
           setLoading(false);

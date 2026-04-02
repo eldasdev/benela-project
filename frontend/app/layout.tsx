@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import ChunkReloadGuard from "@/components/runtime/ChunkReloadGuard";
 import { LanguageProvider } from "@/components/i18n/LanguageProvider";
+import PostHogBridge from "@/components/analytics/PostHogBridge";
 
 export const metadata: Metadata = {
   title: "Benela AI — Enterprise ERP",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body>
         <ChunkReloadGuard />
+        <PostHogBridge />
         <LanguageProvider>
           <ThemeProvider>{children}</ThemeProvider>
         </LanguageProvider>

@@ -103,6 +103,11 @@ export function saveClientSettings(settings: ClientSettings): void {
   window.localStorage.setItem(CLIENT_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
 }
 
+export function clearClientSettings(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CLIENT_SETTINGS_STORAGE_KEY);
+}
+
 export function getClientWorkspaceId(): string {
   return readClientSettings().workspaceId;
 }

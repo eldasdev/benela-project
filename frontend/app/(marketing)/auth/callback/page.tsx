@@ -8,6 +8,7 @@ import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
 import { persistPendingAccessToken } from "@/lib/auth-fetch";
+import { captureProductEvent, identifyProductUser } from "@/lib/posthog";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 const OTP_TYPES: EmailOtpType[] = ["signup", "invite", "magiclink", "recovery", "email_change", "email"];
@@ -108,6 +109,16 @@ export default function AuthCallbackPage() {
         persistPendingAccessToken(session?.access_token);
 
         const role = typeof user.user_metadata?.role === "string" ? user.user_metadata.role : "";
+        identifyProductUser({
+          userId: user.id,
+          role: role || "client",
+          userType: role === "admin" || role === "owner" || role === "super_admin" ? "admin" : "client",
+        });
+        captureProductEvent("benela_auth_login_success", {
+          auth_method: "oauth",
+          user_role: role || "client",
+          user_type: role === "admin" || role === "owner" || role === "super_admin" ? "admin" : "client",
+        });
         if (!active) return;
         setPhase("redirecting");
 
@@ -117,6 +128,12 @@ export default function AuthCallbackPage() {
         }
 
         const { summary, bootstrapped } = await ensureClientWorkspaceAccount(user.id, session?.access_token);
+        if (bootstrapped) {
+          captureProductEvent("benela_client_workspace_bootstrapped", {
+            source: "oauth_callback",
+            user_role: "client",
+          });
+        }
         if (bootstrapped || summary?.exists === false) {
           router.replace("/settings?setup=business");
           return;

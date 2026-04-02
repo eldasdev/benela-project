@@ -36,6 +36,36 @@ type Summary = {
 type RevenuePoint = { month: string; revenue: number };
 type GrowthPoint = { month: string; new_clients: number; cumulative: number };
 type ChurnPoint = { month: string; churned: number };
+type ProductAnalyticsSummary = {
+  active_users: number;
+  pageviews: number;
+  module_views: number;
+  ai_prompts: number;
+  logins: number;
+  signups: number;
+  workspace_bootstraps: number;
+  business_profiles_saved: number;
+  activation_rate_percent: number;
+  workspace_ready_rate_percent: number;
+};
+type ProductTrendPoint = { day: string; active_users: number; pageviews: number; ai_prompts: number };
+type ProductBreakdownItem = { label: string; value: number };
+type ProductFunnelStep = { step: string; value: number; percent_of_previous: number; percent_of_signups: number };
+type ProductAnalytics = {
+  enabled: boolean;
+  configured: boolean;
+  host?: string | null;
+  project_id?: string | null;
+  window_days: number;
+  generated_at: string;
+  error?: string | null;
+  summary: ProductAnalyticsSummary;
+  daily_activity: ProductTrendPoint[];
+  top_pages: ProductBreakdownItem[];
+  top_modules: ProductBreakdownItem[];
+  role_breakdown: ProductBreakdownItem[];
+  activation_funnel: ProductFunnelStep[];
+};
 
 export default function AdminAnalyticsPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -43,18 +73,23 @@ export default function AdminAnalyticsPage() {
   const [growth, setGrowth] = useState<GrowthPoint[]>([]);
   const [churn, setChurn] = useState<ChurnPoint[]>([]);
   const [months, setMonths] = useState(12);
+  const [productDays, setProductDays] = useState(30);
+  const [productAnalytics, setProductAnalytics] = useState<ProductAnalytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [productError, setProductError] = useState("");
 
-  const loadAnalytics = useCallback(async (windowMonths: number) => {
+  const loadAnalytics = useCallback(async (windowMonths: number, productWindowDays: number) => {
     setLoading(true);
     setError("");
+    setProductError("");
     try {
-      const [summaryRes, revenueRes, growthRes, churnRes] = await Promise.all([
+      const [summaryRes, revenueRes, growthRes, churnRes, productRes] = await Promise.all([
         authFetch(`${API}/admin/summary`),
         authFetch(`${API}/admin/analytics/revenue`),
         authFetch(`${API}/admin/analytics/growth?months=${windowMonths}`),
         authFetch(`${API}/admin/analytics/churn?months=${windowMonths}`),
+        authFetch(`${API}/admin/analytics/product?days=${productWindowDays}`),
       ]);
       if (!summaryRes.ok || !revenueRes.ok || !growthRes.ok || !churnRes.ok) {
         throw new Error("Failed to load analytics");
@@ -63,6 +98,12 @@ export default function AdminAnalyticsPage() {
       setRevenue((await revenueRes.json()) as RevenuePoint[]);
       setGrowth((await growthRes.json()) as GrowthPoint[]);
       setChurn((await churnRes.json()) as ChurnPoint[]);
+      if (productRes.ok) {
+        setProductAnalytics((await productRes.json()) as ProductAnalytics);
+      } else {
+        setProductAnalytics(null);
+        setProductError("Could not load PostHog product analytics.");
+      }
     } catch {
       setSummary(null);
       setRevenue([]);
@@ -76,10 +117,10 @@ export default function AdminAnalyticsPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadAnalytics(months);
+      void loadAnalytics(months, productDays);
     }, 0);
     return () => clearTimeout(timer);
-  }, [loadAnalytics, months]);
+  }, [loadAnalytics, months, productDays]);
 
   const revenueWindow = useMemo(() => revenue.slice(-months), [months, revenue]);
   const revenueMax = Math.max(1, ...revenueWindow.map((point) => point.revenue));
@@ -122,6 +163,13 @@ export default function AdminAnalyticsPage() {
     }));
   }, [growth, churn, revenueWindow]);
 
+  const productSummary = productAnalytics?.summary;
+  const productTrend = useMemo(() => productAnalytics?.daily_activity.slice(-10) ?? [], [productAnalytics]);
+  const productActivityMax = Math.max(1, ...productTrend.map((point) => point.pageviews));
+  const topPagesMax = Math.max(1, ...(productAnalytics?.top_pages ?? []).map((item) => item.value));
+  const topModulesMax = Math.max(1, ...(productAnalytics?.top_modules ?? []).map((item) => item.value));
+  const roleMixMax = Math.max(1, ...(productAnalytics?.role_breakdown ?? []).map((item) => item.value));
+
   return (
     <div className="admin-page-shell" style={{ maxWidth: "1540px", margin: "0 auto", display: "grid", gap: "22px" }}>
       <AdminPageHero
@@ -135,7 +183,7 @@ export default function AdminAnalyticsPage() {
               <option value="12">Last 12 months</option>
               <option value="24">Last 24 months</option>
             </select>
-            <button type="button" style={adminButtonStyle("secondary")} onClick={() => void loadAnalytics(months)}>
+            <button type="button" style={adminButtonStyle("secondary")} onClick={() => void loadAnalytics(months, productDays)}>
               <RefreshCcw size={16} /> Refresh
             </button>
           </>
@@ -147,6 +195,169 @@ export default function AdminAnalyticsPage() {
           {error}
         </div>
       ) : null}
+
+      <AdminSectionCard
+        title="PostHog product analytics"
+        eyebrow="Feature Adoption"
+        description="Live product usage across authentication, activation, module navigation, and AI interactions."
+        actions={
+          <>
+            <select value={String(productDays)} onChange={(event) => setProductDays(Number(event.target.value))} style={adminInputStyle({ width: "168px" })}>
+              <option value="14">Last 14 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+            <AdminPill
+              label={
+                productAnalytics?.configured
+                  ? productAnalytics.error
+                    ? "Query issue"
+                    : "Live"
+                  : "Needs setup"
+              }
+              tone={
+                productAnalytics?.configured
+                  ? productAnalytics.error
+                    ? "warning"
+                    : "success"
+                  : "warning"
+              }
+            />
+          </>
+        }
+      >
+        {productError ? (
+          <div className="admin-ui-surface" style={{ padding: "14px 16px", borderColor: "color-mix(in srgb, var(--danger) 42%, transparent)", background: "color-mix(in srgb, var(--danger) 10%, var(--bg-surface) 90%)", color: "var(--danger)", marginBottom: "16px" }}>
+            {productError}
+          </div>
+        ) : null}
+        {loading && !productAnalytics ? (
+          <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>Loading PostHog product analytics...</div>
+        ) : !productAnalytics ? (
+          <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>PostHog product analytics are unavailable right now.</div>
+        ) : !productAnalytics.configured ? (
+          <div style={{ display: "grid", gap: "12px" }}>
+            <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 600 }}>PostHog is not configured for this deployment.</div>
+            <div style={{ fontSize: "13px", color: "var(--text-subtle)", lineHeight: 1.7 }}>
+              Set `NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST` on the frontend, plus `POSTHOG_API_HOST`, `POSTHOG_PROJECT_ID`, and `POSTHOG_PERSONAL_API_KEY` on the backend.
+            </div>
+          </div>
+        ) : productAnalytics.error ? (
+          <div style={{ display: "grid", gap: "12px" }}>
+            <div style={{ fontSize: "14px", color: "var(--danger)", fontWeight: 600 }}>PostHog query failed</div>
+            <div style={{ fontSize: "13px", color: "var(--text-subtle)", lineHeight: 1.7 }}>{productAnalytics.error}</div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: "18px" }}>
+            <AdminMetricGrid columns="repeat(auto-fit, minmax(168px, 1fr))">
+              <AdminMetricCard label="Active users" value={String(productSummary?.active_users || 0)} detail={`Last ${productDays} days`} tone="accent" />
+              <AdminMetricCard label="Page views" value={String(productSummary?.pageviews || 0)} detail="Tracked route views" tone="success" />
+              <AdminMetricCard label="Module views" value={String(productSummary?.module_views || 0)} detail="Dashboard section switches" tone="warning" />
+              <AdminMetricCard label="AI prompts" value={String(productSummary?.ai_prompts || 0)} detail="Assistant prompt submissions" tone="accent" />
+              <AdminMetricCard label="Login successes" value={String(productSummary?.logins || 0)} detail="Password + OAuth" tone="success" />
+              <AdminMetricCard label="Activation rate" value={`${Math.round(productSummary?.activation_rate_percent || 0)}%`} detail={`${productSummary?.business_profiles_saved || 0} business profiles saved`} tone="warning" />
+            </AdminMetricGrid>
+
+            <div className="admin-responsive-triple admin-responsive-triple-analytics-product" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: "18px", alignItems: "start" }}>
+              <AdminSectionCard title="Daily engagement" description="Recent activity from PostHog events for pages, users, and AI usage.">
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {productTrend.length ? (
+                    productTrend.map((point) => (
+                      <div key={point.day} style={{ display: "grid", gridTemplateColumns: "88px 1fr auto auto", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{point.day.slice(5)}</span>
+                        <div style={{ height: "10px", borderRadius: "999px", background: "color-mix(in srgb, var(--border-default) 42%, transparent)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.max(5, clampPercent((point.pageviews / productActivityMax) * 100))}%`, height: "100%", background: "linear-gradient(90deg, color-mix(in srgb, var(--accent) 78%, #fff 22%), color-mix(in srgb, var(--accent-2) 72%, var(--accent) 28%))" }} />
+                        </div>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 700 }}>{point.active_users} users</span>
+                        <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{point.ai_prompts} AI</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>No PostHog activity yet for this window.</div>
+                  )}
+                </div>
+              </AdminSectionCard>
+
+              <AdminSectionCard title="Activation funnel" description="Client setup progression based on tracked signup and onboarding events.">
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {(productAnalytics.activation_funnel || []).map((step) => (
+                    <div key={step.step} className="admin-ui-surface" style={{ padding: "14px", display: "grid", gap: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                        <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700 }}>{step.step}</div>
+                        <div style={{ fontSize: "18px", color: "var(--text-primary)", fontWeight: 700 }}>{step.value}</div>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-subtle)" }}>
+                        {Math.round(step.percent_of_signups)}% of signups
+                        {step.step !== "Signups" ? ` · ${Math.round(step.percent_of_previous)}% of previous` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </AdminSectionCard>
+
+              <AdminSectionCard title="Role mix" description="Page-view volume by identified role captured on route events.">
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {(productAnalytics.role_breakdown || []).length ? (
+                    productAnalytics.role_breakdown.map((item) => (
+                      <div key={item.label} style={{ display: "grid", gridTemplateColumns: "92px 1fr auto", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{item.label}</span>
+                        <div style={{ height: "9px", borderRadius: "999px", background: "color-mix(in srgb, var(--border-default) 42%, transparent)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.max(6, clampPercent((item.value / roleMixMax) * 100))}%`, height: "100%", background: "linear-gradient(90deg, #34d399, #22c55e)" }} />
+                        </div>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 700 }}>{item.value}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>No role signals captured yet.</div>
+                  )}
+                </div>
+              </AdminSectionCard>
+            </div>
+
+            <div className="admin-responsive-triple admin-responsive-triple-analytics-product-breakdown" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px", alignItems: "start" }}>
+              <AdminSectionCard title="Top pages" description="Most visited routes captured by the Benela page-view tracker.">
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {(productAnalytics.top_pages || []).length ? (
+                    productAnalytics.top_pages.map((item) => (
+                      <div key={item.label} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                        <div style={{ height: "9px", borderRadius: "999px", background: "color-mix(in srgb, var(--border-default) 42%, transparent)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.max(6, clampPercent((item.value / topPagesMax) * 100))}%`, height: "100%", background: "linear-gradient(90deg, color-mix(in srgb, var(--accent) 72%, #fff 28%), color-mix(in srgb, var(--accent-2) 76%, var(--accent) 24%))" }} />
+                        </div>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 700 }}>{item.value}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>No page-view events yet.</div>
+                  )}
+                </div>
+              </AdminSectionCard>
+
+              <AdminSectionCard title="Top modules" description="Most used dashboard sections from the explicit module-view tracker.">
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {(productAnalytics.top_modules || []).length ? (
+                    productAnalytics.top_modules.map((item) => (
+                      <div key={item.label} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: "10px", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{item.label}</span>
+                        <div style={{ height: "9px", borderRadius: "999px", background: "color-mix(in srgb, var(--border-default) 42%, transparent)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.max(6, clampPercent((item.value / topModulesMax) * 100))}%`, height: "100%", background: "linear-gradient(90deg, #60a5fa, color-mix(in srgb, var(--accent) 44%, #60a5fa 56%))" }} />
+                        </div>
+                        <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 700 }}>{item.value}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: "13px", color: "var(--text-subtle)" }}>No module-view events yet.</div>
+                  )}
+                </div>
+              </AdminSectionCard>
+            </div>
+
+            <div style={{ fontSize: "12px", color: "var(--text-quiet)" }}>
+              Generated from PostHog at {new Date(productAnalytics.generated_at).toLocaleString()}.
+            </div>
+          </div>
+        )}
+      </AdminSectionCard>
 
       <AdminMetricGrid>
         <AdminMetricCard label="MRR" value={formatCompactMoney(summary?.monthly_recurring_revenue || 0)} detail="Recurring monthly revenue" tone="accent" />

@@ -511,6 +511,55 @@ class SiteComplianceSummary(BaseModel):
     aging_over_72h: int
 
 
+# ── Product Analytics ────────────────────────────────
+class AdminPosthogSummaryOut(BaseModel):
+    active_users: int = 0
+    pageviews: int = 0
+    module_views: int = 0
+    ai_prompts: int = 0
+    logins: int = 0
+    signups: int = 0
+    workspace_bootstraps: int = 0
+    business_profiles_saved: int = 0
+    activation_rate_percent: float = 0
+    workspace_ready_rate_percent: float = 0
+
+
+class AdminPosthogTrendPointOut(BaseModel):
+    day: str
+    active_users: int = 0
+    pageviews: int = 0
+    ai_prompts: int = 0
+
+
+class AdminPosthogBreakdownItemOut(BaseModel):
+    label: str
+    value: int
+
+
+class AdminPosthogFunnelStepOut(BaseModel):
+    step: str
+    value: int
+    percent_of_previous: float = 0
+    percent_of_signups: float = 0
+
+
+class AdminPosthogAnalyticsOut(BaseModel):
+    enabled: bool = False
+    configured: bool = False
+    host: Optional[str] = None
+    project_id: Optional[str] = None
+    window_days: int = 30
+    generated_at: datetime
+    error: Optional[str] = None
+    summary: AdminPosthogSummaryOut = Field(default_factory=AdminPosthogSummaryOut)
+    daily_activity: list[AdminPosthogTrendPointOut] = Field(default_factory=list)
+    top_pages: list[AdminPosthogBreakdownItemOut] = Field(default_factory=list)
+    top_modules: list[AdminPosthogBreakdownItemOut] = Field(default_factory=list)
+    role_breakdown: list[AdminPosthogBreakdownItemOut] = Field(default_factory=list)
+    activation_funnel: list[AdminPosthogFunnelStepOut] = Field(default_factory=list)
+
+
 # ── Activity ─────────────────────────────────────────
 class ActivityOut(BaseModel):
     id: int

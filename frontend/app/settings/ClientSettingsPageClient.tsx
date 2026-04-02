@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { getSupabase } from "@/lib/supabase";
+import { signOutAndRedirect } from "@/lib/auth-fetch";
 import {
   CLIENT_SECTIONS,
   ClientSection,
@@ -41,6 +42,7 @@ import {
   type ClientProfilePatchPayload,
   type PaidPlanTier,
 } from "@/lib/client-account";
+import { captureProductEvent } from "@/lib/posthog";
 
 const SECTION_LABELS: Record<ClientSection, string> = {
   dashboard: "Dashboard",
@@ -345,6 +347,14 @@ export default function ClientSettingsPage() {
         });
       }
 
+      captureProductEvent("benela_client_business_profile_saved", {
+        plan_tier: updated.plan_tier,
+        onboarding_completed: Boolean(updated.onboarding_completed),
+        setup_progress_percent: updated.setup_progress_percent || 0,
+        documents_uploaded_count: updated.documents_uploaded_count || 0,
+        user_role: "client",
+        user_type: "client",
+      });
       setMessage("Business profile saved. Upload official documents to complete verification.");
     } catch (e: unknown) {
       setMessage("", readErrorMessage(e, "Could not save business profile."));
@@ -411,9 +421,8 @@ export default function ClientSettingsPage() {
   };
 
   const handleLogout = async () => {
-    await getSupabase().auth.signOut();
     setMobileSidebarOpen(false);
-    router.push("/login");
+    await signOutAndRedirect("/login");
   };
 
   if (loading) {
