@@ -63,6 +63,7 @@ from database.models import (
     InstallStatus,
     ChatMessage,
     ChatAttachment,
+    ClientWorkspaceAccount,
 )
 from database import schemas
 
@@ -1342,25 +1343,71 @@ def get_employees(db: Session, skip: int = 0, limit: int = 100, company_id: int 
     query = db.query(Employee)
     if company_id is not None:
         query = query.filter(Employee.company_id == company_id)
-    return query.order_by(Employee.full_name).offset(skip).limit(limit).all()
+    rows = query.order_by(Employee.full_name).offset(skip).limit(limit).all()
+    return [_serialize_employee(emp) for emp in rows]
 
 
 def get_employee(db: Session, id: int, company_id: int | None = None):
     query = db.query(Employee).filter(Employee.id == id)
     if company_id is not None:
         query = query.filter(Employee.company_id == company_id)
-    return query.first()
+    emp = query.first()
+    if not emp:
+        return None
+    return _serialize_employee(emp)
+
+def _auto_link_employee_account(db: Session, emp: Employee) -> None:
+    """If a platform user with the same email exists, auto-link the employee."""
+    if emp.user_id:
+        return
+    email = (emp.email or "").strip().lower()
+    if not email:
+        return
+    account = (
+        db.query(ClientWorkspaceAccount)
+        .filter(func.lower(ClientWorkspaceAccount.user_email) == email)
+        .first()
+    )
+    if account:
+        emp.user_id = account.user_id
+
+
+def _serialize_employee(emp: Employee) -> dict:
+    """Build a dict that satisfies EmployeeOut, including computed fields."""
+    data = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
+    data["position_title"] = emp.position.title if emp.position else None
+    data["is_linked"] = bool(emp.user_id)
+    return data
+
+
+def _resolve_position_name(db: Session, name: str | None, department: str | None = None) -> int | None:
+    """Find or create a Position by title, return its id."""
+    if not name or not name.strip():
+        return None
+    title = name.strip()
+    pos = db.query(Position).filter(func.lower(Position.title) == title.lower()).first()
+    if pos:
+        return pos.id
+    pos = Position(title=title, department=department or "", status="open")
+    db.add(pos)
+    db.flush()
+    return pos.id
+
 
 def create_employee(db: Session, data: schemas.EmployeeCreate, company_id: int | None = None):
     payload = data.model_dump()
+    position_name = payload.pop("position_name", None)
+    if position_name:
+        payload["position_id"] = _resolve_position_name(db, position_name, payload.get("department"))
     payload["company_id"] = company_id
     payload["employee_pin"] = _hash_employee_pin(payload.get("employee_pin"))
     payload["work_days"] = _normalize_work_days(payload.get("work_days"))
     payload["shift_start"] = payload.get("shift_start") or time_value(9, 0)
     payload["shift_end"] = payload.get("shift_end") or time_value(18, 0)
     emp = Employee(**payload)
+    _auto_link_employee_account(db, emp)
     db.add(emp); db.commit(); db.refresh(emp)
-    return emp
+    return _serialize_employee(emp)
 
 def update_employee(db: Session, id: int, data: schemas.EmployeeUpdate, company_id: int | None = None):
     query = db.query(Employee).filter(Employee.id == id)
@@ -1368,13 +1415,20 @@ def update_employee(db: Session, id: int, data: schemas.EmployeeUpdate, company_
         query = query.filter(Employee.company_id == company_id)
     emp = query.first()
     if not emp: return None
-    for k, v in data.model_dump(exclude_unset=True).items():
+    email_changed = False
+    updates = data.model_dump(exclude_unset=True)
+    position_name = updates.pop("position_name", None)
+    if position_name is not None:
+        updates["position_id"] = _resolve_position_name(db, position_name, updates.get("department") or emp.department)
+    for k, v in updates.items():
         if k == "employee_pin":
             setattr(emp, k, _hash_employee_pin(v))
             continue
         if k == "work_days" and v is not None:
             setattr(emp, k, _normalize_work_days(v))
             continue
+        if k == "email" and v:
+            email_changed = (v.strip().lower() != (emp.email or "").strip().lower())
         setattr(emp, k, v)
     if not emp.shift_start:
         emp.shift_start = time_value(9, 0)
@@ -1382,8 +1436,62 @@ def update_employee(db: Session, id: int, data: schemas.EmployeeUpdate, company_
         emp.shift_end = time_value(18, 0)
     if not emp.work_days:
         emp.work_days = [1, 2, 3, 4, 5]
+    if email_changed:
+        emp.user_id = None
+        _auto_link_employee_account(db, emp)
     db.commit(); db.refresh(emp)
-    return emp
+    return _serialize_employee(emp)
+
+
+def link_employee_account(db: Session, employee_id: int, user_email: str, company_id: int | None = None):
+    """Manually link an employee to a platform user account by email."""
+    query = db.query(Employee).filter(Employee.id == employee_id)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    emp = query.first()
+    if not emp:
+        return None, "Employee not found."
+
+    email = user_email.strip().lower()
+    account = (
+        db.query(ClientWorkspaceAccount)
+        .filter(func.lower(ClientWorkspaceAccount.user_email) == email)
+        .first()
+    )
+    if not account:
+        return None, "No platform account found with this email."
+
+    # Check if this user is already linked to another employee in the same company
+    existing = (
+        db.query(Employee)
+        .filter(
+            Employee.user_id == account.user_id,
+            Employee.company_id == emp.company_id,
+            Employee.id != emp.id,
+        )
+        .first()
+    )
+    if existing:
+        return None, f"This account is already linked to employee: {existing.full_name}."
+
+    emp.user_id = account.user_id
+    db.commit()
+    db.refresh(emp)
+    return _serialize_employee(emp), None
+
+
+def unlink_employee_account(db: Session, employee_id: int, company_id: int | None = None):
+    """Remove the platform account link from an employee."""
+    query = db.query(Employee).filter(Employee.id == employee_id)
+    if company_id is not None:
+        query = query.filter(Employee.company_id == company_id)
+    emp = query.first()
+    if not emp:
+        return None
+    emp.user_id = None
+    db.commit()
+    db.refresh(emp)
+    return _serialize_employee(emp)
 
 def delete_employee(db: Session, id: int, company_id: int | None = None):
     query = db.query(Employee).filter(Employee.id == id)

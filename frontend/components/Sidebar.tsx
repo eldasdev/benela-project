@@ -62,6 +62,7 @@ const NAV = [
   { id: "supply_chain", labelKey: "common.sections.supply_chain", icon: Truck },
   { id: "procurement", labelKey: "common.sections.procurement", icon: ShoppingCart },
   { id: "insights", labelKey: "common.sections.insights", icon: BarChart3 },
+  { id: "team", labelKey: "common.sections.team", icon: Users },
 ] as const;
 
 export default function Sidebar({
@@ -90,10 +91,16 @@ export default function Sidebar({
   const drawerMode = isMobile;
   const planName = (tier?: string | null) =>
     tier ? t(`common.planTiers.${tier}`, {}, tier) : t("sidebar.enterprisePlan");
-  const navItems = NAV.map((item) => ({
+  const allNavItems = NAV.map((item) => ({
     ...item,
     label: t(item.labelKey),
   }));
+  const isTeamMember = summary?.role === "member";
+  const navItems = allNavItems.filter((item) => {
+    if (item.id === "team" && isTeamMember) return false;
+    if (!summary?.allowed_modules?.length) return true;
+    return summary.allowed_modules.includes(item.id);
+  });
 
   const reloadSidebarSummary = async (userId: string) => {
     setSummaryLoading(true);

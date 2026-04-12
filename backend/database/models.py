@@ -259,6 +259,8 @@ class Employee(Base):
     __tablename__ = "employees"
     id           = Column(Integer, primary_key=True, index=True)
     company_id   = Column(Integer, ForeignKey("client_orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id      = Column(String(120), nullable=True, index=True)
+    position_id  = Column(Integer, ForeignKey("positions.id", ondelete="SET NULL"), nullable=True, index=True)
     full_name    = Column(String(255), nullable=False)
     email        = Column(String(255), unique=True, nullable=False)
     phone        = Column(String(50), nullable=True)
@@ -282,6 +284,8 @@ class Employee(Base):
     notes        = Column(Text, nullable=True)
     created_at   = Column(DateTime, default=func.now())
     updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    position     = relationship("Position", foreign_keys=[position_id], lazy="joined")
 
 class Position(Base):
     __tablename__ = "positions"
@@ -654,15 +658,17 @@ class LegalSearchLog(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id          = Column(Integer, primary_key=True, index=True)
-    name        = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    status      = Column(Enum(ProjectStatus), default=ProjectStatus.active)
-    color       = Column(String(20), default="#7c6aff")
-    owner       = Column(String(100), nullable=True)
-    due_date    = Column(DateTime, nullable=True)
-    created_at  = Column(DateTime, default=func.now())
-    updated_at  = Column(DateTime, default=func.now(), onupdate=func.now())
+    id             = Column(Integer, primary_key=True, index=True)
+    client_org_id  = Column(Integer, ForeignKey("client_orgs.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_user_id  = Column(String(120), nullable=True, index=True)
+    name           = Column(String(255), nullable=False)
+    description    = Column(Text, nullable=True)
+    status         = Column(Enum(ProjectStatus), default=ProjectStatus.active)
+    color          = Column(String(20), default="#7c6aff")
+    owner          = Column(String(100), nullable=True)  # legacy free-text owner label
+    due_date       = Column(DateTime, nullable=True)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 class KanbanColumn(Base):
@@ -679,18 +685,102 @@ class KanbanColumn(Base):
 class KanbanTask(Base):
     __tablename__ = "kanban_tasks"
 
-    id          = Column(Integer, primary_key=True, index=True)
-    column_id   = Column(Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=False)
-    project_id  = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    title       = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    priority    = Column(Enum(TaskPriority), default=TaskPriority.medium)
-    assignee    = Column(String(100), nullable=True)
-    due_date    = Column(DateTime, nullable=True)
-    position    = Column(Integer, default=0)
-    tags        = Column(String(500), nullable=True)
-    created_at  = Column(DateTime, default=func.now())
-    updated_at  = Column(DateTime, default=func.now(), onupdate=func.now())
+    id           = Column(Integer, primary_key=True, index=True)
+    column_id    = Column(Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=False)
+    project_id   = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    title        = Column(String(255), nullable=False)
+    description  = Column(Text, nullable=True)
+    priority     = Column(Enum(TaskPriority), default=TaskPriority.medium)
+    assignee     = Column(String(100), nullable=True)  # legacy free-text
+    employee_id  = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    due_date     = Column(DateTime, nullable=True)
+    start_date   = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    cover_color  = Column(String(20), nullable=True)
+    position     = Column(Integer, default=0)
+    tags         = Column(String(500), nullable=True)  # legacy comma-separated
+    created_at   = Column(DateTime, default=func.now())
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ── Trello-class Projects Extensions ─────────────────
+class ProjectLabel(Base):
+    __tablename__ = "project_labels"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_project_label_name"),
+    )
+
+    id         = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    name       = Column(String(60), nullable=False)
+    color      = Column(String(20), nullable=False, default="#7c6aff")
+    created_at = Column(DateTime, default=func.now())
+
+
+class TaskLabelLink(Base):
+    __tablename__ = "task_label_links"
+
+    task_id  = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="CASCADE"), primary_key=True)
+    label_id = Column(Integer, ForeignKey("project_labels.id", ondelete="CASCADE"), primary_key=True)
+
+
+class TaskChecklistItem(Base):
+    __tablename__ = "task_checklist_items"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    task_id    = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    text       = Column(String(500), nullable=False)
+    done       = Column(Boolean, nullable=False, default=False)
+    position   = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    task_id         = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    author_user_id  = Column(String(120), nullable=False, index=True)
+    author_name     = Column(String(255), nullable=True)
+    body            = Column(Text, nullable=False)
+    created_at      = Column(DateTime, default=func.now(), index=True)
+    updated_at      = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class TaskAttachment(Base):
+    __tablename__ = "task_attachments"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    task_id              = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by_user_id  = Column(String(120), nullable=True)
+    uploaded_by_name     = Column(String(255), nullable=True)
+    file_name            = Column(String(400), nullable=False)
+    mime_type            = Column(String(200), nullable=True)
+    size_bytes           = Column(Integer, nullable=True)
+    storage_path         = Column(String(600), nullable=False)
+    created_at           = Column(DateTime, default=func.now())
+
+
+class TaskWatcher(Base):
+    __tablename__ = "task_watchers"
+
+    task_id    = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="CASCADE"), primary_key=True)
+    user_id    = Column(String(120), primary_key=True)
+    created_at = Column(DateTime, default=func.now())
+
+
+class ProjectActivity(Base):
+    __tablename__ = "project_activity"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    project_id      = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id         = Column(Integer, ForeignKey("kanban_tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_user_id   = Column(String(120), nullable=True)
+    actor_name      = Column(String(255), nullable=True)
+    action          = Column(String(80), nullable=False)  # e.g. "task.created", "task.moved"
+    metadata_json   = Column(JSON, nullable=True)
+    created_at      = Column(DateTime, default=func.now(), index=True)
 
 
 # ── Admin / Owner Dashboard Models ────────────────────
@@ -989,6 +1079,88 @@ class ClientWorkspaceAccount(Base):
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class TeamMemberStatus(str, enum.Enum):
+    invited = "invited"
+    active = "active"
+    suspended = "suspended"
+    removed = "removed"
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    __table_args__ = (
+        UniqueConstraint("client_org_id", "email", name="uq_team_members_org_email"),
+    )
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    client_org_id      = Column(Integer, ForeignKey("client_orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id            = Column(String(120), nullable=True, index=True)
+    email              = Column(String(255), nullable=False, index=True)
+    full_name          = Column(String(255), nullable=False)
+    position_title     = Column(String(200), nullable=True)
+    allowed_modules    = Column(String(1000), nullable=False, default="dashboard")
+    status             = Column(Enum(TeamMemberStatus), nullable=False, default=TeamMemberStatus.invited)
+    invited_by_user_id = Column(String(120), nullable=False)
+    invited_at         = Column(DateTime, default=func.now())
+    joined_at          = Column(DateTime, nullable=True)
+    created_at         = Column(DateTime, default=func.now())
+    updated_at         = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class FacebookConnectionStatus(str, enum.Enum):
+    active = "active"
+    expired = "expired"
+    revoked = "revoked"
+    error = "error"
+
+
+class FacebookAdsConnection(Base):
+    __tablename__ = "facebook_ads_connections"
+    __table_args__ = (
+        UniqueConstraint("client_org_id", name="uq_facebook_ads_connection_org"),
+    )
+
+    id                       = Column(Integer, primary_key=True, index=True)
+    client_org_id            = Column(Integer, ForeignKey("client_orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    connected_by_user_id     = Column(String(120), nullable=False, index=True)
+    fb_user_id               = Column(String(100), nullable=True)
+    fb_user_name             = Column(String(200), nullable=True)
+    access_token_encrypted   = Column(String(2000), nullable=True)
+    token_type               = Column(String(40), nullable=False, default="bearer")
+    token_expires_at         = Column(DateTime, nullable=True)
+    selected_ad_account_id   = Column(String(80), nullable=True)
+    selected_ad_account_name = Column(String(200), nullable=True)
+    currency                 = Column(String(10), nullable=True)
+    timezone_name            = Column(String(80), nullable=True)
+    status                   = Column(Enum(FacebookConnectionStatus), nullable=False, default=FacebookConnectionStatus.active)
+    last_sync_at             = Column(DateTime, nullable=True)
+    last_sync_error          = Column(Text, nullable=True)
+    connected_at             = Column(DateTime, default=func.now())
+    created_at               = Column(DateTime, default=func.now())
+    updated_at               = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class FacebookAdsInsightCache(Base):
+    __tablename__ = "facebook_ads_insights_cache"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "entity_type",
+            "entity_id",
+            "date_preset",
+            name="uq_facebook_insight_cache_key",
+        ),
+    )
+
+    id            = Column(Integer, primary_key=True, index=True)
+    connection_id = Column(Integer, ForeignKey("facebook_ads_connections.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type   = Column(String(20), nullable=False)
+    entity_id     = Column(String(100), nullable=False)
+    date_preset   = Column(String(40), nullable=False)
+    payload_json  = Column(JSON, nullable=False)
+    fetched_at    = Column(DateTime, default=func.now(), nullable=False, index=True)
 
 
 class ClientBusinessDocument(Base):

@@ -7,6 +7,7 @@ import type { EmailOtpType, Session } from "@supabase/supabase-js";
 import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { ensureClientWorkspaceAccount } from "@/lib/client-account";
+import { activateTeamMember } from "@/lib/team";
 import { persistPendingAccessToken } from "@/lib/auth-fetch";
 import { captureProductEvent, identifyProductUser } from "@/lib/posthog";
 import { useI18n } from "@/components/i18n/LanguageProvider";
@@ -124,6 +125,16 @@ export default function AuthCallbackPage() {
 
         if (role === "admin" || role === "owner" || role === "super_admin") {
           router.replace("/admin/dashboard");
+          return;
+        }
+
+        if (role === "member") {
+          try {
+            await activateTeamMember();
+          } catch {
+            // activation may fail if already active — safe to ignore
+          }
+          router.replace(nextPath);
           return;
         }
 

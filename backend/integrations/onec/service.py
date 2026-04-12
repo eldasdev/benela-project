@@ -29,6 +29,58 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def _ensure_client_org(db: Session, account: models.ClientWorkspaceAccount) -> None:
+    """Auto-create and link a ClientOrg when a workspace account doesn't have one yet.
+
+    This handles accounts that were created before business onboarding was completed
+    or where the sync step was skipped.
+    """
+    if account.client_org_id:
+        return
+
+    # Prefer finding an existing org by owner email to avoid duplicates
+    org: models.ClientOrg | None = None
+    email = (account.user_email or "").strip().lower()
+    if email:
+        org = db.query(models.ClientOrg).filter(models.ClientOrg.owner_email == email).first()
+
+    # Fall back to matching by business slug
+    if not org:
+        org = db.query(models.ClientOrg).filter(models.ClientOrg.slug == account.business_slug).first()
+
+    if not org:
+        # Build a unique slug — suffix with user_id prefix if taken
+        slug = account.business_slug
+        if db.query(models.ClientOrg).filter(models.ClientOrg.slug == slug).first():
+            slug = f"{slug}-{account.user_id[:8]}"
+
+        # Build a unique owner email — fallback to synthetic address if needed or taken
+        if not email:
+            email = f"owner+{account.user_id[:8]}@workspace.internal"
+        elif db.query(models.ClientOrg).filter(models.ClientOrg.owner_email == email).first():
+            email = f"{account.user_id[:8]}+{email}"
+
+        org = models.ClientOrg(
+            name=account.business_name,
+            slug=slug,
+            owner_name=account.owner_name or account.business_name,
+            owner_email=email,
+            owner_phone=account.owner_phone,
+            industry=account.industry,
+            company_size=str(account.employee_count) if account.employee_count else None,
+            country=account.country,
+            is_active=not account.payment_required,
+            is_suspended=bool(account.payment_required),
+            notes="Auto-created from workspace account during HR access.",
+        )
+        db.add(org)
+        db.flush()
+
+    account.client_org_id = org.id
+    db.commit()
+    db.refresh(account)
+
+
 def resolve_company_account(request: Request, db: Session, company_id: int | None = None) -> models.ClientWorkspaceAccount:
     auth_user = get_request_user(request)
     account = db.query(models.ClientWorkspaceAccount).filter(models.ClientWorkspaceAccount.user_id == auth_user.user_id).first()
@@ -44,8 +96,33 @@ def resolve_company_account(request: Request, db: Session, company_id: int | Non
         if not company_account or not company_account.client_org_id:
             raise HTTPException(status_code=404, detail="Workspace company was not found.")
         return company_account
-    if not account or not account.client_org_id:
-        raise HTTPException(status_code=400, detail="Client workspace does not have linked company billing context yet.")
+    if not account:
+        # Fallback: check if user is linked as an employee in any company
+        employee = (
+            db.query(models.Employee)
+            .filter(
+                models.Employee.user_id == auth_user.user_id,
+                models.Employee.status != models.EmployeeStatus.terminated,
+                models.Employee.company_id.isnot(None),
+            )
+            .first()
+        )
+        if not employee:
+            raise HTTPException(status_code=400, detail="Client workspace account not found. Please complete registration.")
+
+        # Find the workspace account that owns this company
+        account = (
+            db.query(models.ClientWorkspaceAccount)
+            .filter(models.ClientWorkspaceAccount.client_org_id == employee.company_id)
+            .order_by(models.ClientWorkspaceAccount.id.asc())
+            .first()
+        )
+        if not account:
+            raise HTTPException(status_code=400, detail="Company workspace not found. Contact your company administrator.")
+        return account
+
+    if not account.client_org_id:
+        _ensure_client_org(db, account)
     return account
 
 

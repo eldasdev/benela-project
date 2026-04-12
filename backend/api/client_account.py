@@ -124,6 +124,8 @@ class ClientSidebarOut(BaseModel):
     missing_setup_fields: list[str] = []
     setup_progress_percent: float = 0.0
     trial_label: str = ""
+    role: str = "owner"
+    allowed_modules: list[str] = []
 
 
 class ClientPlatformReportIn(BaseModel):
@@ -845,8 +847,28 @@ def get_sidebar_summary(
     assert_request_user_matches(request, user_id=normalized)
 
     account = _find_account_by_user(db, normalized)
+
+    # Fallback: check if user is a team member
     if not account:
+        from database.models import TeamMember, TeamMemberStatus, ClientOrg
+        from core.modules import csv_to_modules
+        member = (
+            db.query(TeamMember)
+            .filter(TeamMember.user_id == normalized, TeamMember.status == TeamMemberStatus.active)
+            .first()
+        )
+        if member:
+            org = db.query(ClientOrg).filter(ClientOrg.id == member.client_org_id).first()
+            return ClientSidebarOut(
+                exists=True,
+                business_name=org.name if org else "Workspace",
+                owner_name=member.full_name,
+                role="member",
+                allowed_modules=csv_to_modules(member.allowed_modules),
+                onboarding_completed=True,
+            )
         return ClientSidebarOut(exists=False, trial_label="Setup required")
+
     _assert_client_boundary(account.user_email)
 
     trial = _compute_trial_meta(account)
@@ -868,6 +890,8 @@ def get_sidebar_summary(
         missing_setup_fields=setup.missing_fields,
         setup_progress_percent=setup.progress_percent,
         trial_label=trial.label,
+        role="owner",
+        allowed_modules=[],
     )
 
 

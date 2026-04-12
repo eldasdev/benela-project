@@ -43,6 +43,36 @@ def remove_employee(id: int, request: Request, company_id: int | None = Query(de
         raise HTTPException(status_code=404, detail="Employee not found")
     return {"ok": True}
 
+
+@router.post("/employees/{id}/link-account", response_model=schemas.EmployeeOut)
+def link_employee_to_account(
+    id: int,
+    body: schemas.LinkEmployeeAccountBody,
+    request: Request,
+    company_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    account = resolve_company_account(request, db, company_id=company_id)
+    result, error = crud.link_employee_account(db, id, body.email, company_id=account.client_org_id)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return result
+
+
+@router.delete("/employees/{id}/link-account", response_model=schemas.EmployeeOut)
+def unlink_employee_from_account(
+    id: int,
+    request: Request,
+    company_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    account = resolve_company_account(request, db, company_id=company_id)
+    result = crud.unlink_employee_account(db, id, company_id=account.client_org_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return result
+
+
 # ── Positions ─────────────────────────────────────────
 @router.get("/positions", response_model=List[schemas.PositionOut])
 def list_positions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

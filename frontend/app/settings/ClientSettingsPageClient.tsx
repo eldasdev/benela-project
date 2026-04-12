@@ -57,6 +57,7 @@ const SECTION_LABELS: Record<ClientSection, string> = {
   procurement: "Procurement",
   insights: "Insights",
   marketplace: "Marketplace",
+  team: "Team",
 };
 
 type BusinessForm = {

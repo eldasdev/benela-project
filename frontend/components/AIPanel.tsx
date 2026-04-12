@@ -101,6 +101,7 @@ const SECTION_CONTEXT: Record<Section, { label: string; icon: string; prompts: s
   insights:     { label: "Insights",     icon: "📊", prompts: ["Give me an executive summary", "What trends should I know about?", "Compare this quarter vs last"] },
   settings:     { label: "Settings",     icon: "⚙️", prompts: ["How do I change my password?", "Where are notification preferences?", "Export my data"] },
   marketplace:  { label: "Marketplace",  icon: "📦", prompts: ["What integrations are available?", "How do I install an add-on?", "List popular integrations"] },
+  team:         { label: "Team",         icon: "👥", prompts: ["How do I invite a team member?", "Who has access to finance?", "How many seats are used?"] },
 };
 
 const ONEC_QUICK_QUERIES = [

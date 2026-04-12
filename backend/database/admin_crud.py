@@ -2150,3 +2150,48 @@ def get_ai_trainer_training_context(
         current_len += len(block)
 
     return "\n".join(lines).strip()
+
+
+# ── Training Playground ───────────────────────────────────────────────────────
+
+def save_playground_entry(
+    db: Session,
+    section: str,
+    title: str,
+    prompt: str,
+    response: str,
+    notes: Optional[str] = None,
+) -> AITrainerSource:
+    section = _normalize_section(section)
+    body = f"Q: {prompt}\n\nA: {response}"
+    if notes and notes.strip():
+        body = f"{body}\n\nNotes: {notes.strip()}"
+
+    source = AITrainerSource(
+        section=section,
+        source_type="training",
+        title=title[:255],
+        raw_text=body,
+        content_hash=hashlib.sha256(body.encode("utf-8", errors="ignore")).hexdigest(),
+        status="processing",
+        word_count=_word_count(body),
+        chunk_count=0,
+    )
+    db.add(source)
+    db.flush()
+    _rebuild_source_chunks(db, source, body)
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+def list_playground_entries(
+    db: Session,
+    section: Optional[str] = None,
+    limit: int = 100,
+) -> List[AITrainerSource]:
+    q = db.query(AITrainerSource).filter(AITrainerSource.source_type == "training")
+    if section:
+        normalized = _normalize_section(section)
+        q = q.filter(AITrainerSource.section == normalized)
+    return q.order_by(AITrainerSource.created_at.desc()).limit(limit).all()

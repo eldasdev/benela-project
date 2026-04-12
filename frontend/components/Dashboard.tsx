@@ -34,6 +34,7 @@ import ProjectsPage from "./ProjectsPage";
 import MarketplacePage from "./MarketplacePage";
 import MarketingPage from "./MarketingPage";
 import LegalPage from "./LegalPage";
+import TeamPage from "./TeamPage";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { authFetch } from "@/lib/auth-fetch";
 import { getClientWorkspaceId, hasClientWorkspaceId } from "@/lib/client-settings";
@@ -623,6 +624,8 @@ export default function Dashboard({
           <MarketingPage />
         ) : activeSection === "legal" ? (
           <LegalPage />
+        ) : activeSection === "team" ? (
+          <TeamPage />
         ) : activeSection === "marketplace" ? (
           <MarketplacePage />
         ) : activeSection === "dashboard" ? (

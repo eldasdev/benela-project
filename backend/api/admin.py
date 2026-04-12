@@ -1825,3 +1825,130 @@ def ai_trainer_context_preview(body: AITrainerContextPreviewBody, db: Session = 
         max_chunks=body.max_chunks or 8,
     )
     return {"context": context}
+
+
+# ── Training Playground ───────────────────────────────────────────────────────
+
+@router.post("/ai-trainer/playground/run", response_model=admin_schemas.PlaygroundRunResponse)
+def playground_run(body: admin_schemas.PlaygroundRunRequest, db: Session = Depends(get_db)):
+    from agents.base_agent import BaseAgent
+    from core.config import settings
+
+    section = body.section.strip().lower()
+    if not section:
+        raise HTTPException(status_code=400, detail="Section is required.")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    trainer_profile = crud.get_ai_trainer_runtime_profile(db, section)
+
+    system_instructions = ""
+    temperature = 0.2
+    runtime_model: Optional[str] = None
+    max_context_chars = 12000
+
+    if trainer_profile and trainer_profile.is_enabled:
+        system_instructions = (trainer_profile.system_instructions or "").strip()
+        temperature = float(trainer_profile.temperature or 0.2)
+        runtime_model = trainer_profile.model
+        max_context_chars = int(trainer_profile.max_context_chars or 12000)
+        preferred = (trainer_profile.provider or "auto").strip().lower()
+        if preferred in {"anthropic", "openai"}:
+            runtime_provider = preferred
+        else:
+            model_hint = (runtime_model or "").strip().lower()
+            runtime_provider = "openai" if model_hint.startswith("gpt-") else "anthropic"
+    else:
+        if settings.ANTHROPIC_API_KEY:
+            runtime_provider = "anthropic"
+        elif settings.OPENAI_API_KEY:
+            runtime_provider = "openai"
+        else:
+            raise HTTPException(status_code=503, detail="No AI provider is configured. Add ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+
+    training_context = crud.get_ai_trainer_training_context(
+        db=db,
+        section=section,
+        query=body.message,
+        max_context_chars=max_context_chars,
+        max_chunks=8,
+    )
+
+    section_label = section.replace("_", " ").title()
+    agent = BaseAgent(
+        name=f"{section_label} Playground",
+        system_prompt=(
+            f"You are an expert AI assistant for the {section_label} module of Benela AI. "
+            f"Answer questions accurately and helpfully using the training knowledge provided. "
+            f"Never use markdown — plain text only."
+        ),
+    )
+
+    full_message = body.message.strip()
+    if body.conversation_history:
+        history_lines = []
+        for msg in body.conversation_history:
+            prefix = "User" if msg.role == "user" else "Assistant"
+            history_lines.append(f"{prefix}: {msg.content}")
+        full_message = "Previous conversation:\n" + "\n".join(history_lines) + f"\n\nCurrent question: {full_message}"
+
+    try:
+        response = agent.run(
+            full_message,
+            context=training_context,
+            model=runtime_model,
+            provider=runtime_provider,
+            temperature=temperature,
+            extra_system_instructions=system_instructions or None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AI provider error: {exc}")
+
+    return admin_schemas.PlaygroundRunResponse(
+        response=response,
+        context_used=training_context,
+        provider_used=runtime_provider,
+        model_used=runtime_model or agent.default_model,
+    )
+
+
+@router.post("/ai-trainer/playground/save")
+def playground_save(body: admin_schemas.PlaygroundSaveRequest, db: Session = Depends(get_db)):
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required.")
+    if not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required.")
+    if not body.response.strip():
+        raise HTTPException(status_code=400, detail="Response is required.")
+
+    source = crud.save_playground_entry(
+        db=db,
+        section=body.section,
+        title=body.title.strip(),
+        prompt=body.prompt.strip(),
+        response=body.response.strip(),
+        notes=body.notes,
+    )
+    return {"ok": True, "id": source.id, "chunks": source.chunk_count}
+
+
+@router.get("/ai-trainer/playground/entries")
+def playground_entries(
+    section: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    entries = crud.list_playground_entries(db, section=section, limit=limit)
+    return [
+        {
+            "id": e.id,
+            "section": e.section,
+            "title": e.title,
+            "raw_text": e.raw_text or "",
+            "status": e.status,
+            "word_count": e.word_count,
+            "chunk_count": e.chunk_count,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in entries
+    ]

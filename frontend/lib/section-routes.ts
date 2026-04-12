@@ -14,6 +14,7 @@ const SECTION_PATHS: Record<Section, string> = {
   insights: "/insights",
   settings: "/settings",
   marketplace: "/marketplace",
+  team: "/team",
 };
 
 export const CLIENT_MODULE_PATHS = new Set<string>([

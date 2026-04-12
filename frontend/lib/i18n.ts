@@ -37,6 +37,7 @@ const sharedSections = {
   insights: "Insights",
   settings: "Settings",
   marketplace: "Marketplace",
+  team: "Team",
 } as const;
 
 const sharedPlanTiers = {

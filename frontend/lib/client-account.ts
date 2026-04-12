@@ -54,6 +54,8 @@ export interface ClientSidebarSummary {
   missing_setup_fields: string[];
   setup_progress_percent: number;
   trial_label: string;
+  role?: "owner" | "member";
+  allowed_modules?: string[];
 }
 
 export interface ClientBusinessDocument {

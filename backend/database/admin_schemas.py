@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Literal
+from typing import List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -982,3 +982,31 @@ class AITrainerSourceOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Training Playground ───────────────────────────────────────────────────────
+
+class PlaygroundMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class PlaygroundRunRequest(BaseModel):
+    section: str
+    message: str
+    conversation_history: Optional[List[PlaygroundMessage]] = Field(default_factory=list)
+
+
+class PlaygroundRunResponse(BaseModel):
+    response: str
+    context_used: str
+    provider_used: str
+    model_used: str
+
+
+class PlaygroundSaveRequest(BaseModel):
+    section: str
+    title: str
+    prompt: str
+    response: str
+    notes: Optional[str] = None

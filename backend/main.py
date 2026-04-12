@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text, inspect, func
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError, TimeoutError as SATimeoutError
 from core.auth import require_admin_user, require_authenticated_user, require_client_user
+from core.module_access import require_module_access
 from core.config import settings
 from api.agents import router as agents_router
 from api.finance import router as finance_router
@@ -35,6 +36,8 @@ from api.internal_chat import router as internal_chat_router
 from api.internal_chat import dispatch_due_reminders_job, process_telegram_bot_updates_job
 from api.onec import router as onec_router
 from api.platform_content import router as platform_content_router
+from api.team import router as team_router
+from api.facebook_ads import router as facebook_ads_router
 from integrations.attendance.attendance_service import attendance_service
 from integrations.onec.scheduler import sync_all_active_connections
 from database.connection import Base, engine, SessionLocal
@@ -72,6 +75,16 @@ from database.models import (
     ClientWorkspaceAccount,
     ClientBusinessDocument,
     ClientPlatformReport,
+    TeamMember,
+    FacebookAdsConnection,
+    FacebookAdsInsightCache,
+    ProjectLabel,
+    TaskLabelLink,
+    TaskChecklistItem,
+    TaskComment,
+    TaskAttachment,
+    TaskWatcher,
+    ProjectActivity,
     AdminNotification,
     NotificationTarget,
     NotificationType,
@@ -306,6 +319,54 @@ def _ensure_client_account_schema():
     ClientWorkspaceAccount.__table__.create(bind=engine, checkfirst=True)
     ClientBusinessDocument.__table__.create(bind=engine, checkfirst=True)
     ClientPlatformReport.__table__.create(bind=engine, checkfirst=True)
+    TeamMember.__table__.create(bind=engine, checkfirst=True)
+    FacebookAdsConnection.__table__.create(bind=engine, checkfirst=True)
+    FacebookAdsInsightCache.__table__.create(bind=engine, checkfirst=True)
+    # Trello-class projects extensions
+    ProjectLabel.__table__.create(bind=engine, checkfirst=True)
+    TaskLabelLink.__table__.create(bind=engine, checkfirst=True)
+    TaskChecklistItem.__table__.create(bind=engine, checkfirst=True)
+    TaskComment.__table__.create(bind=engine, checkfirst=True)
+    TaskAttachment.__table__.create(bind=engine, checkfirst=True)
+    TaskWatcher.__table__.create(bind=engine, checkfirst=True)
+    ProjectActivity.__table__.create(bind=engine, checkfirst=True)
+    # Idempotent ALTER TABLE for new columns on existing project tables
+    try:
+        with engine.begin() as conn:
+            if engine.dialect.name == "postgresql":
+                for stmt in (
+                    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_org_id INTEGER REFERENCES client_orgs(id) ON DELETE CASCADE",
+                    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(120)",
+                    "CREATE INDEX IF NOT EXISTS ix_projects_client_org_id ON projects(client_org_id)",
+                    "CREATE INDEX IF NOT EXISTS ix_projects_owner_user_id ON projects(owner_user_id)",
+                    "ALTER TABLE kanban_tasks ADD COLUMN IF NOT EXISTS cover_color VARCHAR(20)",
+                    "ALTER TABLE kanban_tasks ADD COLUMN IF NOT EXISTS start_date TIMESTAMP",
+                    "ALTER TABLE kanban_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+                    "ALTER TABLE kanban_tasks ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL",
+                    "CREATE INDEX IF NOT EXISTS ix_kanban_tasks_employee_id ON kanban_tasks(employee_id)",
+                ):
+                    try:
+                        conn.execute(text(stmt))
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("projects ALTER TABLE skipped (%s): %s", stmt[:60], exc)
+            elif engine.dialect.name == "sqlite":
+                project_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(projects)")).fetchall()}
+                if "client_org_id" not in project_cols:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN client_org_id INTEGER"))
+                if "owner_user_id" not in project_cols:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN owner_user_id VARCHAR(120)"))
+                task_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(kanban_tasks)")).fetchall()}
+                sqlite_adds = {
+                    "cover_color": "ALTER TABLE kanban_tasks ADD COLUMN cover_color VARCHAR(20)",
+                    "start_date": "ALTER TABLE kanban_tasks ADD COLUMN start_date DATETIME",
+                    "completed_at": "ALTER TABLE kanban_tasks ADD COLUMN completed_at DATETIME",
+                    "employee_id": "ALTER TABLE kanban_tasks ADD COLUMN employee_id INTEGER",
+                }
+                for col, stmt in sqlite_adds.items():
+                    if col not in task_cols:
+                        conn.execute(text(stmt))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("projects schema migration skipped: %s", exc)
 
 
 def _should_auto_create_platform_content_tables() -> bool:
@@ -837,17 +898,18 @@ def _register_routes(prefix: str = ""):
         tags=["Agents"],
         dependencies=[Depends(require_authenticated_user)],
     )
-    app.include_router(finance_router, prefix=prefix, tags=["Finance"], dependencies=[Depends(require_client_user)])
-    app.include_router(sales_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(support_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(supply_chain_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(procurement_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(insights_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(hr_router, prefix=prefix, tags=["HR"], dependencies=[Depends(require_client_user)])
+    app.include_router(finance_router, prefix=prefix, tags=["Finance"], dependencies=[Depends(require_module_access)])
+    app.include_router(sales_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(support_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(supply_chain_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(procurement_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(insights_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(hr_router, prefix=prefix, tags=["HR"], dependencies=[Depends(require_module_access)])
     app.include_router(hr_attendance_router, prefix=prefix)
-    app.include_router(projects_router, prefix=prefix, tags=["Projects"], dependencies=[Depends(require_client_user)])
-    app.include_router(marketing_router, prefix=prefix, dependencies=[Depends(require_client_user)])
-    app.include_router(legal_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(projects_router, prefix=prefix, tags=["Projects"], dependencies=[Depends(require_module_access)])
+    app.include_router(marketing_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(facebook_ads_router, prefix=prefix, dependencies=[Depends(require_module_access)])
+    app.include_router(legal_router, prefix=prefix, dependencies=[Depends(require_module_access)])
     app.include_router(admin_router, prefix=prefix, dependencies=[Depends(require_admin_user)])
     app.include_router(marketplace_router, prefix=prefix, dependencies=[Depends(require_authenticated_user)])
     app.include_router(dashboard_router, prefix=prefix, dependencies=[Depends(require_client_user)])
@@ -856,6 +918,7 @@ def _register_routes(prefix: str = ""):
     app.include_router(client_account_router, prefix=prefix, dependencies=[Depends(require_client_user)])
     app.include_router(internal_chat_router, prefix=prefix, dependencies=[Depends(require_authenticated_user)])
     app.include_router(onec_router, prefix=prefix, dependencies=[Depends(require_client_user)])
+    app.include_router(team_router, prefix=prefix, dependencies=[Depends(require_authenticated_user)])
     app.include_router(platform_content_router, prefix=prefix)
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Briefcase, BriefcaseBusiness, CalendarClock, Pencil, Plus, ReceiptText, Trash2, Users, UserCheck, UserMinus, X } from "lucide-react";
+import { Briefcase, BriefcaseBusiness, CalendarClock, Link2, LinkIcon, Pencil, Plus, ReceiptText, Trash2, Unlink, Users, UserCheck, UserMinus, X } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { authFetch } from "@/lib/auth-fetch";
 import AttendanceDashboard from "@/components/hr/AttendanceDashboard";
@@ -39,6 +39,10 @@ export type Employee = {
   department: string;
   role: string;
   salary?: number | null;
+  user_id?: string | null;
+  position_id?: number | null;
+  position_title?: string | null;
+  is_linked: boolean;
   shift_start?: string | null;
   shift_end?: string | null;
   late_grace_minutes: number;
@@ -87,6 +91,7 @@ const emptyEmp = {
   role: "",
   salary: "",
   employee_pin: "",
+  position_name: "",
   shift_start: "09:00",
   shift_end: "18:00",
   late_grace_minutes: "15",
@@ -127,6 +132,7 @@ function buildEmployeePayload(form: typeof emptyEmp, isEdit = false) {
     department: form.department,
     role: form.role,
     salary: form.salary ? Number(form.salary) : null,
+    position_name: form.position_name.trim() || null,
     shift_start: form.shift_start || null,
     shift_end: form.shift_end || null,
     late_grace_minutes: Number(form.late_grace_minutes || 15),
@@ -193,6 +199,7 @@ export default function HRPage() {
       role: emp.role,
       salary: emp.salary != null ? String(emp.salary) : "",
       employee_pin: "",
+      position_name: emp.position_title || "",
       shift_start: formatTimeField(emp.shift_start),
       shift_end: formatTimeField(emp.shift_end),
       late_grace_minutes: String(emp.late_grace_minutes || 15),
@@ -249,6 +256,40 @@ export default function HRPage() {
   const deleteEmp = async (id: number) => {
     if (!confirm("Delete this employee?")) return;
     await authFetch(`${API}/hr/employees/${id}`, { method: "DELETE" });
+    await load();
+  };
+
+  const [linkTarget, setLinkTarget] = useState<Employee | null>(null);
+  const [linkEmail, setLinkEmail] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  const linkEmployee = async () => {
+    if (!linkTarget || !linkEmail.trim()) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      const res = await authFetch(`${API}/hr/employees/${linkTarget.id}/link-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: linkEmail.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Link failed" }));
+        setLinkError(err.detail || "Link failed");
+        return;
+      }
+      setLinkTarget(null);
+      setLinkEmail("");
+      await load();
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const unlinkEmployee = async (emp: Employee) => {
+    if (!confirm(`Unlink ${emp.full_name} from their platform account?`)) return;
+    await authFetch(`${API}/hr/employees/${emp.id}/link-account`, { method: "DELETE" });
     await load();
   };
 
@@ -384,36 +425,60 @@ export default function HRPage() {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px", fontSize: "12px", color: "var(--text-subtle)" }}>
                       <span>Department: {emp.department}</span>
                       <span>Role: {emp.role}</span>
-                      <span>Shift: {formatTimeField(emp.shift_start) || "09:00"} - {formatTimeField(emp.shift_end) || "18:00"}</span>
+                      <span>Position: {emp.position_title || "—"}</span>
                       <span>Contract: {emp.contract_type}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-                      <button onClick={() => openEditEmp(emp)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Pencil size={12} color="var(--text-muted)" />
-                      </button>
-                      <button onClick={() => deleteEmp(emp.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Trash2 size={12} color="var(--danger)" />
-                      </button>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
+                      <div>
+                        {emp.is_linked ? (
+                          <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: "#34d39912", color: "#34d399", display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer" }} onClick={() => unlinkEmployee(emp)}>
+                            <Link2 size={10} /> Linked
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "7px", background: "var(--bg-elevated)", color: "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer" }} onClick={() => { setLinkTarget(emp); setLinkEmail(emp.email || ""); setLinkError(null); }}>
+                            <Unlink size={10} /> Link account
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button onClick={() => openEditEmp(emp)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Pencil size={12} color="var(--text-muted)" />
+                        </button>
+                        <button onClick={() => deleteEmp(emp.id)} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Trash2 size={12} color="var(--danger)" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.3fr 1fr 1fr 0.8fr 90px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
-                  {["Name", "Email", "Department", "Shift / Contract", "Status", ""].map((header) => (
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 0.9fr 0.8fr 0.7fr 0.7fr 110px", padding: "10px 20px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-soft)" }}>
+                  {["Name", "Email", "Position", "Department", "Account", "Status", ""].map((header) => (
                     <span key={header} style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-quiet)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{header}</span>
                   ))}
                 </div>
                 {employees.map((emp, index) => (
-                  <div key={emp.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.3fr 1fr 1fr 0.8fr 90px", padding: "13px 20px", borderBottom: index < employees.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s" }}>
+                  <div key={emp.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 0.9fr 0.8fr 0.7fr 0.7fr 110px", padding: "13px 20px", borderBottom: index < employees.length - 1 ? "1px solid var(--table-row-divider)" : "none", transition: "background 0.1s", alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>{emp.full_name}</div>
                       <div style={{ fontSize: "12px", color: "var(--text-subtle)", marginTop: "2px" }}>{emp.role}</div>
                     </div>
-                    <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{emp.email}</span>
+                    <span style={{ fontSize: "13px", color: "var(--text-subtle)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emp.email}</span>
+                    <span style={{ fontSize: "12px", color: "var(--text-subtle)" }}>{emp.position_title || "—"}</span>
                     <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{emp.department}</span>
-                    <span style={{ fontSize: "13px", color: "var(--text-subtle)" }}>{formatTimeField(emp.shift_start) || "09:00"}-{formatTimeField(emp.shift_end) || "18:00"} · {emp.contract_type}</span>
+                    <div>
+                      {emp.is_linked ? (
+                        <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: "#34d39912", color: "#34d399", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content", cursor: "pointer" }} title="Click to unlink" onClick={() => unlinkEmployee(emp)}>
+                          <Link2 size={10} /> Linked
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: "var(--bg-elevated)", color: "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content", cursor: "pointer" }} onClick={() => { setLinkTarget(emp); setLinkEmail(emp.email || ""); setLinkError(null); }}>
+                          <Unlink size={10} /> Link
+                        </span>
+                      )}
+                    </div>
                     <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "6px", background: `${STATUS_COLOR[emp.status] || "var(--text-muted)"}12`, color: STATUS_COLOR[emp.status] || "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "4px", width: "fit-content" }}>
                       <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: STATUS_COLOR[emp.status] || "var(--text-muted)", flexShrink: 0 }} />{emp.status.replace("_", " ")}
                     </span>
@@ -486,6 +551,41 @@ export default function HRPage() {
         </div>
       )}
 
+      {linkTarget && (
+        <div style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? "10px" : "18px" }} onClick={() => { setLinkTarget(null); setLinkError(null); }}>
+          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: isMobile ? "16px 14px" : "28px", width: isMobile ? "100%" : "420px", maxWidth: "92vw" }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
+              <h2 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "8px" }}>
+                <LinkIcon size={15} /> Link Account
+              </h2>
+              <button onClick={() => { setLinkTarget(null); setLinkError(null); }} style={{ width: "28px", height: "28px", borderRadius: "8px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <X size={13} color="var(--text-muted)" />
+              </button>
+            </div>
+            <p style={{ fontSize: "13px", color: "var(--text-subtle)", marginBottom: "14px" }}>
+              Link <strong style={{ color: "var(--text-primary)" }}>{linkTarget.full_name}</strong> to a platform user account by their email address.
+            </p>
+            {linkError && (
+              <div style={{ marginBottom: "12px", padding: "10px 12px", borderRadius: "9px", border: "1px solid color-mix(in srgb, var(--danger) 40%, var(--border-default) 60%)", background: "color-mix(in srgb, var(--danger) 8%, var(--bg-surface) 92%)", color: "var(--danger)", fontSize: "12px" }}>
+                {linkError}
+              </div>
+            )}
+            <div>
+              <label style={labelStyle}>User email</label>
+              <input style={inputStyle} value={linkEmail} onChange={(event) => setLinkEmail(event.target.value)} placeholder="user@company.com" onKeyDown={(event) => { if (event.key === "Enter") linkEmployee(); }} />
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "18px", justifyContent: "flex-end" }}>
+              <button onClick={() => { setLinkTarget(null); setLinkError(null); }} style={{ padding: "9px 18px", borderRadius: "9px", background: "var(--bg-elevated)", border: "1px solid var(--border-default)", color: "var(--text-muted)", fontSize: "13px", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={linkEmployee} disabled={linkBusy || !linkEmail.trim()} style={{ padding: "9px 20px", borderRadius: "9px", background: "var(--accent)", border: "none", color: "white", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: linkBusy || !linkEmail.trim() ? 0.6 : 1 }}>
+                {linkBusy ? "Linking..." : "Link Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modal && showCrudSurface ? (
         <div style={{ position: "fixed", inset: 0, background: "var(--overlay-backdrop)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? "10px" : "18px" }} onClick={() => setModal(null)}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "16px", padding: isMobile ? "16px 14px" : "28px", width: isMobile ? "100%" : "560px", maxWidth: "92vw", maxHeight: "92vh", overflowY: "auto" }} onClick={(event) => event.stopPropagation()}>
@@ -519,6 +619,15 @@ export default function HRPage() {
                     <label style={labelStyle}>Role</label>
                     <input style={inputStyle} value={empForm.role} onChange={(event) => setEmpForm((current) => ({ ...current, role: event.target.value }))} placeholder="Senior Developer" />
                   </div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Position</label>
+                  <input style={inputStyle} list="position-suggestions" value={empForm.position_name} onChange={(event) => setEmpForm((current) => ({ ...current, position_name: event.target.value }))} placeholder="e.g. Senior Backend Engineer" />
+                  <datalist id="position-suggestions">
+                    {positions.map((p) => (
+                      <option key={p.id} value={p.title} />
+                    ))}
+                  </datalist>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "12px" }}>
                   <div>

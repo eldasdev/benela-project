@@ -11,4 +11,5 @@ export type Section =
   | "procurement"
   | "insights"
   | "settings"
-  | "marketplace";
+  | "marketplace"
+  | "team";

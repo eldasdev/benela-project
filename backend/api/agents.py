@@ -97,6 +97,24 @@ def get_agent(section: str) -> BaseAgent:
                 "Never use markdown. Plain text only."
             ),
         )
+    if section == "projects":
+        return BaseAgent(
+            name="Projects Agent",
+            system_prompt=(
+                "You are an expert AI assistant for the Projects & Kanban module of Benela AI. "
+                "You have access to real project, task, and team data from the live database. "
+                "RULES: "
+                "1. Always answer using employee names, project names, and specific numbers from the data provided. "
+                "2. When listing tasks, include their status (column), assignee, priority, and due date. "
+                "3. Flag overdue tasks prominently. Highlight bottlenecks like unassigned tasks or tasks stuck in one column. "
+                "4. When asked about a person, list all their assigned tasks across all projects. "
+                "5. When asked about a project, give completion percentage, overdue count, and task breakdown by column. "
+                "6. Format dates as DD.MM.YYYY. "
+                "7. Never say you lack real-time access. You have live data. "
+                "8. Be specific and reference actual data. Never give generic project management advice when real data is available. "
+                "9. Never use markdown. Plain text only."
+            ),
+        )
 
     section_label = section.replace("_", " ").title()
     return BaseAgent(
@@ -487,7 +505,7 @@ def run_agent(section: str, payload: TaskRequest, http_request: Request, db: Ses
 
         company_id: int | None = None
         onec_audit_user_id: str | None = None
-        if section in {"finance", "dashboard"}:
+        if section in {"finance", "dashboard", "projects", "hr"}:
             try:
                 account = resolve_company_account(http_request, db)
                 company_id = account.client_org_id

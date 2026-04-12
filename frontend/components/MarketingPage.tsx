@@ -16,6 +16,7 @@ import {
   DollarSign,
 } from "lucide-react";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import FacebookAdsPanel from "@/components/marketing/FacebookAdsPanel";
 
 const API = typeof window !== "undefined" ? "/api" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -260,7 +261,7 @@ const lineClampStyle = {
 export default function MarketingPage() {
   const isDenseLayout = useIsMobile(1120);
 
-  const [tab, setTab] = useState<"campaigns" | "content" | "leads" | "channels">("campaigns");
+  const [tab, setTab] = useState<"campaigns" | "content" | "leads" | "channels" | "facebook">("campaigns");
   const [summary, setSummary] = useState<MarketingSummary | null>(null);
   const [funnel, setFunnel] = useState<MarketingFunnel | null>(null);
   const [benchmarks, setBenchmarks] = useState<MarketingBenchmarks | null>(null);
@@ -814,6 +815,7 @@ export default function MarketingPage() {
             ["content", "Content Calendar"],
             ["leads", "Leads"],
             ["channels", "Channel Analytics"],
+            ["facebook", "Facebook Ads"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -838,6 +840,9 @@ export default function MarketingPage() {
         ))}
       </div>
 
+      {tab === "facebook" ? (
+        <FacebookAdsPanel />
+      ) : (
       <div
         style={{
           background: "var(--bg-surface)",
@@ -1323,6 +1328,7 @@ export default function MarketingPage() {
           ) : null}
         </div>
       </div>
+      )}
 
       {modal ? (
         <div

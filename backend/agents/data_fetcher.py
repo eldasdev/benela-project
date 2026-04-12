@@ -289,43 +289,183 @@ PAYROLL STATUS:
         db.close()
 
 
-def get_projects_context() -> str:
-    """Fetch real projects/kanban data."""
+def get_projects_context(client_org_id: int | None = None) -> str:
+    """Fetch comprehensive, workspace-scoped projects/kanban data."""
+    from datetime import datetime
+
     db = SessionLocal()
     try:
-        from database.models import Project, KanbanTask, KanbanColumn
+        from database.models import (
+            Project, KanbanTask, KanbanColumn, Employee,
+            ProjectLabel, TaskLabelLink, TaskChecklistItem, TaskComment,
+        )
 
-        projects = db.query(Project).all()
-        tasks = db.query(KanbanTask).all()
-        columns = db.query(KanbanColumn).all()
+        # ── Query projects (scoped by org) ──
+        proj_q = db.query(Project)
+        if client_org_id is not None:
+            proj_q = proj_q.filter(Project.client_org_id == client_org_id)
+        projects = proj_q.order_by(Project.created_at.desc()).all()
 
-        col_map = {col.id: col.name for col in columns}
+        if not projects:
+            return "REAL PROJECTS DATA (live from database):\n\n  No projects found in this workspace."
 
-        proj_lines = []
-        for project in projects:
-            task_count = len([task for task in tasks if task.project_id == project.id])
-            proj_lines.append(
-                f"  - {project.name} | {project.status} | "
-                f"Owner: {project.owner or 'Unassigned'} | Tasks: {task_count}"
+        project_ids = [p.id for p in projects]
+
+        # ── Query all related data in bulk ──
+        columns = (
+            db.query(KanbanColumn)
+            .filter(KanbanColumn.project_id.in_(project_ids))
+            .order_by(KanbanColumn.position)
+            .all()
+        )
+        tasks = (
+            db.query(KanbanTask)
+            .filter(KanbanTask.project_id.in_(project_ids))
+            .order_by(KanbanTask.position)
+            .all()
+        )
+
+        # Employee names for assignees
+        emp_ids = list({t.employee_id for t in tasks if t.employee_id})
+        emp_map: dict[int, str] = {}
+        if emp_ids:
+            employees = db.query(Employee.id, Employee.full_name).filter(Employee.id.in_(emp_ids)).all()
+            emp_map = {e.id: e.full_name for e in employees}
+
+        # Labels per task
+        task_ids = [t.id for t in tasks]
+        label_map: dict[int, list[str]] = {}
+        if task_ids:
+            label_rows = (
+                db.query(TaskLabelLink.task_id, ProjectLabel.name)
+                .join(ProjectLabel, ProjectLabel.id == TaskLabelLink.label_id)
+                .filter(TaskLabelLink.task_id.in_(task_ids))
+                .all()
             )
+            for row in label_rows:
+                label_map.setdefault(row.task_id, []).append(row.name)
 
-        task_lines = []
-        for task in tasks[:30]:
-            col_name = col_map.get(task.column_id, "Unknown")
-            task_lines.append(
-                f"  - [{col_name}] {task.title} | {task.priority} priority | "
-                f"Assignee: {task.assignee or 'Unassigned'}"
+        # Checklist stats per task
+        checklist_map: dict[int, tuple[int, int]] = {}  # task_id -> (total, done)
+        if task_ids:
+            cl_rows = (
+                db.query(TaskChecklistItem.task_id, TaskChecklistItem.done)
+                .filter(TaskChecklistItem.task_id.in_(task_ids))
+                .all()
             )
+            for row in cl_rows:
+                total, done = checklist_map.get(row.task_id, (0, 0))
+                checklist_map[row.task_id] = (total + 1, done + (1 if row.done else 0))
 
-        return f"""
-REAL PROJECTS DATA (live from database):
+        # Comment counts per task
+        comment_map: dict[int, int] = {}
+        if task_ids:
+            from sqlalchemy import func as sa_func
+            comment_rows = (
+                db.query(TaskComment.task_id, sa_func.count(TaskComment.id))
+                .filter(TaskComment.task_id.in_(task_ids))
+                .group_by(TaskComment.task_id)
+                .all()
+            )
+            comment_map = {row[0]: row[1] for row in comment_rows}
 
-Projects ({len(projects)} total):
-{chr(10).join(proj_lines) if proj_lines else "  No projects found."}
+        # ── Build lookup maps ──
+        col_map = {c.id: c.name for c in columns}
+        cols_by_project: dict[int, list[str]] = {}
+        for c in columns:
+            cols_by_project.setdefault(c.project_id, []).append(c.name)
 
-Tasks ({len(tasks)} total):
-{chr(10).join(task_lines) if task_lines else "  No tasks found."}
-""".strip()
+        tasks_by_project: dict[int, list] = {}
+        for t in tasks:
+            tasks_by_project.setdefault(t.project_id, []).append(t)
+
+        now = datetime.utcnow()
+
+        # ── Global KPIs ──
+        total_tasks = len(tasks)
+        completed_tasks = sum(1 for t in tasks if t.completed_at)
+        overdue_tasks = sum(
+            1 for t in tasks
+            if t.due_date and t.due_date < now and not t.completed_at
+        )
+        active_projects = sum(1 for p in projects if str(p.status) in ("active", "ProjectStatus.active"))
+
+        priority_counts: dict[str, int] = {}
+        for t in tasks:
+            p_name = str(t.priority).replace("TaskPriority.", "")
+            priority_counts[p_name] = priority_counts.get(p_name, 0) + 1
+
+        priority_str = ", ".join(f"{c} {p}" for p, c in priority_counts.items()) or "none"
+
+        completion_pct = round((completed_tasks / total_tasks) * 100) if total_tasks else 0
+
+        lines = [
+            "REAL PROJECTS DATA (live from database):",
+            "",
+            "SUMMARY:",
+            f"  Total projects: {len(projects)} ({active_projects} active)",
+            f"  Total tasks: {total_tasks} | Completed: {completed_tasks} ({completion_pct}%) | Overdue: {overdue_tasks}",
+            f"  Tasks by priority: {priority_str}",
+            "",
+            "PROJECTS:",
+        ]
+
+        # ── Per-project detail ──
+        for idx, project in enumerate(projects, 1):
+            p_status = str(project.status).replace("ProjectStatus.", "")
+            p_tasks = tasks_by_project.get(project.id, [])
+            p_done = sum(1 for t in p_tasks if t.completed_at)
+            p_overdue = sum(1 for t in p_tasks if t.due_date and t.due_date < now and not t.completed_at)
+            p_cols = cols_by_project.get(project.id, [])
+
+            header = f"\n{idx}. {project.name} [{p_status}]"
+            if project.due_date:
+                header += f" (due: {project.due_date.strftime('%d.%m.%Y')})"
+            lines.append(header)
+
+            if project.description:
+                desc = project.description[:120].replace("\n", " ")
+                lines.append(f"   Description: {desc}")
+
+            if p_cols:
+                lines.append(f"   Columns: {' -> '.join(p_cols)}")
+
+            lines.append(f"   Tasks ({len(p_tasks)} total, {p_done} done, {p_overdue} overdue):")
+
+            for task in p_tasks[:50]:
+                col_name = col_map.get(task.column_id, "Unknown")
+                assignee = emp_map.get(task.employee_id, task.assignee) if task.employee_id else (task.assignee or "Unassigned")
+                p_name = str(task.priority).replace("TaskPriority.", "")
+
+                parts = [f"     - [{col_name}] {task.title} | {p_name} priority | Assignee: {assignee}"]
+
+                if task.due_date:
+                    due_str = task.due_date.strftime("%d.%m.%Y")
+                    if not task.completed_at and task.due_date < now:
+                        due_str += " (OVERDUE)"
+                    parts.append(f"Due: {due_str}")
+
+                if task.completed_at:
+                    parts.append(f"Completed: {task.completed_at.strftime('%d.%m.%Y')}")
+
+                labels = label_map.get(task.id)
+                if labels:
+                    parts.append(f"Labels: {', '.join(labels)}")
+
+                cl = checklist_map.get(task.id)
+                if cl:
+                    parts.append(f"Checklist: {cl[1]}/{cl[0]}")
+
+                cc = comment_map.get(task.id, 0)
+                if cc:
+                    parts.append(f"Comments: {cc}")
+
+                lines.append(" | ".join(parts))
+
+            if not p_tasks:
+                lines.append("     No tasks yet.")
+
+        return "\n".join(lines)
     finally:
         db.close()
 
@@ -532,7 +672,7 @@ def get_dashboard_context(company_id: int | None = None, include_onec: bool = Tr
             finance = f"{finance}\n\n{extras}".strip()
     hr = get_hr_context(company_id=company_id)
     attendance = get_attendance_context(company_id=company_id)
-    projects = get_projects_context()
+    projects = get_projects_context(client_org_id=company_id)
     return "\n\n".join(part for part in [finance, hr, attendance, projects] if part).strip()
 
 
@@ -567,7 +707,7 @@ def get_context_for_section(section: str, company_id: int | None = None, include
         "hr": lambda: "\n\n".join(
             part for part in [get_hr_context(company_id=company_id), get_attendance_context(company_id=company_id)] if part
         ).strip(),
-        "projects": get_projects_context,
+        "projects": lambda: get_projects_context(client_org_id=company_id),
         "marketing": get_marketing_context,
         "legal": get_legal_context,
         "admin": get_admin_context,

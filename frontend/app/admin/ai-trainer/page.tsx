@@ -65,6 +65,24 @@ type AgentResponse = {
   response: string;
 };
 
+type PlaygroundEntry = {
+  id: number;
+  section: string;
+  title: string;
+  raw_text: string;
+  status: string;
+  word_count: number;
+  chunk_count: number;
+  created_at: string;
+};
+
+type PlaygroundRunResponse = {
+  response: string;
+  context_used: string;
+  provider_used: string;
+  model_used: string;
+};
+
 const SECTIONS = [
   "dashboard",
   "projects",
@@ -142,6 +160,19 @@ export default function AdminAITrainerPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  // Training Playground
+  const [pgPrompt, setPgPrompt] = useState("");
+  const [pgMessages, setPgMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [pgContext, setPgContext] = useState("");
+  const [pgRunning, setPgRunning] = useState(false);
+  const [pgLastQA, setPgLastQA] = useState<{ prompt: string; response: string } | null>(null);
+  const [pgShowSave, setPgShowSave] = useState(false);
+  const [pgSaveTitle, setPgSaveTitle] = useState("");
+  const [pgSaveNotes, setPgSaveNotes] = useState("");
+  const [pgSaving, setPgSaving] = useState(false);
+  const [pgEntries, setPgEntries] = useState<PlaygroundEntry[]>([]);
+  const [pgLoadingEntries, setPgLoadingEntries] = useState(false);
+
   const selectedModels = useMemo(() => {
     if (provider === "anthropic") return PROVIDER_MODELS.anthropic;
     if (provider === "openai") return PROVIDER_MODELS.openai;
@@ -218,6 +249,19 @@ export default function AdminAITrainerPage() {
     }
   }, []);
 
+  const loadPlaygroundEntries = useCallback(async (section: string) => {
+    setPgLoadingEntries(true);
+    try {
+      const res = await authFetch(`${API}/admin/ai-trainer/playground/entries?section=${encodeURIComponent(section)}&limit=100`);
+      const payload = await parseResponse<PlaygroundEntry[]>(res, "Failed to load playground entries.");
+      setPgEntries(payload);
+    } catch {
+      setPgEntries([]);
+    } finally {
+      setPgLoadingEntries(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadProfiles();
   }, [loadProfiles]);
@@ -226,6 +270,11 @@ export default function AdminAITrainerPage() {
     if (!selectedSection) return;
     void loadSectionData(selectedSection);
   }, [selectedSection, loadSectionData]);
+
+  useEffect(() => {
+    if (!selectedSection) return;
+    void loadPlaygroundEntries(selectedSection);
+  }, [selectedSection, loadPlaygroundEntries]);
 
   const saveProfile = async () => {
     if (!profile) return;
@@ -434,6 +483,68 @@ export default function AdminAITrainerPage() {
       setError(readError(err, "Failed to run AI test."));
     } finally {
       setRunningTest(false);
+    }
+  };
+
+  const runPlayground = async () => {
+    if (!pgPrompt.trim()) return;
+    setPgRunning(true);
+    setError("");
+    const currentPrompt = pgPrompt.trim();
+    const historyForApi = pgMessages.map((m) => ({ role: m.role, content: m.content }));
+    try {
+      const res = await authFetch(`${API}/admin/ai-trainer/playground/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: selectedSection,
+          message: currentPrompt,
+          conversation_history: historyForApi,
+        }),
+      });
+      const payload = await parseResponse<PlaygroundRunResponse>(res, "Failed to run playground AI.");
+      setPgMessages((prev) => [
+        ...prev,
+        { role: "user", content: currentPrompt },
+        { role: "assistant", content: payload.response },
+      ]);
+      setPgContext(payload.context_used);
+      setPgLastQA({ prompt: currentPrompt, response: payload.response });
+      setPgSaveTitle(`${displaySection(selectedSection)}: ${currentPrompt.slice(0, 60)}${currentPrompt.length > 60 ? "..." : ""}`);
+      setPgPrompt("");
+    } catch (err: unknown) {
+      setError(readError(err, "Failed to run playground AI."));
+    } finally {
+      setPgRunning(false);
+    }
+  };
+
+  const savePlaygroundEntry = async () => {
+    if (!pgLastQA || !pgSaveTitle.trim()) return;
+    setPgSaving(true);
+    setError("");
+    try {
+      const res = await authFetch(`${API}/admin/ai-trainer/playground/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: selectedSection,
+          title: pgSaveTitle.trim(),
+          prompt: pgLastQA.prompt,
+          response: pgLastQA.response,
+          notes: pgSaveNotes.trim() || null,
+        }),
+      });
+      await parseResponse<{ ok: boolean; id: number; chunks: number }>(res, "Failed to save playground entry.");
+      setNotice("Training entry saved and indexed. The AI will now use this knowledge for client queries.");
+      setPgShowSave(false);
+      setPgSaveTitle("");
+      setPgSaveNotes("");
+      await loadPlaygroundEntries(selectedSection);
+    } catch (err: unknown) {
+      setError(readError(err, "Failed to save playground entry."));
+    } finally {
+      setPgSaving(false);
     }
   };
 
@@ -721,6 +832,211 @@ export default function AdminAITrainerPage() {
               <div style={outputTitleStyle}>AI Response</div>
               <pre style={outputContentStyle}>{testResult || "AI test response will appear here."}</pre>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Training Playground */}
+      <section style={{ ...panelStyle, marginTop: "0" }}>
+        <div style={{ ...panelHeader, display: "flex", alignItems: "center", gap: "8px" }}>
+          <Sparkles size={14} />
+          Training Playground
+        </div>
+        <div style={panelBody}>
+          <p style={{ fontSize: "12px", color: "var(--text-subtle)", marginBottom: "14px", lineHeight: 1.6, margin: "0 0 14px" }}>
+            Ask questions to test and refine section AI behavior. Save good responses as training knowledge — they get automatically indexed and used when clients ask questions in their dashboard.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "14px" }}>
+            {/* Left: Conversation */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ ...outputBoxStyle, minHeight: "260px" }}>
+                <div style={outputTitleStyle}>Conversation</div>
+                <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px", maxHeight: "340px", overflowY: "auto" }}>
+                  {pgMessages.length === 0 && (
+                    <span style={{ fontSize: "12px", color: "var(--text-quiet)" }}>Ask a question to begin training this section.</span>
+                  )}
+                  {pgMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        lineHeight: 1.5,
+                        background: msg.role === "user" ? "var(--bg-elevated)" : "color-mix(in srgb, var(--accent) 8%, var(--bg-panel))",
+                        border: "1px solid var(--border-default)",
+                        color: "var(--text-primary)",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      <span style={{ fontSize: "10px", color: "var(--text-subtle)", marginBottom: "4px", display: "block", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "monospace" }}>
+                        {msg.role === "user" ? "You" : `AI · ${displaySection(selectedSection)}`}
+                      </span>
+                      {msg.content}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <textarea
+                value={pgPrompt}
+                onChange={(e) => setPgPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void runPlayground();
+                  }
+                }}
+                placeholder={`Ask a question for the ${displaySection(selectedSection)} section...`}
+                style={{ ...inputStyle, minHeight: "72px", resize: "vertical", fontFamily: "inherit" }}
+                disabled={pgRunning}
+              />
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button onClick={() => void runPlayground()} style={primaryBtn} disabled={pgRunning || !pgPrompt.trim()}>
+                  <Sparkles size={13} />
+                  {pgRunning ? "Thinking..." : "Ask AI"}
+                </button>
+                {pgLastQA && !pgShowSave && (
+                  <button onClick={() => setPgShowSave(true)} style={secondaryBtn}>
+                    <Save size={13} />
+                    Save to Training
+                  </button>
+                )}
+                {pgMessages.length > 0 && (
+                  <button
+                    onClick={() => { setPgMessages([]); setPgContext(""); setPgLastQA(null); setPgShowSave(false); }}
+                    style={secondaryBtn}
+                  >
+                    <RefreshCcw size={13} />
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Retrieved Context */}
+            <div>
+              <div style={{ ...outputBoxStyle, minHeight: "260px" }}>
+                <div style={outputTitleStyle}>Retrieved Training Context</div>
+                <pre style={{ ...outputContentStyle, maxHeight: "440px" }}>
+                  {pgContext || "Retrieved training context will appear here after your first query."}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Dialog */}
+          {pgShowSave && pgLastQA && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "14px",
+                border: "1px solid color-mix(in srgb, var(--accent) 35%, var(--border-default))",
+                borderRadius: "12px",
+                background: "color-mix(in srgb, var(--accent) 5%, var(--bg-surface))",
+              }}
+            >
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "12px" }}>
+                Save as Training Knowledge
+              </div>
+              <div style={gridTwo}>
+                <Field label="Entry Title">
+                  <input
+                    value={pgSaveTitle}
+                    onChange={(e) => setPgSaveTitle(e.target.value)}
+                    style={inputStyle}
+                    placeholder="Descriptive title for this Q&A pair..."
+                  />
+                </Field>
+                <Field label="Notes (optional)">
+                  <input
+                    value={pgSaveNotes}
+                    onChange={(e) => setPgSaveNotes(e.target.value)}
+                    style={inputStyle}
+                    placeholder="Any additional context or caveats..."
+                  />
+                </Field>
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button onClick={() => void savePlaygroundEntry()} style={primaryBtn} disabled={pgSaving || !pgSaveTitle.trim()}>
+                  <Save size={13} />
+                  {pgSaving ? "Saving..." : "Save & Index"}
+                </button>
+                <button onClick={() => setPgShowSave(false)} style={secondaryBtn}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Saved Training Entries */}
+          <div style={{ marginTop: "20px" }}>
+            <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
+              <Database size={12} />
+              Saved Training Entries — {displaySection(selectedSection)}
+              {pgLoadingEntries && (
+                <span style={{ fontSize: "11px", color: "var(--text-subtle)", fontWeight: 400, marginLeft: "4px" }}>Loading...</span>
+              )}
+            </div>
+
+            {!pgLoadingEntries && pgEntries.length === 0 && (
+              <div style={{ fontSize: "12px", color: "var(--text-subtle)", padding: "10px 0" }}>
+                No training entries saved for this section yet. Ask questions and save good responses above.
+              </div>
+            )}
+
+            {pgEntries.length > 0 && (
+              <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "2.5fr 0.7fr 0.6fr 0.6fr 0.8fr",
+                    gap: "8px",
+                    padding: "8px 10px",
+                    borderBottom: "1px solid var(--border-default)",
+                    fontSize: "10px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "var(--text-quiet)",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  <span>Title</span>
+                  <span>Status</span>
+                  <span>Chunks</span>
+                  <span>Words</span>
+                  <span>Created</span>
+                </div>
+                {pgEntries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "2.5fr 0.7fr 0.6fr 0.6fr 0.8fr",
+                      gap: "8px",
+                      padding: "10px",
+                      borderBottom: "1px solid var(--table-row-divider)",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 500 }}>{entry.title}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-subtle)", marginTop: "2px" }}>{entry.section}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: "11px", color: statusColor(entry.status) }}>{entry.status}</span>
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{entry.chunk_count}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>{entry.word_count.toLocaleString()}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-subtle)" }}>
+                      {new Date(entry.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </section>

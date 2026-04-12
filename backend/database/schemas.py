@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime, time
 from database.models import (
     TransactionType,
@@ -114,6 +114,8 @@ class EmployeeCreate(BaseModel):
     role: str
     salary: Optional[float] = None
     employee_pin: Optional[str] = None
+    position_id: Optional[int] = None
+    position_name: Optional[str] = None
     shift_start: Optional[time] = None
     shift_end: Optional[time] = None
     late_grace_minutes: int = 15
@@ -133,6 +135,8 @@ class EmployeeUpdate(BaseModel):
     role: Optional[str] = None
     salary: Optional[float] = None
     employee_pin: Optional[str] = None
+    position_id: Optional[int] = None
+    position_name: Optional[str] = None
     shift_start: Optional[time] = None
     shift_end: Optional[time] = None
     late_grace_minutes: Optional[int] = None
@@ -144,6 +148,10 @@ class EmployeeUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class LinkEmployeeAccountBody(BaseModel):
+    email: str
+
+
 class EmployeeOut(BaseModel):
     id: int
     full_name: str
@@ -152,6 +160,10 @@ class EmployeeOut(BaseModel):
     department: str
     role: str
     salary: Optional[float]
+    user_id: Optional[str] = None
+    position_id: Optional[int] = None
+    position_title: Optional[str] = None
+    is_linked: bool = False
     shift_start: Optional[time]
     shift_end: Optional[time]
     late_grace_minutes: int
@@ -1078,13 +1090,13 @@ class LegalIntegrationStatusResponse(BaseModel):
     detail: str
 
 
-# ── Projects & Kanban Schemas ────────────────────────
+# ── Projects & Kanban Schemas (Trello-class) ─────────
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
     status: ProjectStatus = ProjectStatus.active
     color: str = "#7c6aff"
-    owner: Optional[str] = None
+    due_date: Optional[datetime] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -1092,33 +1104,44 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[ProjectStatus] = None
     color: Optional[str] = None
-    owner: Optional[str] = None
+    due_date: Optional[datetime] = None
 
 
 class ProjectOut(BaseModel):
     id: int
+    client_org_id: Optional[int] = None
+    owner_user_id: Optional[str] = None
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     status: ProjectStatus
     color: str
-    owner: Optional[str]
+    due_date: Optional[datetime] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
+    task_count: int = 0
+    done_count: int = 0
+    is_owner: bool = False
 
     class Config:
         from_attributes = True
 
 
+class ProjectsSummaryOut(BaseModel):
+    total_projects: int
+    active_projects: int
+    total_tasks: int
+    done_tasks: int
+    overdue_tasks: int
+
+
 class ColumnCreate(BaseModel):
-    project_id: int
     name: str
-    color: str = "#555"
-    position: int = 0
+    color: Optional[str] = "#555"
 
 
 class ColumnUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
-    position: Optional[int] = None
 
 
 class ColumnOut(BaseModel):
@@ -1132,25 +1155,68 @@ class ColumnOut(BaseModel):
         from_attributes = True
 
 
+class ReorderIn(BaseModel):
+    ordered_ids: List[int]
+
+
+# ── Labels ────────────────────────────────────────────
+class LabelCreate(BaseModel):
+    name: str
+    color: str = "#7c6aff"
+
+
+class LabelUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+
+class LabelOut(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    color: str
+
+    class Config:
+        from_attributes = True
+
+
+# ── Employee mini (for assignee) ──────────────────────
+class EmployeeMini(BaseModel):
+    id: int
+    full_name: str
+    email: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ── Tasks ─────────────────────────────────────────────
 class TaskCreate(BaseModel):
     column_id: int
-    project_id: int
     title: str
     description: Optional[str] = None
     priority: TaskPriority = TaskPriority.medium
-    assignee: Optional[str] = None
-    tags: Optional[str] = None
-    position: int = 0
+    due_date: Optional[datetime] = None
+    start_date: Optional[datetime] = None
+    employee_id: Optional[int] = None
+    cover_color: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
-    column_id: Optional[int] = None
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[TaskPriority] = None
-    assignee: Optional[str] = None
-    tags: Optional[str] = None
-    position: Optional[int] = None
+    due_date: Optional[datetime] = None
+    start_date: Optional[datetime] = None
+    employee_id: Optional[int] = None
+    cover_color: Optional[str] = None
+
+
+class TaskMoveIn(BaseModel):
+    column_id: int
+    position: int
 
 
 class TaskOut(BaseModel):
@@ -1158,11 +1224,123 @@ class TaskOut(BaseModel):
     column_id: int
     project_id: int
     title: str
-    description: Optional[str]
+    description: Optional[str] = None
     priority: TaskPriority
-    assignee: Optional[str]
-    tags: Optional[str]
+    due_date: Optional[datetime] = None
+    start_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    cover_color: Optional[str] = None
+    employee_id: Optional[int] = None
     position: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    # Enrichment fields
+    labels: List[LabelOut] = []
+    assignee: Optional[EmployeeMini] = None
+    checklist_total: int = 0
+    checklist_done: int = 0
+    comment_count: int = 0
+    attachment_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+# ── Checklist ─────────────────────────────────────────
+class ChecklistItemCreate(BaseModel):
+    text: str
+
+
+class ChecklistItemUpdate(BaseModel):
+    text: Optional[str] = None
+    done: Optional[bool] = None
+    position: Optional[int] = None
+
+
+class ChecklistItemOut(BaseModel):
+    id: int
+    task_id: int
+    text: str
+    done: bool
+    position: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Comments ──────────────────────────────────────────
+class CommentCreate(BaseModel):
+    body: str
+
+
+class CommentUpdate(BaseModel):
+    body: str
+
+
+class CommentOut(BaseModel):
+    id: int
+    task_id: int
+    author_user_id: str
+    author_name: Optional[str] = None
+    body: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ── Attachments ───────────────────────────────────────
+class AttachmentUploadUrlIn(BaseModel):
+    file_name: str
+    mime_type: Optional[str] = None
+
+
+class AttachmentUploadUrlOut(BaseModel):
+    signed_url: str
+    token: Optional[str] = None
+    path: str
+    expires_in: int
+
+
+class AttachmentCreateIn(BaseModel):
+    file_name: str
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    storage_path: str
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    task_id: int
+    uploaded_by_user_id: Optional[str] = None
+    uploaded_by_name: Optional[str] = None
+    file_name: str
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    storage_path: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SignedDownloadOut(BaseModel):
+    url: str
+    expires_in: int
+
+
+# ── Activity ──────────────────────────────────────────
+class ActivityOut(BaseModel):
+    id: int
+    project_id: int
+    task_id: Optional[int] = None
+    actor_user_id: Optional[str] = None
+    actor_name: Optional[str] = None
+    action: str
+    metadata_json: Optional[dict] = None
     created_at: datetime
 
     class Config:
@@ -1482,3 +1660,153 @@ class ClientNotificationOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Team Management ──────────────────────────────────
+class TeamMemberInviteIn(BaseModel):
+    email: str
+    full_name: str
+    position_title: Optional[str] = None
+    allowed_modules: list[str]
+
+
+class TeamMemberUpdateIn(BaseModel):
+    full_name: Optional[str] = None
+    position_title: Optional[str] = None
+    allowed_modules: Optional[list[str]] = None
+
+
+class TeamMemberOut(BaseModel):
+    id: int
+    client_org_id: int
+    user_id: Optional[str] = None
+    email: str
+    full_name: str
+    position_title: Optional[str] = None
+    allowed_modules: list[str] = []
+    status: str
+    invited_by_user_id: str
+    invited_at: Optional[datetime] = None
+    joined_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TeamListOut(BaseModel):
+    members: list[TeamMemberOut] = []
+    total: int = 0
+    seats_used: int = 0
+    seats_limit: int = 10
+
+
+class MyAccessOut(BaseModel):
+    role: str
+    allowed_modules: list[str] = []
+    workspace_id: Optional[str] = None
+    business_name: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Facebook Ads Integration
+# ═══════════════════════════════════════════════════════════════
+
+
+class FacebookAuthUrlOut(BaseModel):
+    url: str
+    state: str
+
+
+class FacebookOAuthCallbackIn(BaseModel):
+    code: str
+    state: Optional[str] = None
+
+
+class FacebookAdAccountOut(BaseModel):
+    id: str
+    account_id: Optional[str] = None
+    name: Optional[str] = None
+    currency: Optional[str] = None
+    timezone_name: Optional[str] = None
+    account_status: Optional[int] = None
+    amount_spent: Optional[str] = None
+    balance: Optional[str] = None
+
+
+class FacebookSelectAdAccountIn(BaseModel):
+    ad_account_id: str
+
+
+class FacebookConnectionOut(BaseModel):
+    id: int
+    client_org_id: int
+    connected_by_user_id: str
+    fb_user_id: Optional[str] = None
+    fb_user_name: Optional[str] = None
+    selected_ad_account_id: Optional[str] = None
+    selected_ad_account_name: Optional[str] = None
+    currency: Optional[str] = None
+    timezone_name: Optional[str] = None
+    status: str
+    token_expires_at: Optional[str] = None
+    connected_at: Optional[str] = None
+    last_sync_at: Optional[str] = None
+    last_sync_error: Optional[str] = None
+
+
+class FacebookInsightsKPIsOut(BaseModel):
+    spend: float = 0
+    impressions: int = 0
+    clicks: int = 0
+    reach: int = 0
+    conversions: float = 0
+    conversion_value: float = 0
+    ctr: float = 0
+    cpc: float = 0
+    cpm: float = 0
+    cost_per_conversion: float = 0
+    roas: float = 0
+    daily_avg_spend: float = 0
+    projected_monthly_spend: float = 0
+    date_start: Optional[str] = None
+    date_stop: Optional[str] = None
+    date_preset: Optional[str] = None
+
+
+class FacebookCampaignOut(BaseModel):
+    id: str
+    name: Optional[str] = None
+    objective: Optional[str] = None
+    status: Optional[str] = None
+    effective_status: Optional[str] = None
+    daily_budget: Optional[str] = None
+    lifetime_budget: Optional[str] = None
+    budget_remaining: Optional[str] = None
+    start_time: Optional[str] = None
+    stop_time: Optional[str] = None
+    created_time: Optional[str] = None
+    updated_time: Optional[str] = None
+    insights: Optional[FacebookInsightsKPIsOut] = None
+
+
+class FacebookCampaignCreateIn(BaseModel):
+    name: str
+    objective: str = "OUTCOME_TRAFFIC"
+    status: str = "PAUSED"
+    daily_budget: Optional[float] = None
+    lifetime_budget: Optional[float] = None
+    special_ad_categories: Optional[str] = None
+
+
+class FacebookCampaignUpdateIn(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    daily_budget: Optional[float] = None
+    lifetime_budget: Optional[float] = None
+
+
+class FacebookSyncResponseOut(BaseModel):
+    synced: bool
+    channel: str
+    period_label: str
+    kpis: FacebookInsightsKPIsOut

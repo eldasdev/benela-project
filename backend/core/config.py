@@ -56,6 +56,10 @@ class Settings:
         "SUPABASE_PUBLISHABLE_KEY",
         "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     )
+    SUPABASE_SERVICE_ROLE_KEY: str = _env_first(
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_SERVICE_KEY",
+    )
     SUPABASE_ALLOWED_ISSUER_HOSTS: str = os.getenv("SUPABASE_ALLOWED_ISSUER_HOSTS", "")
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -72,6 +76,15 @@ class Settings:
     ONEC_MAX_UPLOAD_MB: int = int(os.getenv("ONEC_MAX_UPLOAD_MB", "50"))
     ONEC_MAX_ROWS_PER_IMPORT: int = int(os.getenv("ONEC_MAX_ROWS_PER_IMPORT", "500000"))
     ONEC_SYNC_TIMEOUT_SECONDS: int = int(os.getenv("ONEC_SYNC_TIMEOUT_SECONDS", "120"))
+    INTEGRATION_ENCRYPTION_KEY: str = os.getenv("INTEGRATION_ENCRYPTION_KEY", "")
+    FACEBOOK_APP_ID: str = os.getenv("FACEBOOK_APP_ID", "")
+    FACEBOOK_APP_SECRET: str = os.getenv("FACEBOOK_APP_SECRET", "")
+    FACEBOOK_OAUTH_REDIRECT_URI: str = os.getenv(
+        "FACEBOOK_OAUTH_REDIRECT_URI",
+        "http://localhost:3000/marketing/facebook/callback",
+    )
+    FACEBOOK_API_VERSION: str = os.getenv("FACEBOOK_API_VERSION", "v21.0")
+    FACEBOOK_INSIGHT_CACHE_TTL_SECONDS: int = int(os.getenv("FACEBOOK_INSIGHT_CACHE_TTL_SECONDS", "900"))
     POSTHOG_API_HOST: str = _env_first(
         "POSTHOG_API_HOST",
         "POSTHOG_HOST",
